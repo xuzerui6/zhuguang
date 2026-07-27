@@ -8,15 +8,16 @@ type Coach = {
   sport: string;
   city: string;
   title: string;
-  background: string;
+  record: string;
   price: number;
   rating: number;
   lessons: number;
+  response: string;
+  verified: string;
   audience: string[];
   goals: string[];
   strengths: string[];
   availability: string;
-  verified: string;
   story: string;
   accent: string;
 };
@@ -28,15 +29,16 @@ const coaches: Coach[] = [
     sport: "篮球",
     city: "上海",
     title: "前CBA青年队后卫 / 青训专项教练",
-    background: "12年职业训练经历，退役后专注8-16岁控运与比赛阅读。",
+    record: "12年职业训练经历，退役后专注8-16岁控运与比赛阅读。",
     price: 420,
     rating: 4.9,
     lessons: 318,
+    response: "12分钟",
+    verified: "退役运动员身份已核验",
     audience: ["青少年", "比赛提升", "校队选拔"],
     goals: ["专项提升", "青训启蒙", "比赛备战"],
     strengths: ["控运节奏", "一对一突破", "比赛决策"],
     availability: "周二/四晚间，周末上午",
-    verified: "退役运动员身份已核验",
     story: "适合想从兴趣课进入系统训练的学员，课程重视动作细节和对抗中的选择。",
     accent: "#ef7f5a",
   },
@@ -45,17 +47,18 @@ const coaches: Coach[] = [
     name: "林悦",
     sport: "游泳",
     city: "广州",
-    title: "前省队自由泳运动员 / 儿童防溺水教练",
-    background: "省队训练背景，持社会体育指导员证，擅长从怕水到规范泳姿。",
+    title: "前省队自由泳运动员 / 儿童安全训练教练",
+    record: "省队训练背景，持社会体育指导员证，擅长从怕水到规范泳姿。",
     price: 360,
     rating: 4.8,
     lessons: 275,
+    response: "25分钟",
+    verified: "证书与运动经历已核验",
     audience: ["儿童", "成人入门", "体能恢复"],
     goals: ["兴趣入门", "体能改善", "考级训练"],
     strengths: ["水感建立", "自由泳换气", "安全习惯"],
     availability: "工作日白天，周六全天",
-    verified: "证书与运动经历已核验",
-    story: "适合初学者和家长重视安全感的家庭，课程节奏温和但标准明确。",
+    story: "适合初学者和重视安全感的家庭，课程节奏温和但标准明确。",
     accent: "#2f7f9f",
   },
   {
@@ -64,15 +67,16 @@ const coaches: Coach[] = [
     sport: "乒乓球",
     city: "北京",
     title: "前专业队陪练 / 技战术提升教练",
-    background: "长期服务专业队训练，熟悉不同打法的技术修正和战术拆解。",
+    record: "长期服务专业队训练，熟悉不同打法的技术修正和战术拆解。",
     price: 520,
     rating: 4.95,
     lessons: 441,
+    response: "18分钟",
+    verified: "专业队经历已核验",
     audience: ["成人", "青少年", "业余比赛"],
     goals: ["专项提升", "比赛备战", "考级训练"],
     strengths: ["正反手衔接", "发抢体系", "落点变化"],
     availability: "周一/三/五晚间",
-    verified: "专业队经历已核验",
     story: "适合有一定基础、想突破瓶颈的学员，训练会围绕实战得分方式设计。",
     accent: "#d9a441",
   },
@@ -82,15 +86,16 @@ const coaches: Coach[] = [
     sport: "羽毛球",
     city: "深圳",
     title: "前国家青年集训队队员 / 私教主理人",
-    background: "曾入选国青集训，退役后创办小班训练营，擅长步法和双打配合。",
+    record: "曾入选国青集训，退役后创办小班训练营，擅长步法和双打配合。",
     price: 680,
     rating: 4.93,
     lessons: 386,
+    response: "9分钟",
+    verified: "高水平运动员身份已核验",
     audience: ["白领", "亲子", "比赛提升"],
     goals: ["兴趣入门", "专项提升", "比赛备战"],
     strengths: ["启动步法", "后场杀吊", "双打轮转"],
     availability: "周末下午，工作日晚间",
-    verified: "高水平运动员身份已核验",
     story: "适合希望训练效率高、兼顾运动体验的学员，课程常配合视频复盘。",
     accent: "#4a8f67",
   },
@@ -100,15 +105,16 @@ const coaches: Coach[] = [
     sport: "田径",
     city: "成都",
     title: "前省队短跑运动员 / 体能与跑姿教练",
-    background: "短跑专项出身，服务中考体育、成人跑者和团队体能训练。",
+    record: "短跑专项出身，服务中考体育、成人跑者和团队体能训练。",
     price: 300,
     rating: 4.82,
     lessons: 196,
+    response: "36分钟",
+    verified: "运动员等级与证书已核验",
     audience: ["中考体育", "成人跑者", "体能改善"],
     goals: ["体能改善", "考试训练", "专项提升"],
     strengths: ["起跑技术", "跑姿经济性", "下肢爆发力"],
     availability: "周二/四/日",
-    verified: "运动员等级与证书已核验",
     story: "适合目标明确的学员，课程会把速度、力量和伤病预防放在一起设计。",
     accent: "#8f5a43",
   },
@@ -118,15 +124,16 @@ const coaches: Coach[] = [
     sport: "足球",
     city: "杭州",
     title: "前中甲梯队球员 / 青少年技术教练",
-    background: "职业梯队成长经历，专注青少年基本功、球感和小场景配合。",
+    record: "职业梯队成长经历，专注青少年基本功、球感和小场景配合。",
     price: 390,
     rating: 4.86,
     lessons: 229,
+    response: "21分钟",
+    verified: "梯队经历已核验",
     audience: ["儿童", "青少年", "校队选拔"],
     goals: ["青训启蒙", "专项提升", "比赛备战"],
     strengths: ["第一脚触球", "变向摆脱", "小组配合"],
     availability: "周三晚间，周末全天",
-    verified: "梯队经历已核验",
     story: "适合希望建立长期训练习惯的孩子，训练内容会兼顾趣味和竞技基础。",
     accent: "#226a5c",
   },
@@ -134,38 +141,26 @@ const coaches: Coach[] = [
 
 const sports = ["全部项目", "篮球", "游泳", "乒乓球", "羽毛球", "田径", "足球"];
 const cities = ["全部城市", "北京", "上海", "广州", "深圳", "杭州", "成都"];
-const goals = ["全部目标", "兴趣入门", "青训启蒙", "专项提升", "比赛备战", "体能改善", "考试训练"];
+const goals = ["全部目标", "兴趣入门", "青训启蒙", "专项提升", "比赛备战", "体能改善", "考试训练", "考级训练"];
 const budgets = ["不限预算", "400以下", "400-600", "600以上"];
 
 const planBlocks = [
-  {
-    title: "市场定位",
-    body: "服务退役运动员、专业队背景教练与高质量训练需求学员，核心不是信息黄页，而是可信任的教练匹配与履历认证。",
-    points: ["先做单城或单项目冷启动", "突出退役运动员背书", "用试课转化验证真实需求"],
-  },
-  {
-    title: "目标用户",
-    body: "学员侧优先覆盖青少年专项提升、成人兴趣训练、中考体育和业余比赛备战；教练侧优先邀请有成绩、有证书、有教学意愿的人。",
-    points: ["家长要安全和可信", "成人要效率和体验", "教练要稳定获客"],
-  },
-  {
-    title: "商业模式",
-    body: "早期以预约撮合抽佣为主，后续加入认证会员、训练营分成、场馆合作、教练工具订阅和置顶推广。",
-    points: ["试课成交抽佣", "教练认证会员", "寒暑假训练营"],
-  },
+  ["定位", "专业退役运动员教练撮合平台", "用身份核验、训练履历和真实课程评价，解决学员不敢选、教练没渠道的双边痛点。"],
+  ["冷启动", "先做单城单项目的高质量供给", "建议从你最熟悉的项目切入，先招募20-50位可信教练，人工撮合验证转化。"],
+  ["收入", "抽佣 + 认证 + 训练营", "第一阶段按试课和正式课抽佣，第二阶段做教练认证会员、寒暑假训练营和场馆合作。"],
+];
+
+const operatingMetrics = [
+  ["128", "认证教练池"],
+  ["31%", "试课转化目标"],
+  ["4.9", "课程好评均值"],
+  ["48h", "入驻审核时效"],
 ];
 
 const roadmap = [
-  ["0-30天", "招募20-50名教练，完成身份审核与资料标准化，跑通人工撮合。"],
-  ["31-60天", "上线预约试课、评价体系和教练入驻流程，验证获客成本。"],
-  ["61-90天", "拓展到第二项目或第二城市，沉淀推荐规则和训练营产品。"],
-];
-
-const metrics = [
-  ["教练入驻通过率", "衡量供给质量"],
-  ["学员咨询到试课转化率", "衡量匹配效率"],
-  ["试课到复购率", "衡量教练真实交付"],
-  ["单个教练月均成交", "衡量平台是否真的帮教练赚钱"],
+  ["01", "供给", "完成教练资料模板、身份审核、首批教练邀约。"],
+  ["02", "撮合", "上线筛选、试课意向、人工跟进和评价回收。"],
+  ["03", "复购", "沉淀训练计划、套餐课和教练成长工具。"],
 ];
 
 export default function Home() {
@@ -191,18 +186,18 @@ export default function Home() {
   const filteredCoaches = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
-    return coaches.filter((coach) => {
-      const matchSport = sport === "全部项目" || coach.sport === sport;
-      const matchCity = city === "全部城市" || coach.city === city;
-      const matchGoal = goal === "全部目标" || coach.goals.includes(goal);
+    return coaches.filter((coachItem) => {
+      const matchSport = sport === "全部项目" || coachItem.sport === sport;
+      const matchCity = city === "全部城市" || coachItem.city === city;
+      const matchGoal = goal === "全部目标" || coachItem.goals.includes(goal);
       const matchBudget =
         budget === "不限预算" ||
-        (budget === "400以下" && coach.price < 400) ||
-        (budget === "400-600" && coach.price >= 400 && coach.price <= 600) ||
-        (budget === "600以上" && coach.price > 600);
+        (budget === "400以下" && coachItem.price < 400) ||
+        (budget === "400-600" && coachItem.price >= 400 && coachItem.price <= 600) ||
+        (budget === "600以上" && coachItem.price > 600);
       const matchQuery =
         !normalizedQuery ||
-        [coach.name, coach.sport, coach.city, coach.title, coach.background, coach.story]
+        [coachItem.name, coachItem.sport, coachItem.city, coachItem.title, coachItem.record, coachItem.story]
           .join(" ")
           .toLowerCase()
           .includes(normalizedQuery);
@@ -212,7 +207,7 @@ export default function Home() {
   }, [sport, city, goal, budget, query]);
 
   const selectedCoach =
-    filteredCoaches.find((coach) => coach.id === selectedCoachId) ??
+    filteredCoaches.find((coachItem) => coachItem.id === selectedCoachId) ??
     filteredCoaches[0] ??
     coaches[0];
 
@@ -234,9 +229,9 @@ export default function Home() {
     <main className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark">光</span>
+          <span className="brand-mark">ZG</span>
           <div>
-            <p className="eyebrow">退役运动员教练撮合平台</p>
+            <p className="eyebrow">Coach Intelligence Marketplace</p>
             <h1>逐光教练平台</h1>
           </div>
         </div>
@@ -257,28 +252,50 @@ export default function Home() {
             </button>
           ))}
         </nav>
+        <div className="draft-badge">打磨版 · 暂不公开发布</div>
       </header>
 
-      <section className="intro-band">
-        <div className="intro-copy">
-          <p className="eyebrow">MVP 第一版</p>
-          <h2>让优秀退役运动员教练被看见，让学员找到可信赖的训练。</h2>
+      <section className="product-hero">
+        <div className="hero-copy">
+          <div className="hero-kicker">
+            <span>退役运动员教练</span>
+            <span>可信履历</span>
+            <span>精准试课</span>
+          </div>
+          <h2>把冠军级训练经验，变成学员可以信任、可以预约的服务。</h2>
           <p>
-            平台先解决两个最关键动作：学员能按项目、城市、目标筛选教练；教练能提交标准化资料，进入审核与推荐池。
+            第一版以高质量教练池为核心：学员按项目、城市、目标和预算快速筛选；教练通过标准化资料入驻，进入平台审核与推荐。
           </p>
-          <div className="metric-row" aria-label="平台关键数据示例">
-            <span><strong>128</strong> 位认证教练</span>
-            <span><strong>31%</strong> 试课转化目标</span>
-            <span><strong>48h</strong> 入驻审核</span>
+          <div className="hero-actions">
+            <button className="primary-button" onClick={() => setActiveTab("match")} type="button">
+              开始匹配
+            </button>
+            <button className="secondary-button" onClick={() => setActiveTab("plan")} type="button">
+              查看创业方案
+            </button>
           </div>
         </div>
-        <div className="visual-panel" aria-label="训练场景视觉">
-          <img src="/coach-visual.png" alt="教练指导学员训练的场景" />
-          <div className="visual-note">
-            <span>身份核验</span>
-            <strong>退役经历 + 证书 + 课程评价</strong>
+
+        <div className="hero-media">
+          <img src="/coach-visual.png" alt="专业教练在室内训练馆指导学员训练" />
+          <div className="media-card media-card-top">
+            <span>履历可信度</span>
+            <strong>96%</strong>
+          </div>
+          <div className="media-card media-card-bottom">
+            <span>下次可约</span>
+            <strong>今晚 19:30</strong>
           </div>
         </div>
+      </section>
+
+      <section className="metric-strip" aria-label="平台关键运营指标">
+        {operatingMetrics.map(([value, label]) => (
+          <div className="metric-tile" key={label}>
+            <strong>{value}</strong>
+            <span>{label}</span>
+          </div>
+        ))}
       </section>
 
       {activeTab === "match" && (
@@ -286,14 +303,14 @@ export default function Home() {
           <aside className="filter-panel">
             <div>
               <p className="eyebrow">学员需求</p>
-              <h3>匹配筛选</h3>
+              <h3>精确筛选</h3>
             </div>
 
             <label>
-              关键词
+              搜索
               <input
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="搜索教练、项目、城市"
+                placeholder="教练、城市、项目、训练目标"
                 type="search"
                 value={query}
               />
@@ -336,7 +353,7 @@ export default function Home() {
             </label>
 
             <button
-              className="secondary-button"
+              className="secondary-button full-button"
               onClick={() => {
                 setSport("全部项目");
                 setCity("全部城市");
@@ -346,43 +363,46 @@ export default function Home() {
               }}
               type="button"
             >
-              重置筛选
+              重置条件
             </button>
           </aside>
 
           <section className="results-panel">
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">推荐教练</p>
-                <h3>{filteredCoaches.length} 位匹配</h3>
+                <p className="eyebrow">推荐排序</p>
+                <h3>{filteredCoaches.length} 位高匹配教练</h3>
               </div>
-              <span className="status-pill">优先展示已核验履历</span>
+              <span className="status-pill">身份核验优先</span>
             </div>
 
             <div className="coach-list">
-              {filteredCoaches.map((coach) => (
+              {filteredCoaches.map((coachItem) => (
                 <button
-                  className={selectedCoach.id === coach.id ? "coach-card selected" : "coach-card"}
-                  key={coach.id}
-                  onClick={() => setSelectedCoachId(coach.id)}
-                  style={{ "--accent": coach.accent } as React.CSSProperties}
+                  className={selectedCoach.id === coachItem.id ? "coach-card selected" : "coach-card"}
+                  key={coachItem.id}
+                  onClick={() => setSelectedCoachId(coachItem.id)}
+                  style={{ "--accent": coachItem.accent } as React.CSSProperties}
                   type="button"
                 >
                   <span className="avatar" aria-hidden="true">
-                    {coach.name.slice(0, 1)}
+                    {coachItem.name.slice(0, 1)}
                   </span>
                   <span className="coach-main">
-                    <strong>{coach.name}</strong>
-                    <small>{coach.title}</small>
+                    <span className="coach-title-row">
+                      <strong>{coachItem.name}</strong>
+                      <em>{coachItem.city}</em>
+                    </span>
+                    <small>{coachItem.title}</small>
                     <span className="chip-row">
-                      <span>{coach.city}</span>
-                      <span>{coach.sport}</span>
-                      <span>¥{coach.price}/课</span>
+                      <span>{coachItem.sport}</span>
+                      <span>¥{coachItem.price}/课</span>
+                      <span>{coachItem.response}响应</span>
                     </span>
                   </span>
                   <span className="score">
-                    {coach.rating}
-                    <small>{coach.lessons}课</small>
+                    {coachItem.rating}
+                    <small>{coachItem.lessons}课</small>
                   </span>
                 </button>
               ))}
@@ -423,6 +443,11 @@ export default function Home() {
             </div>
 
             <div className="section-block">
+              <h4>履历摘要</h4>
+              <p>{selectedCoach.record}</p>
+            </div>
+
+            <div className="section-block">
               <h4>擅长方向</h4>
               <div className="tag-list">
                 {selectedCoach.strengths.map((item) => (
@@ -450,7 +475,7 @@ export default function Home() {
                 </select>
               </label>
               <label>
-                你的目标
+                训练目标
                 <input placeholder="例如：3个月提升校队选拔水平" required />
               </label>
               <button className="primary-button" type="submit">
@@ -474,7 +499,7 @@ export default function Home() {
           <form className="onboard-form" onSubmit={handleCoachSubmit}>
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">教练端</p>
+                <p className="eyebrow">教练端工作台</p>
                 <h3>提交入驻资料</h3>
               </div>
               <span className="status-pill">审核后进入推荐池</span>
@@ -551,8 +576,8 @@ export default function Home() {
           </form>
 
           <aside className="review-panel">
-            <p className="eyebrow">资料审核清单</p>
-            <h3>平台应重点验证什么</h3>
+            <p className="eyebrow">平台审核标准</p>
+            <h3>把“专业”转化成可被信任的资料</h3>
             <ul className="check-list">
               <li>运动员身份、参赛成绩或专业队经历</li>
               <li>教练证、社会体育指导员证、场馆资质</li>
@@ -580,22 +605,18 @@ export default function Home() {
         <section className="plan-layout" aria-label="创业方案">
           <div className="plan-hero">
             <p className="eyebrow">创业方案</p>
-            <h2>从「教练信息平台」切入，最终做成专业训练服务网络。</h2>
+            <h2>先做可信供给，再做训练服务网络。</h2>
             <p>
-              早期重点不是追求项目多和城市多，而是把一个垂直项目的供给质量、履历可信、试课转化和复购跑顺。
+              早期不要追求覆盖所有项目。把一个城市、一个项目、一个客群跑透，验证教练获客、学员试课、课程复购和评价回流。
             </p>
           </div>
 
           <div className="plan-grid">
-            {planBlocks.map((block) => (
-              <article className="plan-card" key={block.title}>
-                <h3>{block.title}</h3>
-                <p>{block.body}</p>
-                <div className="tag-list">
-                  {block.points.map((point) => (
-                    <span key={point}>{point}</span>
-                  ))}
-                </div>
+            {planBlocks.map(([label, title, body]) => (
+              <article className="plan-card" key={title}>
+                <span>{label}</span>
+                <h3>{title}</h3>
+                <p>{body}</p>
               </article>
             ))}
           </div>
@@ -603,17 +624,25 @@ export default function Home() {
           <div className="strategy-split">
             <section className="roadmap">
               <p className="eyebrow">90天路线图</p>
-              {roadmap.map(([period, content]) => (
-                <div className="timeline-item" key={period}>
-                  <strong>{period}</strong>
-                  <p>{content}</p>
+              {roadmap.map(([step, title, body]) => (
+                <div className="timeline-item" key={step}>
+                  <strong>{step}</strong>
+                  <div>
+                    <h4>{title}</h4>
+                    <p>{body}</p>
+                  </div>
                 </div>
               ))}
             </section>
 
             <section className="roadmap">
-              <p className="eyebrow">关键指标</p>
-              {metrics.map(([name, meaning]) => (
+              <p className="eyebrow">关键经营指标</p>
+              {[
+                ["教练入驻通过率", "衡量供给质量和审核效率"],
+                ["咨询到试课转化率", "衡量匹配是否准确"],
+                ["试课到复购率", "衡量教练真实交付"],
+                ["单教练月均成交", "衡量平台是否真的帮教练赚钱"],
+              ].map(([name, meaning]) => (
                 <div className="metric-item" key={name}>
                   <strong>{name}</strong>
                   <span>{meaning}</span>

@@ -1,4 +1,4 @@
-import { openSync } from "node:fs";
+import { closeSync, openSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -16,4 +16,6 @@ const child = spawn(process.execPath, [runner, "dev"], {
 });
 
 child.unref();
+closeSync(stdout);
+closeSync(stderr);
 console.log(child.pid);

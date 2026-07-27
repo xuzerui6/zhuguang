@@ -144,17 +144,30 @@ const cities = ["全部城市", "北京", "上海", "广州", "深圳", "杭州"
 const goals = ["全部目标", "兴趣入门", "青训启蒙", "专项提升", "比赛备战", "体能改善", "考试训练", "考级训练"];
 const budgets = ["不限预算", "400以下", "400-600", "600以上"];
 
-const planBlocks = [
-  ["定位", "专业退役运动员教练撮合平台", "用身份核验、训练履历和真实课程评价，解决学员不敢选、教练没渠道的双边痛点。"],
-  ["冷启动", "先做单城单项目的高质量供给", "建议从你最熟悉的项目切入，先招募20-50位可信教练，人工撮合验证转化。"],
-  ["收入", "抽佣 + 认证 + 训练营", "第一阶段按试课和正式课抽佣，第二阶段做教练认证会员、寒暑假训练营和场馆合作。"],
-];
-
 const operatingMetrics = [
   ["128", "认证教练池"],
   ["31%", "试课转化目标"],
   ["4.9", "课程好评均值"],
   ["48h", "入驻审核时效"],
+];
+
+const trustSignals = [
+  ["01", "身份核验", "退役证明、专业队经历、运动等级和证书材料进入统一审核档案。"],
+  ["02", "课程画像", "把教练擅长项目、适合人群、训练目标和可约时间整理成可比较信息。"],
+  ["03", "试课闭环", "学员试课后回收体验、结果和复购意愿，持续优化推荐排序。"],
+  ["04", "安全边界", "补充场馆、保险、未成年人沟通和训练强度提示，降低交易风险。"],
+];
+
+const packages = [
+  ["启蒙试课", "1v1 或 1v2", "适合兴趣入门、儿童初学和成人体验", "¥199 起"],
+  ["专项提升", "4-8课训练包", "围绕技术短板、体能基础和阶段目标设计", "¥1280 起"],
+  ["比赛备战", "周期训练", "校队选拔、业余比赛、中考体育专项冲刺", "定制报价"],
+];
+
+const planBlocks = [
+  ["定位", "专业退役运动员教练撮合平台", "用身份核验、训练履历和真实课程评价，解决学员不敢选、教练没渠道的双边痛点。"],
+  ["冷启动", "先做单城单项目的高质量供给", "建议从你最熟悉的项目切入，先招募20-50位可信教练，人工撮合验证转化。"],
+  ["收入", "抽佣 + 认证 + 训练营", "第一阶段按试课和正式课抽佣，第二阶段做教练认证会员、寒暑假训练营和场馆合作。"],
 ];
 
 const roadmap = [
@@ -252,7 +265,7 @@ export default function Home() {
             </button>
           ))}
         </nav>
-        <div className="draft-badge">打磨版 · 暂不公开发布</div>
+        <div className="draft-badge">私有打磨版</div>
       </header>
 
       <section className="product-hero">
@@ -296,6 +309,22 @@ export default function Home() {
             <span>{label}</span>
           </div>
         ))}
+      </section>
+
+      <section className="trust-section" aria-label="平台信任体系">
+        <div className="section-heading">
+          <p className="eyebrow">Trust System</p>
+          <h2>让学员敢下单，让教练愿意长期留在平台。</h2>
+        </div>
+        <div className="trust-grid">
+          {trustSignals.map(([number, title, body]) => (
+            <article className="trust-card" key={title}>
+              <span>{number}</span>
+              <h3>{title}</h3>
+              <p>{body}</p>
+            </article>
+          ))}
+        </div>
       </section>
 
       {activeTab === "match" && (
@@ -652,6 +681,25 @@ export default function Home() {
           </div>
         </section>
       )}
+
+      <section className="package-section" aria-label="课程产品">
+        <div className="section-heading">
+          <p className="eyebrow">Training Products</p>
+          <h2>把教练能力包装成清晰可买的课程产品。</h2>
+        </div>
+        <div className="package-grid">
+          {packages.map(([name, format, body, price]) => (
+            <article className="package-card" key={name}>
+              <div>
+                <span>{format}</span>
+                <h3>{name}</h3>
+              </div>
+              <p>{body}</p>
+              <strong>{price}</strong>
+            </article>
+          ))}
+        </div>
+      </section>
     </main>
   );
 }

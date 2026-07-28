@@ -46,6 +46,8 @@ test("server-renders the premium coach platform shell", async () => {
   assert.match(html, /平台经营判断/);
   assert.match(html, /学员匹配工作台/);
   assert.match(html, /教练信任档案/);
+  assert.match(html, /自动入口/);
+  assert.match(html, /已在推荐入口/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
 });
 
@@ -94,6 +96,12 @@ test("keeps the full product UI surfaces wired", async () => {
   ]);
 
   assert.match(page, /type Surface = "command" \| "web" \| "mobile" \| "apps" \| "coach" \| "ops"/);
+  assert.match(page, /type DeviceClass = "phone" \| "tablet" \| "desktop"/);
+  assert.match(page, /detectDeviceProfile/);
+  assert.match(page, /compactSurfaceIds/);
+  assert.match(page, /source === "native-mobile"/);
+  assert.match(page, /source === "native-desktop"/);
+  assert.match(page, /chooseSurface/);
   assert.match(page, /selectedFit/);
   assert.match(page, /savedCoachIds/);
   assert.match(page, /phone-frame/);
@@ -111,12 +119,15 @@ test("keeps the full product UI surfaces wired", async () => {
   assert.match(page, /decisionSignals/);
   assert.match(page, /commandSegments/);
   assert.match(page, /persistent-dock/);
+  assert.match(page, /smart-handoff/);
   assert.match(page, /logo-mark\.svg/);
   assert.match(layout, /metadataBase: new URL/);
   assert.match(layout, /manifest: "\/manifest\.webmanifest"/);
   assert.match(layout, /appleWebApp/);
   assert.match(layout, /全平台服务系统/);
   assert.match(css, /app-grid/);
+  assert.match(css, /smart-handoff/);
+  assert.match(css, /route-pill/);
   assert.match(css, /target-grid/);
   assert.match(css, /pipeline-row/);
   assert.match(css, /@keyframes surfaceIn/);

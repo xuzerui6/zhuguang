@@ -4,10 +4,30 @@ import { CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 
 type Surface = "command" | "web" | "mobile" | "apps" | "coach" | "ops";
+type DeviceClass = "phone" | "tablet" | "desktop";
+type RouteMode = "auto" | "link" | "manual";
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+};
+
+type DeviceProfile = {
+  deviceClass: DeviceClass;
+  os: string;
+  browser: string;
+  input: string;
+  recommendedSurface: Surface;
+  title: string;
+  detail: string;
+};
+
+type NavigatorWithUAData = Navigator & {
+  standalone?: boolean;
+  userAgentData?: {
+    mobile?: boolean;
+    platform?: string;
+  };
 };
 
 type Coach = {
@@ -272,12 +292,101 @@ const releasePipelines = [
   ["工具链诊断", "native:toolchain", "本机或 CI 可直接显示哪些平台 ready、哪些平台 blocked"],
 ];
 
+const defaultDeviceProfile: DeviceProfile = {
+  deviceClass: "desktop",
+  os: "Desktop",
+  browser: "Browser",
+  input: "键鼠",
+  recommendedSurface: "command",
+  title: "PC 工作台",
+  detail: "适合运营、机构和教练反复处理匹配、排期、审核与履约。",
+};
+
+const compactSurfaceIds: Record<DeviceClass, Surface[]> = {
+  phone: ["mobile", "coach", "apps", "web"],
+  tablet: ["mobile", "command", "coach", "apps"],
+  desktop: ["command", "ops", "coach", "apps"],
+};
+
+function getSurfaceFromParam(value: string | null): Surface | null {
+  return surfaces.some((item) => item.id === value) ? (value as Surface) : null;
+}
+
+function detectBrowser(userAgent: string) {
+  if (/Edg\//i.test(userAgent)) return "Edge";
+  if (/Chrome|CriOS/i.test(userAgent)) return "Chrome";
+  if (/Safari/i.test(userAgent) && !/Chrome|CriOS|Edg/i.test(userAgent)) return "Safari";
+  if (/Firefox|FxiOS/i.test(userAgent)) return "Firefox";
+  return "Browser";
+}
+
+function detectOS(userAgent: string, platform: string) {
+  if (/iPhone|iPad|iPod/i.test(userAgent) || /iOS/i.test(platform)) return "iOS";
+  if (/Android/i.test(userAgent)) return "Android";
+  if (/Mac/i.test(platform)) return "macOS";
+  if (/Win/i.test(platform)) return "Windows";
+  if (/Linux/i.test(platform) || /X11/i.test(userAgent)) return "Linux";
+  return platform || "Unknown OS";
+}
+
+function detectDeviceProfile(): DeviceProfile {
+  const nav = navigator as NavigatorWithUAData;
+  const userAgent = navigator.userAgent;
+  const uaPlatform = nav.userAgentData?.platform ?? navigator.platform ?? "";
+  const width = window.innerWidth;
+  const hasCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  const isStandalone = window.matchMedia("(display-mode: standalone)").matches || nav.standalone === true;
+  const mobileUA = Boolean(nav.userAgentData?.mobile) || /Android|iPhone|iPod|Mobile/i.test(userAgent);
+  const tabletUA = /iPad|Tablet/i.test(userAgent) || (uaPlatform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const deviceClass: DeviceClass =
+    mobileUA && width < 820 ? "phone" : tabletUA || (hasCoarsePointer && width < 1180) ? "tablet" : "desktop";
+  const os = detectOS(userAgent, uaPlatform);
+  const browser = detectBrowser(userAgent);
+  const input = hasCoarsePointer ? "触控" : "键鼠";
+
+  if (deviceClass === "phone") {
+    return {
+      deviceClass,
+      os,
+      browser,
+      input,
+      recommendedSurface: "mobile",
+      title: isStandalone ? "手机 App 预约流" : "手机端预约流",
+      detail: "适合学员和家长快速完成教练匹配、比较、预约与确认。",
+    };
+  }
+
+  if (deviceClass === "tablet") {
+    return {
+      deviceClass,
+      os,
+      browser,
+      input,
+      recommendedSurface: "mobile",
+      title: "平板触控预约流",
+      detail: "优先保留移动端的低摩擦决策，必要时可切到 PC 工作台处理运营任务。",
+    };
+  }
+
+  return {
+    deviceClass,
+    os,
+    browser,
+    input,
+    recommendedSurface: "command",
+    title: isStandalone ? "桌面 App 工作台" : "PC 浏览器工作台",
+    detail: "适合高密度查看队列、筛选教练、排期、审核与服务履约。",
+  };
+}
+
 function asVars(vars: Record<string, string>) {
   return vars as CSSProperties;
 }
 
 export default function Home() {
   const [surface, setSurface] = useState<Surface>("command");
+  const [routeMode, setRouteMode] = useState<RouteMode>("auto");
+  const [deviceProfile, setDeviceProfile] = useState<DeviceProfile>(defaultDeviceProfile);
   const [sport, setSport] = useState("全部项目");
   const [city, setCity] = useState("全部城市");
   const [goal, setGoal] = useState("全部目标");
@@ -300,6 +409,12 @@ export default function Home() {
   const [submittedCoach, setSubmittedCoach] = useState<typeof coachDraft | null>(null);
 
   const activeSurface = surfaces.find((item) => item.id === surface) ?? surfaces[0];
+  const recommendedSurface = surfaces.find((item) => item.id === deviceProfile.recommendedSurface) ?? surfaces[0];
+  const compactSurfaces = compactSurfaceIds[deviceProfile.deviceClass]
+    .map((id) => surfaces.find((item) => item.id === id))
+    .filter((item): item is (typeof surfaces)[number] => Boolean(item));
+  const routeModeLabel = routeMode === "auto" ? "自动入口" : routeMode === "link" ? "链接入口" : "手动切换";
+  const isRecommendedSurface = surface === deviceProfile.recommendedSurface;
 
   const filteredCoaches = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -354,15 +469,39 @@ export default function Home() {
     }
 
     const syncClientState = window.setTimeout(() => {
+      const profile = detectDeviceProfile();
+      setDeviceProfile(profile);
+
       if (window.matchMedia("(display-mode: standalone)").matches) {
         setAppInstalled(true);
       }
 
-      const requestedSurface = new URLSearchParams(window.location.search).get("surface");
-      if (surfaces.some((item) => item.id === requestedSurface)) {
-        setSurface(requestedSurface as Surface);
+      const params = new URLSearchParams(window.location.search);
+      const requestedSurface = getSurfaceFromParam(params.get("surface"));
+      const source = params.get("source");
+      const role = params.get("role");
+
+      if (requestedSurface) {
+        setSurface(requestedSurface);
+        setRouteMode("link");
+      } else if (source === "native-mobile") {
+        setSurface("mobile");
+        setRouteMode("auto");
+      } else if (source === "native-desktop") {
+        setSurface("command");
+        setRouteMode("auto");
+      } else if (role === "coach") {
+        setSurface("coach");
+        setRouteMode("link");
+      } else {
+        setSurface(profile.recommendedSurface);
+        setRouteMode("auto");
       }
     }, 0);
+
+    const handleViewportChange = () => {
+      setDeviceProfile(detectDeviceProfile());
+    };
 
     const handleBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
@@ -377,13 +516,22 @@ export default function Home() {
 
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
     window.addEventListener("appinstalled", handleAppInstalled);
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("orientationchange", handleViewportChange);
 
     return () => {
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
       window.removeEventListener("appinstalled", handleAppInstalled);
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("orientationchange", handleViewportChange);
       window.clearTimeout(syncClientState);
     };
   }, []);
+
+  function chooseSurface(nextSurface: Surface, mode: RouteMode = "manual") {
+    setSurface(nextSurface);
+    setRouteMode(mode);
+  }
 
   function resetFilters() {
     setSport("全部项目");
@@ -408,7 +556,7 @@ export default function Home() {
   }
 
   async function handleInstallApp() {
-    setSurface("apps");
+    chooseSurface("apps");
 
     if (!installPrompt) {
       setNotice((current) =>
@@ -436,7 +584,7 @@ export default function Home() {
   }
 
   return (
-    <main className="platform-shell">
+    <main className={`platform-shell is-${deviceProfile.deviceClass}`}>
       <aside className="product-rail" aria-label="平台导航">
         <div className="brand-lockup">
           <span className="brand-mark">
@@ -454,12 +602,13 @@ export default function Home() {
               aria-pressed={surface === item.id}
               className={surface === item.id ? "active" : ""}
               key={item.id}
-              onClick={() => setSurface(item.id)}
+              onClick={() => chooseSurface(item.id)}
               type="button"
             >
               <span>{item.code}</span>
               <strong>{item.label}</strong>
               <small>{item.desc}</small>
+              {deviceProfile.recommendedSurface === item.id && <em>推荐</em>}
             </button>
           ))}
         </nav>
@@ -491,7 +640,7 @@ export default function Home() {
               type="search"
               value={query}
             />
-            <button className="primary-button" onClick={() => setSurface("command")} type="button">
+            <button className="primary-button" onClick={() => chooseSurface(deviceProfile.recommendedSurface)} type="button">
               开始匹配
             </button>
             <button className="secondary-button" onClick={handleInstallApp} type="button">
@@ -500,13 +649,34 @@ export default function Home() {
           </div>
         </header>
 
-        <nav className="mobile-tabs" aria-label="移动端导航">
-          {surfaces.map((item) => (
+        <section className="smart-handoff panel" aria-label="智能入口">
+          <div className="handoff-copy">
+            <span>{routeModeLabel}</span>
+            <strong>{deviceProfile.title}</strong>
+            <p>
+              {deviceProfile.os} · {deviceProfile.browser} · {deviceProfile.input}，当前入口：
+              {activeSurface.label}。{deviceProfile.detail}
+            </p>
+          </div>
+          <div className="handoff-actions">
+            <span className={isRecommendedSurface ? "route-pill aligned" : "route-pill"}>
+              {isRecommendedSurface ? "已在推荐入口" : `推荐：${recommendedSurface.label}`}
+            </span>
+            {!isRecommendedSurface && (
+              <button className="secondary-button" onClick={() => chooseSurface(deviceProfile.recommendedSurface, "auto")} type="button">
+                回到推荐入口
+              </button>
+            )}
+          </div>
+        </section>
+
+        <nav className="mobile-tabs" aria-label="紧凑端主导航">
+          {compactSurfaces.map((item) => (
             <button
               aria-pressed={surface === item.id}
               className={surface === item.id ? "active" : ""}
               key={item.id}
-              onClick={() => setSurface(item.id)}
+              onClick={() => chooseSurface(item.id)}
               type="button"
             >
               <span>{item.code}</span>
@@ -721,10 +891,10 @@ export default function Home() {
                   逐光不是教练广告墙，而是从资质核验、学员画像、可解释推荐、试课排期到服务履约的一套交易平台。
                 </p>
                 <div className="hero-actions">
-                  <button className="primary-button" onClick={() => setSurface("command")} type="button">
-                    进入平台工作台
+                  <button className="primary-button" onClick={() => chooseSurface(deviceProfile.recommendedSurface)} type="button">
+                    进入推荐入口
                   </button>
-                  <button className="secondary-button" onClick={() => setSurface("coach")} type="button">
+                  <button className="secondary-button" onClick={() => chooseSurface("coach")} type="button">
                     教练申请入驻
                   </button>
                 </div>
@@ -776,7 +946,7 @@ export default function Home() {
                 <div className="phone-search">
                   <span>训练目标</span>
                   <strong>{goal === "全部目标" ? "青少年专项提升" : goal}</strong>
-                  <button onClick={() => setSurface("command")} type="button">
+                  <button onClick={() => chooseSurface(deviceProfile.recommendedSurface)} type="button">
                     重算匹配
                   </button>
                 </div>
@@ -790,7 +960,7 @@ export default function Home() {
                     key={coach.id}
                     onClick={() => {
                       setSelectedCoachId(coach.id);
-                      setSurface("command");
+                      chooseSurface(deviceProfile.recommendedSurface);
                     }}
                     type="button"
                   >

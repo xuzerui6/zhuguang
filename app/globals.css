@@ -169,6 +169,20 @@ img {
   line-height: 1.35;
 }
 
+.rail-nav em {
+  align-self: start;
+  background: rgba(199, 242, 215, 0.12);
+  border: 1px solid rgba(199, 242, 215, 0.22);
+  border-radius: 999px;
+  color: #bdeed1;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  grid-column: 2;
+  justify-self: start;
+  padding: 4px 8px;
+}
+
 .rail-nav button.active,
 .rail-nav button:hover {
   background: #11261d;
@@ -299,6 +313,70 @@ img {
   color: var(--muted);
   line-height: 1.6;
   margin-top: 4px;
+}
+
+.smart-handoff {
+  align-items: center;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  overflow: hidden;
+  padding: 18px 22px;
+  position: relative;
+}
+
+.smart-handoff::before {
+  background: linear-gradient(180deg, var(--brand), #ff835c);
+  content: "";
+  inset: 0 auto 0 0;
+  position: absolute;
+  width: 4px;
+}
+
+.handoff-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.handoff-copy span {
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.handoff-copy strong {
+  font-size: 20px;
+  line-height: 1.15;
+}
+
+.handoff-copy p {
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.handoff-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.route-pill {
+  background: #fff7ee;
+  border: 1px solid #edcfb5;
+  border-radius: 999px;
+  color: #8d4b33;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.route-pill.aligned {
+  background: #eaf7ef;
+  border-color: #cbe9d8;
+  color: var(--brand);
 }
 
 .command-actions {
@@ -1792,7 +1870,7 @@ label {
     box-shadow: var(--shadow-deep);
     display: grid;
     gap: 5px;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     padding: 6px;
     position: sticky;
     top: 8px;
@@ -1805,10 +1883,12 @@ label {
     border-radius: var(--radius);
     color: var(--muted);
     display: grid;
+    gap: 2px;
     font-size: 11px;
     font-weight: 900;
     min-height: 46px;
     padding: 6px 4px;
+    place-items: center;
   }
 
   .mobile-tabs button span {
@@ -1827,6 +1907,14 @@ label {
   .coach-grid,
   .ops-grid {
     grid-template-columns: 1fr;
+  }
+
+  .smart-handoff {
+    grid-template-columns: 1fr;
+  }
+
+  .handoff-actions {
+    justify-content: space-between;
   }
 
   .command-header {
@@ -1878,6 +1966,19 @@ label {
     display: grid;
     gap: 14px;
     padding: 16px;
+  }
+
+  .smart-handoff {
+    padding: 16px;
+  }
+
+  .handoff-actions {
+    align-items: stretch;
+    display: grid;
+  }
+
+  .route-pill {
+    text-align: center;
   }
 
   .command-header {

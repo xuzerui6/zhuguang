@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://zhuguang-coach-platform.xuzerui6.chatgpt.site"),
   title: "逐光教练平台",
-  description: "覆盖网页介绍、学员端、教练端、运营端的体育教练服务平台。",
+  description: "覆盖网页介绍、学员端、教练端和运营端的退役运动员教练服务平台。",
   openGraph: {
     title: "逐光教练平台",
-    description: "网页介绍、教练匹配、教练入驻、试课跟进与运营看板一体化平台。",
+    description: "教练核验、学员匹配、教练入驻、试课跟进与运营看板一体化平台。",
     images: ["/og.png"],
   },
   twitter: {

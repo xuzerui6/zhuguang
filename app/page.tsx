@@ -148,6 +148,21 @@ const opsRail = [
   ["复购机会", "142", "训练周期满 6 周"],
 ];
 
+const commandSegments = ["推荐队列", "资质核验", "试课排期", "履约回访"];
+
+const workQueue = [
+  ["待确认试课", "9", "需要完成场地和时间确认", "18:00 前", "high"],
+  ["新教练复核", "7", "退役经历、证书与样片待核验", "今日", "normal"],
+  ["学员回访", "21", "首次试课后 24 小时反馈", "滚动处理", "normal"],
+  ["风险预警", "3", "爽约、投诉、未成年人保护", "立即处理", "risk"],
+];
+
+const decisionSignals = [
+  ["匹配质量", "Fit 90+ 的推荐占比 64%，高于上周 8%。"],
+  ["供给缺口", "北京羽毛球青少年时段供给紧张，周末缺口 14 节。"],
+  ["转化机会", "已试课学员中 142 个训练周期满 6 周，适合复购触达。"],
+];
+
 const journey = [
   ["01", "核验供给", "退役经历、证书、执教记录和视频样片进入统一审核。"],
   ["02", "解释匹配", "目标、预算、位置、风格和可约时间共同生成推荐原因。"],
@@ -354,9 +369,24 @@ export default function Home() {
         <div className="surface-stage" key={surface}>
           {surface === "command" && (
             <section className="command-grid">
-              <div className="page-title">
-                <span>教练服务中台</span>
-                <h2>把退役运动员的专业能力，转化为可被发现、可被信任、可被预约的服务。</h2>
+              <div className="command-header panel">
+                <div className="command-summary">
+                  <span>教练服务中台 / 今日视图</span>
+                  <h2>推荐队列</h2>
+                  <p>北京 · 羽毛球 · 青少年专项提升 · 4 位高匹配教练待确认</p>
+                </div>
+                <div className="command-segments" aria-label="工作台分区">
+                  {commandSegments.map((item, index) => (
+                    <button className={index === 0 ? "active" : ""} key={item} type="button">
+                      {item}
+                    </button>
+                  ))}
+                </div>
+                <div className="command-health">
+                  <span>服务健康度</span>
+                  <strong>92</strong>
+                  <small>3 项需要关注</small>
+                </div>
               </div>
 
               <div className="metric-row">
@@ -481,6 +511,45 @@ export default function Home() {
                   ))}
                 </div>
               </aside>
+
+              <section className="task-board panel">
+                <div className="section-heading compact">
+                  <div>
+                    <span>今日待办</span>
+                    <strong>服务队列</strong>
+                  </div>
+                  <small>按时效和风险排序</small>
+                </div>
+                <div className="task-list">
+                  {workQueue.map(([title, value, body, deadline, state]) => (
+                    <button className={`task-item ${state}`} key={title} type="button">
+                      <span>
+                        <strong>{title}</strong>
+                        <small>{body}</small>
+                      </span>
+                      <b>{value}</b>
+                      <em>{deadline}</em>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="decision-panel panel">
+                <div className="section-heading compact">
+                  <div>
+                    <span>决策信号</span>
+                    <strong>平台经营判断</strong>
+                  </div>
+                </div>
+                <div className="signal-list">
+                  {decisionSignals.map(([title, body]) => (
+                    <div className="signal-item" key={title}>
+                      <strong>{title}</strong>
+                      <p>{body}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
 
               <div className="ops-rail panel">
                 {opsRail.map(([label, value, detail]) => (

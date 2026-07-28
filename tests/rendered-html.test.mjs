@@ -38,6 +38,10 @@ test("server-renders the premium coach platform shell", async () => {
   assert.match(html, /教练端/);
   assert.match(html, /运营端/);
   assert.match(html, /教练服务中台/);
+  assert.match(html, /推荐队列/);
+  assert.match(html, /服务健康度/);
+  assert.match(html, /服务队列/);
+  assert.match(html, /平台经营判断/);
   assert.match(html, /学员匹配工作台/);
   assert.match(html, /教练信任档案/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
@@ -57,6 +61,9 @@ test("keeps the full product UI surfaces wired", async () => {
   assert.match(page, /phone-frame/);
   assert.match(page, /coachPackages/);
   assert.match(page, /auditQueue/);
+  assert.match(page, /workQueue/);
+  assert.match(page, /decisionSignals/);
+  assert.match(page, /commandSegments/);
   assert.match(page, /persistent-dock/);
   assert.match(layout, /metadataBase: new URL/);
   assert.match(layout, /全平台服务系统/);

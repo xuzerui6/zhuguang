@@ -32,16 +32,16 @@ test("server-renders the coach platform shell", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>逐光教练平台<\/title>/);
-  assert.match(html, /网页介绍/);
+  assert.match(html, /平台介绍/);
   assert.match(html, /学员端/);
   assert.match(html, /教练端/);
   assert.match(html, /运营端/);
   assert.match(html, /让优秀退役运动员/);
-  assert.match(html, /智能匹配/);
+  assert.match(html, /本周最佳匹配/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
 });
 
-test("keeps the upgraded UI animation and responsive surfaces wired", async () => {
+test("keeps the full product UI surfaces wired", async () => {
   const [page, layout, css, packageJson] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/layout.tsx", root), "utf8"),
@@ -50,10 +50,11 @@ test("keeps the upgraded UI animation and responsive surfaces wired", async () =
   ]);
 
   assert.match(page, /type View = "intro" \| "student" \| "coach" \| "ops"/);
-  assert.match(page, /floating-console/);
-  assert.match(page, /filter-summary/);
-  assert.match(page, /名片预览/);
-  assert.match(page, /progress-bar/);
+  assert.match(page, /studentLevel/);
+  assert.match(page, /savedCoachIds/);
+  assert.match(page, /fit-module/);
+  assert.match(page, /package-grid/);
+  assert.match(page, /pipeline-grid/);
   assert.match(layout, /metadataBase: new URL/);
   assert.match(layout, /退役运动员教练服务平台/);
   assert.match(css, /@keyframes viewIn/);

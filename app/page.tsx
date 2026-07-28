@@ -1,6 +1,7 @@
 "use client";
 
 import { CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 
 type Surface = "command" | "web" | "mobile" | "apps" | "coach" | "ops";
 
@@ -35,7 +36,7 @@ const surfaces: Array<{ id: Surface; label: string; desc: string; code: string }
   { id: "command", label: "PC 工作台", desc: "匹配、档案、排期和履约", code: "01" },
   { id: "web", label: "浏览器介绍", desc: "面向学员和教练的产品入口", code: "02" },
   { id: "mobile", label: "手机端", desc: "学员移动预约流程", code: "03" },
-  { id: "apps", label: "应用版本", desc: "手机 App 与 PC App 安装形态", code: "04" },
+  { id: "apps", label: "应用版本", desc: "iOS、Android、Windows、Linux、macOS 五端原生工程", code: "04" },
   { id: "coach", label: "教练端", desc: "入驻、线索和服务经营", code: "05" },
   { id: "ops", label: "运营端", desc: "审核、风险和转化看板", code: "06" },
 ];
@@ -202,26 +203,64 @@ const coachLeads = [
 
 const appEditions = [
   {
-    name: "手机端 App",
-    platform: "iOS / Android / 微信外浏览器",
-    status: "PWA 可安装版本",
-    body: "面向学员、家长和教练，保留匹配、教练详情、试课预约、消息提醒和底部四入口导航。",
-    actions: ["添加到主屏幕", "离线打开核心页面", "未来可封装原生包"],
+    name: "Mobile Native",
+    platform: "iOS / Android",
+    status: "Capacitor 工程已接入",
+    body: "面向学员、家长和教练，使用同一套逐光服务能力，保留匹配、教练详情、试课预约和身份认证。",
+    actions: ["iOS Xcode 工程", "Android Gradle 工程", "本地启动壳"],
   },
   {
-    name: "PC 端 App",
-    platform: "Windows / macOS / 桌面浏览器",
-    status: "独立窗口版本",
-    body: "面向运营和机构使用，打开后是服务中台工作台，适合高频处理审核、排期、转化和风控任务。",
-    actions: ["独立应用窗口", "桌面快捷方式", "后续可升级 Electron"],
+    name: "Desktop Native",
+    platform: "Windows / Linux / macOS",
+    status: "Tauri 工程已接入",
+    body: "面向运营和机构使用，以独立桌面窗口进入服务中台，后续可补系统通知、自动更新和本地缓存。",
+    actions: ["Windows 安装包", "Linux 安装包", "macOS 安装包"],
   },
 ];
 
 const appReadiness = [
   ["Manifest", "应用名称、图标、启动地址和窗口形态已配置"],
   ["Service Worker", "支持离线兜底页和核心静态资源缓存"],
-  ["Responsive Shell", "同一套代码覆盖手机、浏览器、PC 工作台"],
-  ["Native Roadmap", "原生包可基于 Capacitor / Electron 继续封装"],
+  ["Capacitor", "iOS / Android 原生项目已生成并同步"],
+  ["Tauri", "Windows / Linux / macOS 桌面项目已生成"],
+];
+
+const nativeTargets = [
+  {
+    name: "iOS",
+    stack: "Capacitor + Xcode",
+    output: ".ipa / TestFlight / App Store",
+    status: "工程已生成",
+    requirement: "需要 macOS + Xcode + Apple Developer 证书",
+  },
+  {
+    name: "Android",
+    stack: "Capacitor + Gradle",
+    output: ".aab / .apk",
+    status: "工程已生成",
+    requirement: "需要 JDK + Android Studio / Android SDK + 签名 keystore",
+  },
+  {
+    name: "Windows",
+    stack: "Tauri + WebView2",
+    output: ".exe / .msi",
+    status: "桌面壳已生成",
+    requirement: "需要 Rust + Microsoft C++ Build Tools + WebView2",
+  },
+  {
+    name: "Linux",
+    stack: "Tauri + WebKitGTK",
+    output: "AppImage / deb / rpm",
+    status: "桌面壳已生成",
+    requirement: "需要 Linux 构建机 + Rust + WebKitGTK 系统依赖",
+  },
+  {
+    name: "macOS",
+    stack: "Tauri + Xcode",
+    output: ".app / .dmg",
+    status: "桌面壳已生成",
+    requirement: "需要 macOS + Xcode Command Line Tools + Apple 签名证书",
+  },
 ];
 
 function asVars(vars: Record<string, string>) {
@@ -305,14 +344,16 @@ export default function Home() {
       });
     }
 
-    if (window.matchMedia("(display-mode: standalone)").matches) {
-      setAppInstalled(true);
-    }
+    const syncClientState = window.setTimeout(() => {
+      if (window.matchMedia("(display-mode: standalone)").matches) {
+        setAppInstalled(true);
+      }
 
-    const requestedSurface = new URLSearchParams(window.location.search).get("surface");
-    if (surfaces.some((item) => item.id === requestedSurface)) {
-      setSurface(requestedSurface as Surface);
-    }
+      const requestedSurface = new URLSearchParams(window.location.search).get("surface");
+      if (surfaces.some((item) => item.id === requestedSurface)) {
+        setSurface(requestedSurface as Surface);
+      }
+    }, 0);
 
     const handleBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
@@ -331,6 +372,7 @@ export default function Home() {
     return () => {
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
       window.removeEventListener("appinstalled", handleAppInstalled);
+      window.clearTimeout(syncClientState);
     };
   }, []);
 
@@ -678,7 +720,7 @@ export default function Home() {
               </div>
 
               <div className="visual-panel">
-                <img src="/coach-visual.png" alt="教练指导学员训练" />
+                <Image alt="教练指导学员训练" fill priority sizes="(max-width: 1260px) 100vw, 40vw" src="/coach-visual.png" />
                 <div className="floating-proof">
                   <span>本周最佳匹配</span>
                   <strong>周明 / 羽毛球青训</strong>
@@ -769,9 +811,9 @@ export default function Home() {
               <div className="app-hero panel">
                 <div>
                   <span className="eyebrow">Application Suite</span>
-                  <h2>手机端 App 和 PC 端 App 使用同一套服务中台能力</h2>
+                  <h2>iOS、Android、Windows、Linux、macOS 使用同一套服务中台能力</h2>
                   <p>
-                    当前交付为可安装 PWA：无需等待原生商店审核，手机和电脑都能安装成独立应用窗口，并保留后续封装 iOS、Android、Windows、macOS 原生包的路径。
+                    当前已接入 PWA、Capacitor 和 Tauri 三层交付：浏览器可安装，iOS/Android 有原生工程，Windows/Linux/macOS 有桌面工程。
                   </p>
                 </div>
                 <button className="primary-button" onClick={handleInstallApp} type="button">
@@ -823,6 +865,26 @@ export default function Home() {
                 </div>
               </aside>
 
+              <section className="native-targets panel">
+                <div className="section-heading compact">
+                  <div>
+                    <span>目标平台</span>
+                    <strong>五端原生交付矩阵</strong>
+                  </div>
+                </div>
+                <div className="target-grid">
+                  {nativeTargets.map((target) => (
+                    <article className="target-card" key={target.name}>
+                      <span>{target.status}</span>
+                      <h3>{target.name}</h3>
+                      <strong>{target.stack}</strong>
+                      <p>{target.output}</p>
+                      <small>{target.requirement}</small>
+                    </article>
+                  ))}
+                </div>
+              </section>
+
               <section className="native-roadmap panel">
                 <div className="section-heading compact">
                   <div>
@@ -837,7 +899,7 @@ export default function Home() {
                   </div>
                   <div>
                     <strong>Desktop Native</strong>
-                    <p>用 Electron 或 Tauri 封装 PC 工作台，补系统托盘、自动更新、桌面通知和本地缓存。</p>
+                    <p>用 Tauri 封装 PC 工作台，补系统托盘、自动更新、桌面通知和本地缓存。</p>
                   </div>
                   <div>
                     <strong>Shared Core</strong>

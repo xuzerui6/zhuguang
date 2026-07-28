@@ -38,6 +38,7 @@ test("server-renders the premium coach platform shell", async () => {
   assert.match(html, /应用版本/);
   assert.match(html, /教练端/);
   assert.match(html, /运营端/);
+  assert.match(html, /iOS、Android、Windows、Linux、macOS/);
   assert.match(html, /教练服务中台/);
   assert.match(html, /推荐队列/);
   assert.match(html, /服务健康度/);
@@ -49,7 +50,8 @@ test("server-renders the premium coach platform shell", async () => {
 });
 
 test("keeps the full product UI surfaces wired", async () => {
-  const [page, layout, css, packageJson, manifest, sw, offline] = await Promise.all([
+  const [page, layout, css, packageJson, manifest, sw, offline, capacitorConfig, tauriConfig, mobileShell, desktopShell] =
+    await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/layout.tsx", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
@@ -57,6 +59,10 @@ test("keeps the full product UI surfaces wired", async () => {
     readFile(new URL("public/manifest.webmanifest", root), "utf8"),
     readFile(new URL("public/sw.js", root), "utf8"),
     readFile(new URL("public/offline.html", root), "utf8"),
+    readFile(new URL("capacitor.config.ts", root), "utf8"),
+    readFile(new URL("src-tauri/tauri.conf.json", root), "utf8"),
+    readFile(new URL("native/mobile/www/index.html", root), "utf8"),
+    readFile(new URL("native/desktop/www/index.html", root), "utf8"),
   ]);
 
   assert.match(page, /type Surface = "command" \| "web" \| "mobile" \| "apps" \| "coach" \| "ops"/);
@@ -64,6 +70,10 @@ test("keeps the full product UI surfaces wired", async () => {
   assert.match(page, /savedCoachIds/);
   assert.match(page, /phone-frame/);
   assert.match(page, /appEditions/);
+  assert.match(page, /nativeTargets/);
+  assert.match(page, /五端原生交付矩阵/);
+  assert.match(page, /Capacitor/);
+  assert.match(page, /Tauri/);
   assert.match(page, /handleInstallApp/);
   assert.match(page, /coachPackages/);
   assert.match(page, /auditQueue/);
@@ -76,6 +86,7 @@ test("keeps the full product UI surfaces wired", async () => {
   assert.match(layout, /appleWebApp/);
   assert.match(layout, /全平台服务系统/);
   assert.match(css, /app-grid/);
+  assert.match(css, /target-grid/);
   assert.match(css, /@keyframes surfaceIn/);
   assert.match(css, /@keyframes tileIn/);
   assert.match(css, /@keyframes growBar/);
@@ -86,5 +97,11 @@ test("keeps the full product UI surfaces wired", async () => {
   assert.match(sw, /CACHE_NAME = "zhuguang-coach-os-v1"/);
   assert.match(sw, /offline\.html/);
   assert.match(offline, /逐光 Coach OS 离线/);
+  assert.match(capacitorConfig, /com\.zhuguang\.coachos/);
+  assert.match(capacitorConfig, /native\/mobile\/www/);
+  assert.match(tauriConfig, /com\.zhuguang\.coachos\.desktop/);
+  assert.match(tauriConfig, /native\/desktop\/www/);
+  assert.match(mobileShell, /iOS \/ Android 原生应用启动壳/);
+  assert.match(desktopShell, /Windows \/ Linux \/ macOS/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });

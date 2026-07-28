@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#07120e" />
+    <title>逐光 Coach OS Desktop</title>
+    <style>
+      :root {
+        --canvas: #f6f8f5;
+        --surface: #ffffff;
+        --ink: #07120e;
+        --muted: #65746b;
+        --line: #dde6de;
+        --brand: #0b7a53;
+        --mint: #c7f2d7;
+        --blue: #3567a4;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        background:
+          linear-gradient(rgba(7, 18, 14, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(7, 18, 14, 0.035) 1px, transparent 1px),
+          var(--canvas);
+        background-size: 36px 36px, 36px 36px, auto;
+        color: var(--ink);
+        font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+        margin: 0;
+        min-height: 100vh;
+      }
+
+      main {
+        display: grid;
+        gap: 20px;
+        grid-template-columns: 280px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      aside {
+        background: var(--ink);
+        color: #f8fbf8;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        padding: 26px;
+      }
+
+      .brand {
+        align-items: center;
+        display: flex;
+        gap: 14px;
+      }
+
+      .mark {
+        align-items: center;
+        background: var(--mint);
+        border-radius: 8px;
+        color: var(--ink);
+        display: inline-flex;
+        font-weight: 900;
+        height: 52px;
+        justify-content: center;
+        width: 52px;
+      }
+
+      .brand strong,
+      .brand small,
+      .status strong,
+      .status span {
+        display: block;
+      }
+
+      .brand small,
+      .status span,
+      p,
+      small {
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .status {
+        border: 1px solid #244a39;
+        border-radius: 8px;
+        display: grid;
+        gap: 8px;
+        padding: 18px;
+      }
+
+      section {
+        align-content: center;
+        display: grid;
+        gap: 20px;
+        padding: 34px;
+      }
+
+      .hero,
+      .grid > article {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: 0 28px 70px rgba(7, 18, 14, 0.12);
+      }
+
+      .hero {
+        display: grid;
+        gap: 20px;
+        min-height: 360px;
+        padding: 38px;
+      }
+
+      .eyebrow {
+        color: var(--brand);
+        font-size: 12px;
+        font-weight: 900;
+      }
+
+      h1 {
+        font-size: clamp(44px, 5vw, 72px);
+        line-height: 1.02;
+        margin: 0;
+        max-width: 960px;
+      }
+
+      p {
+        font-size: 17px;
+        margin: 0;
+        max-width: 760px;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      a,
+      button {
+        align-items: center;
+        border-radius: 8px;
+        display: inline-flex;
+        font: inherit;
+        font-weight: 900;
+        justify-content: center;
+        min-height: 44px;
+        padding: 11px 16px;
+        text-decoration: none;
+      }
+
+      a {
+        background: var(--brand);
+        color: #fff;
+      }
+
+      button {
+        background: #fff;
+        border: 1px solid var(--line);
+        color: var(--ink);
+      }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .grid > article {
+        display: grid;
+        gap: 8px;
+        min-height: 150px;
+        padding: 20px;
+      }
+
+      .grid strong {
+        font-size: 18px;
+      }
+
+      @media (max-width: 980px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+
+        aside {
+          display: none;
+        }
+
+        section {
+          padding: 16px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <aside>
+        <div class="brand">
+          <span class="mark">ZG</span>
+          <div>
+            <strong>逐光 Coach OS</strong>
+            <small>Desktop Native Shell</small>
+          </div>
+        </div>
+        <div></div>
+        <div class="status">
+          <span>目标平台</span>
+          <strong>Windows / Linux / macOS</strong>
+          <small>Tauri 原生桌面壳，复用逐光服务中台。</small>
+        </div>
+      </aside>
+
+      <section>
+        <div class="hero">
+          <span class="eyebrow">Native Desktop Application</span>
+          <h1>把逐光服务中台安装到桌面系统</h1>
+          <p>这是 Windows、Linux、macOS 的 Tauri 桌面应用启动壳。它保留独立窗口、系统级打包、图标和后续通知/自动更新扩展能力。</p>
+          <div class="actions">
+            <a href="https://zhuguang-coach-platform.xuzerui6.chatgpt.site/?source=native-desktop">进入逐光平台</a>
+            <button type="button" onclick="location.reload()">重新连接</button>
+          </div>
+        </div>
+
+        <div class="grid">
+          <article>
+            <strong>Windows</strong>
+            <small>面向机构和运营团队，可产出 exe/msi 安装包。</small>
+          </article>
+          <article>
+            <strong>Linux</strong>
+            <small>面向训练机构自部署终端，可产出 AppImage/deb/rpm。</small>
+          </article>
+          <article>
+            <strong>macOS</strong>
+            <small>面向教练管理和运营工作台，可产出 app/dmg。</small>
+          </article>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

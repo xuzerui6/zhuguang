@@ -1,0 +1,48 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "ZhuGuang Coach OS",
+  "version": "0.1.0",
+  "identifier": "com.zhuguang.coachos.desktop",
+  "build": {
+    "frontendDist": "../native/desktop/www",
+    "devUrl": "https://zhuguang-coach-platform.xuzerui6.chatgpt.site/?source=tauri-dev",
+    "beforeDevCommand": "npm run desktop:prepare",
+    "beforeBuildCommand": "npm run desktop:prepare"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "逐光 Coach OS",
+        "url": "index.html",
+        "width": 1440,
+        "height": 920,
+        "minWidth": 1180,
+        "minHeight": 760,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "publisher": "ZhuGuang Sports Technology",
+    "shortDescription": "退役运动员教练服务平台",
+    "longDescription": "逐光 Coach OS 覆盖学员匹配、教练入驻、试课排期、履约跟进和运营审核。",
+    "category": "Business",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    }
+  }
+}

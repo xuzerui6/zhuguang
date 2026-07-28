@@ -25,19 +25,21 @@ async function render() {
   );
 }
 
-test("server-renders the coach platform shell", async () => {
+test("server-renders the premium coach platform shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>逐光教练平台<\/title>/);
-  assert.match(html, /平台介绍/);
-  assert.match(html, /学员端/);
+  assert.match(html, /<title>逐光 Coach OS<\/title>/);
+  assert.match(html, /PC 工作台/);
+  assert.match(html, /浏览器介绍/);
+  assert.match(html, /手机端/);
   assert.match(html, /教练端/);
   assert.match(html, /运营端/);
-  assert.match(html, /让优秀退役运动员/);
-  assert.match(html, /本周最佳匹配/);
+  assert.match(html, /教练服务中台/);
+  assert.match(html, /学员匹配工作台/);
+  assert.match(html, /教练信任档案/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
 });
 
@@ -49,17 +51,18 @@ test("keeps the full product UI surfaces wired", async () => {
     readFile(new URL("package.json", root), "utf8"),
   ]);
 
-  assert.match(page, /type View = "intro" \| "student" \| "coach" \| "ops"/);
-  assert.match(page, /studentLevel/);
+  assert.match(page, /type Surface = "command" \| "web" \| "mobile" \| "coach" \| "ops"/);
+  assert.match(page, /selectedFit/);
   assert.match(page, /savedCoachIds/);
-  assert.match(page, /fit-module/);
-  assert.match(page, /package-grid/);
-  assert.match(page, /pipeline-grid/);
+  assert.match(page, /phone-frame/);
+  assert.match(page, /coachPackages/);
+  assert.match(page, /auditQueue/);
+  assert.match(page, /persistent-dock/);
   assert.match(layout, /metadataBase: new URL/);
-  assert.match(layout, /退役运动员教练服务平台/);
-  assert.match(css, /@keyframes viewIn/);
-  assert.match(css, /@keyframes cardIn/);
-  assert.match(css, /@keyframes scanMove/);
+  assert.match(layout, /全平台服务系统/);
+  assert.match(css, /@keyframes surfaceIn/);
+  assert.match(css, /@keyframes tileIn/);
+  assert.match(css, /@keyframes growBar/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);

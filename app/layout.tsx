@@ -3,16 +3,16 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://zhuguang-coach-platform.xuzerui6.chatgpt.site"),
-  title: "逐光教练平台",
-  description: "覆盖平台介绍、学员端、教练端和运营端的退役运动员教练服务平台。",
+  title: "逐光 Coach OS",
+  description: "面向退役运动员教练与学员的全平台服务系统，覆盖浏览器介绍、PC 工作台、手机端、教练端和运营端。",
   openGraph: {
-    title: "逐光教练平台",
-    description: "教练核验、学员匹配、教练入驻、试课跟进与运营看板一体化平台。",
+    title: "逐光 Coach OS",
+    description: "教练核验、学员匹配、试课排期、教练经营与运营审核一体化平台。",
     images: ["/og.png"],
   },
   twitter: {
     card: "summary_large_image",
-    title: "逐光教练平台",
+    title: "逐光 Coach OS",
     description: "退役运动员教练服务平台。",
     images: ["/og.png"],
   },

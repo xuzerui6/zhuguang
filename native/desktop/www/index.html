@@ -56,13 +56,15 @@
 
       .mark {
         align-items: center;
-        background: var(--mint);
         border-radius: 8px;
-        color: var(--ink);
         display: inline-flex;
-        font-weight: 900;
         height: 52px;
         justify-content: center;
+        width: 52px;
+      }
+
+      .mark svg {
+        height: 52px;
         width: 52px;
       }
 
@@ -200,7 +202,15 @@
     <main>
       <aside>
         <div class="brand">
-          <span class="mark">ZG</span>
+          <span class="mark" aria-hidden="true">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="80" height="80" rx="18" fill="#06130F" />
+              <path d="M20 26h33.5c6.8 0 11.2 4.5 11.2 10.1S60.3 46.2 53.5 46.2H32.7" stroke="#ECFFF2" stroke-width="8.4" stroke-linecap="round" />
+              <path d="M20 26h25.8c6.8 0 11.2 4.5 11.2 10.1s-4.4 10.1-11.2 10.1H32.7" stroke="#BFF3D2" stroke-width="8.4" stroke-linecap="round" />
+              <path d="M26.5 58h27" stroke="#ECFFF2" stroke-width="8.4" stroke-linecap="round" />
+              <circle cx="62" cy="22.5" r="8.8" fill="#FF835C" />
+            </svg>
+          </span>
           <div>
             <strong>逐光 Coach OS</strong>
             <small>Desktop Native Shell</small>

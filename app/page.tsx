@@ -439,7 +439,9 @@ export default function Home() {
     <main className="platform-shell">
       <aside className="product-rail" aria-label="平台导航">
         <div className="brand-lockup">
-          <span className="brand-mark">ZG</span>
+          <span className="brand-mark">
+            <Image alt="" height={50} src="/logo-mark.svg" width={50} />
+          </span>
           <div>
             <strong>逐光 Coach OS</strong>
             <small>退役运动员教练服务网络</small>

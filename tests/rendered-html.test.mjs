@@ -66,6 +66,10 @@ test("keeps the full product UI surfaces wired", async () => {
     nativeDocs,
     iconSync,
     toolchainCheck,
+    appIcon,
+    favicon,
+    logoMark,
+    logoLockup,
   ] =
     await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
@@ -83,6 +87,10 @@ test("keeps the full product UI surfaces wired", async () => {
     readFile(new URL("docs/native-apps.md", root), "utf8"),
     readFile(new URL("scripts/sync-native-icons.mjs", root), "utf8"),
     readFile(new URL("scripts/check-native-toolchain.mjs", root), "utf8"),
+    readFile(new URL("public/app-icon.svg", root), "utf8"),
+    readFile(new URL("public/favicon.svg", root), "utf8"),
+    readFile(new URL("public/logo-mark.svg", root), "utf8"),
+    readFile(new URL("public/logo-lockup.svg", root), "utf8"),
   ]);
 
   assert.match(page, /type Surface = "command" \| "web" \| "mobile" \| "apps" \| "coach" \| "ops"/);
@@ -103,6 +111,7 @@ test("keeps the full product UI surfaces wired", async () => {
   assert.match(page, /decisionSignals/);
   assert.match(page, /commandSegments/);
   assert.match(page, /persistent-dock/);
+  assert.match(page, /logo-mark\.svg/);
   assert.match(layout, /metadataBase: new URL/);
   assert.match(layout, /manifest: "\/manifest\.webmanifest"/);
   assert.match(layout, /appleWebApp/);
@@ -133,5 +142,10 @@ test("keeps the full product UI surfaces wired", async () => {
   assert.match(nativeDocs, /native-builds\.yml/);
   assert.match(iconSync, /ios-app-icon-1024\.png/);
   assert.match(toolchainCheck, /BLOCKED/);
+  assert.match(appIcon, /#06130F/);
+  assert.match(appIcon, /#FF835C/);
+  assert.match(favicon, /#BFF3D2/);
+  assert.match(logoMark, /viewBox="0 0 80 80"/);
+  assert.match(logoLockup, /COACH OS/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });

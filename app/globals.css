@@ -88,7 +88,7 @@ img {
 
 .brand-mark {
   align-items: center;
-  background: var(--mint);
+  background: transparent;
   border-radius: var(--radius);
   color: var(--brand-dark);
   display: inline-flex;
@@ -97,6 +97,11 @@ img {
   font-weight: 900;
   height: 50px;
   justify-content: center;
+  width: 50px;
+}
+
+.brand-mark img {
+  height: 50px;
   width: 50px;
 }
 

@@ -1,8 +1,13 @@
 "use client";
 
-import { CSSProperties, FormEvent, useMemo, useState } from "react";
+import { CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
 
-type Surface = "command" | "web" | "mobile" | "coach" | "ops";
+type Surface = "command" | "web" | "mobile" | "apps" | "coach" | "ops";
+
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+};
 
 type Coach = {
   id: number;
@@ -30,8 +35,9 @@ const surfaces: Array<{ id: Surface; label: string; desc: string; code: string }
   { id: "command", label: "PC 工作台", desc: "匹配、档案、排期和履约", code: "01" },
   { id: "web", label: "浏览器介绍", desc: "面向学员和教练的产品入口", code: "02" },
   { id: "mobile", label: "手机端", desc: "学员移动预约流程", code: "03" },
-  { id: "coach", label: "教练端", desc: "入驻、线索和服务经营", code: "04" },
-  { id: "ops", label: "运营端", desc: "审核、风险和转化看板", code: "05" },
+  { id: "apps", label: "应用版本", desc: "手机 App 与 PC App 安装形态", code: "04" },
+  { id: "coach", label: "教练端", desc: "入驻、线索和服务经营", code: "05" },
+  { id: "ops", label: "运营端", desc: "审核、风险和转化看板", code: "06" },
 ];
 
 const coaches: Coach[] = [
@@ -194,6 +200,30 @@ const coachLeads = [
   ["陈同学", "游泳", "考级训练", "需排期"],
 ];
 
+const appEditions = [
+  {
+    name: "手机端 App",
+    platform: "iOS / Android / 微信外浏览器",
+    status: "PWA 可安装版本",
+    body: "面向学员、家长和教练，保留匹配、教练详情、试课预约、消息提醒和底部四入口导航。",
+    actions: ["添加到主屏幕", "离线打开核心页面", "未来可封装原生包"],
+  },
+  {
+    name: "PC 端 App",
+    platform: "Windows / macOS / 桌面浏览器",
+    status: "独立窗口版本",
+    body: "面向运营和机构使用，打开后是服务中台工作台，适合高频处理审核、排期、转化和风控任务。",
+    actions: ["独立应用窗口", "桌面快捷方式", "后续可升级 Electron"],
+  },
+];
+
+const appReadiness = [
+  ["Manifest", "应用名称、图标、启动地址和窗口形态已配置"],
+  ["Service Worker", "支持离线兜底页和核心静态资源缓存"],
+  ["Responsive Shell", "同一套代码覆盖手机、浏览器、PC 工作台"],
+  ["Native Roadmap", "原生包可基于 Capacitor / Electron 继续封装"],
+];
+
 function asVars(vars: Record<string, string>) {
   return vars as CSSProperties;
 }
@@ -208,6 +238,8 @@ export default function Home() {
   const [selectedCoachId, setSelectedCoachId] = useState(1);
   const [savedCoachIds, setSavedCoachIds] = useState<number[]>([1, 2]);
   const [notice, setNotice] = useState<string[]>([]);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [appInstalled, setAppInstalled] = useState(false);
   const [coachDraft, setCoachDraft] = useState({
     name: "",
     sport: "羽毛球",
@@ -254,6 +286,7 @@ export default function Home() {
   );
 
   const savedCoaches = coaches.filter((coach) => savedCoachIds.includes(coach.id));
+  const canInstallApp = Boolean(installPrompt) && !appInstalled;
   const completion = Math.min(
     100,
     18 +
@@ -264,6 +297,42 @@ export default function Home() {
       (coachDraft.city ? 9 : 0) +
       (coachDraft.sport ? 9 : 0),
   );
+
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {
+        setNotice((current) => ["应用离线能力暂未注册成功，在线功能不受影响", ...current].slice(0, 3));
+      });
+    }
+
+    if (window.matchMedia("(display-mode: standalone)").matches) {
+      setAppInstalled(true);
+    }
+
+    const requestedSurface = new URLSearchParams(window.location.search).get("surface");
+    if (surfaces.some((item) => item.id === requestedSurface)) {
+      setSurface(requestedSurface as Surface);
+    }
+
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+
+    const handleAppInstalled = () => {
+      setAppInstalled(true);
+      setInstallPrompt(null);
+      setNotice((current) => ["逐光 App 已安装，可以从桌面或主屏幕直接打开", ...current].slice(0, 3));
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, []);
 
   function resetFilters() {
     setSport("全部项目");
@@ -285,6 +354,30 @@ export default function Home() {
   function handleCoachSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmittedCoach(coachDraft);
+  }
+
+  async function handleInstallApp() {
+    setSurface("apps");
+
+    if (!installPrompt) {
+      setNotice((current) =>
+        [
+          "当前浏览器未开放一键安装：电脑端请点地址栏安装图标，手机端请用分享菜单添加到主屏幕",
+          ...current,
+        ].slice(0, 3),
+      );
+      return;
+    }
+
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    setInstallPrompt(null);
+    setNotice((current) =>
+      [
+        choice.outcome === "accepted" ? "安装已开始，完成后可作为独立 App 打开" : "已取消安装，可稍后在应用版本页重新安装",
+        ...current,
+      ].slice(0, 3),
+    );
   }
 
   function updateDraft(field: keyof typeof coachDraft, value: string) {
@@ -347,6 +440,9 @@ export default function Home() {
             />
             <button className="primary-button" onClick={() => setSurface("command")} type="button">
               开始匹配
+            </button>
+            <button className="secondary-button" onClick={handleInstallApp} type="button">
+              {appInstalled ? "已安装" : canInstallApp ? "安装应用" : "应用版本"}
             </button>
           </div>
         </header>
@@ -665,6 +761,90 @@ export default function Home() {
                   <span>我的</span>
                 </div>
               </div>
+            </section>
+          )}
+
+          {surface === "apps" && (
+            <section className="app-grid">
+              <div className="app-hero panel">
+                <div>
+                  <span className="eyebrow">Application Suite</span>
+                  <h2>手机端 App 和 PC 端 App 使用同一套服务中台能力</h2>
+                  <p>
+                    当前交付为可安装 PWA：无需等待原生商店审核，手机和电脑都能安装成独立应用窗口，并保留后续封装 iOS、Android、Windows、macOS 原生包的路径。
+                  </p>
+                </div>
+                <button className="primary-button" onClick={handleInstallApp} type="button">
+                  {appInstalled ? "应用已安装" : canInstallApp ? "安装逐光 App" : "查看安装入口"}
+                </button>
+              </div>
+
+              <div className="app-edition-grid">
+                {appEditions.map((edition, index) => (
+                  <article className="app-edition panel" key={edition.name} style={asVars({ "--delay": `${index * 70}ms` })}>
+                    <div className="app-device" aria-hidden="true">
+                      <span>{index === 0 ? "Phone" : "Desktop"}</span>
+                      <i />
+                      <b />
+                    </div>
+                    <div>
+                      <span>{edition.platform}</span>
+                      <h3>{edition.name}</h3>
+                      <em>{edition.status}</em>
+                      <p>{edition.body}</p>
+                      <div className="app-chip-row">
+                        {edition.actions.map((item) => (
+                          <strong key={item}>{item}</strong>
+                        ))}
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <aside className="app-readiness panel">
+                <div className="section-heading compact">
+                  <div>
+                    <span>交付状态</span>
+                    <strong>应用化检查</strong>
+                  </div>
+                  <small>{appInstalled ? "已安装" : canInstallApp ? "可一键安装" : "可手动安装"}</small>
+                </div>
+                <div className="readiness-list">
+                  {appReadiness.map(([title, body]) => (
+                    <div className="readiness-item" key={title}>
+                      <b />
+                      <span>
+                        <strong>{title}</strong>
+                        <small>{body}</small>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </aside>
+
+              <section className="native-roadmap panel">
+                <div className="section-heading compact">
+                  <div>
+                    <span>下一阶段</span>
+                    <strong>原生 App 封装路线</strong>
+                  </div>
+                </div>
+                <div className="roadmap-grid">
+                  <div>
+                    <strong>Mobile Native</strong>
+                    <p>用 Capacitor 封装当前前端，补推送、相册/文件上传、定位和应用商店素材。</p>
+                  </div>
+                  <div>
+                    <strong>Desktop Native</strong>
+                    <p>用 Electron 或 Tauri 封装 PC 工作台，补系统托盘、自动更新、桌面通知和本地缓存。</p>
+                  </div>
+                  <div>
+                    <strong>Shared Core</strong>
+                    <p>产品逻辑、权限、教练档案、订单履约和运营审核保持同源，减少多端维护成本。</p>
+                  </div>
+                </div>
+              </section>
             </section>
           )}
 

@@ -1,0 +1,56 @@
+{
+  "id": "/?app=zhuguang",
+  "name": "逐光 Coach OS",
+  "short_name": "逐光",
+  "description": "退役运动员教练服务平台，覆盖学员匹配、试课预约、教练入驻、PC 工作台和运营审核。",
+  "lang": "zh-CN",
+  "start_url": "/?source=app",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "browser"],
+  "orientation": "any",
+  "background_color": "#f6f8f5",
+  "theme_color": "#07120e",
+  "categories": ["sports", "education", "business", "productivity"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "32x32",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "PC 工作台",
+      "short_name": "工作台",
+      "description": "进入教练匹配、排期和履约工作台。",
+      "url": "/?surface=command",
+      "icons": [{ "src": "/app-icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "手机端预约",
+      "short_name": "预约",
+      "description": "进入学员移动预约流程。",
+      "url": "/?surface=mobile",
+      "icons": [{ "src": "/app-icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

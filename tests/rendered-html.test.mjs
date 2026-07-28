@@ -35,6 +35,7 @@ test("server-renders the premium coach platform shell", async () => {
   assert.match(html, /PC 工作台/);
   assert.match(html, /浏览器介绍/);
   assert.match(html, /手机端/);
+  assert.match(html, /应用版本/);
   assert.match(html, /教练端/);
   assert.match(html, /运营端/);
   assert.match(html, /教练服务中台/);
@@ -48,17 +49,22 @@ test("server-renders the premium coach platform shell", async () => {
 });
 
 test("keeps the full product UI surfaces wired", async () => {
-  const [page, layout, css, packageJson] = await Promise.all([
+  const [page, layout, css, packageJson, manifest, sw, offline] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/layout.tsx", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
     readFile(new URL("package.json", root), "utf8"),
+    readFile(new URL("public/manifest.webmanifest", root), "utf8"),
+    readFile(new URL("public/sw.js", root), "utf8"),
+    readFile(new URL("public/offline.html", root), "utf8"),
   ]);
 
-  assert.match(page, /type Surface = "command" \| "web" \| "mobile" \| "coach" \| "ops"/);
+  assert.match(page, /type Surface = "command" \| "web" \| "mobile" \| "apps" \| "coach" \| "ops"/);
   assert.match(page, /selectedFit/);
   assert.match(page, /savedCoachIds/);
   assert.match(page, /phone-frame/);
+  assert.match(page, /appEditions/);
+  assert.match(page, /handleInstallApp/);
   assert.match(page, /coachPackages/);
   assert.match(page, /auditQueue/);
   assert.match(page, /workQueue/);
@@ -66,11 +72,19 @@ test("keeps the full product UI surfaces wired", async () => {
   assert.match(page, /commandSegments/);
   assert.match(page, /persistent-dock/);
   assert.match(layout, /metadataBase: new URL/);
+  assert.match(layout, /manifest: "\/manifest\.webmanifest"/);
+  assert.match(layout, /appleWebApp/);
   assert.match(layout, /全平台服务系统/);
+  assert.match(css, /app-grid/);
   assert.match(css, /@keyframes surfaceIn/);
   assert.match(css, /@keyframes tileIn/);
   assert.match(css, /@keyframes growBar/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
   assert.match(css, /@media \(max-width: 760px\)/);
+  assert.match(manifest, /"display": "standalone"/);
+  assert.match(manifest, /\/app-icon-512\.png/);
+  assert.match(sw, /CACHE_NAME = "zhuguang-coach-os-v1"/);
+  assert.match(sw, /offline\.html/);
+  assert.match(offline, /逐光 Coach OS 离线/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });

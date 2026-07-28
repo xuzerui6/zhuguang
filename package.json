@@ -13,6 +13,8 @@
     "lint": "eslint app tests scripts --ignore-pattern dist --ignore-pattern .next --ignore-pattern outputs",
     "db:generate": "drizzle-kit generate",
     "native:check": "node scripts/check-native-readiness.mjs",
+    "native:toolchain": "node scripts/check-native-toolchain.mjs",
+    "native:icons": "node scripts/sync-native-icons.mjs",
     "mobile:sync": "npm run build && cap sync",
     "mobile:android:sync": "npm run build && cap sync android",
     "mobile:android:open": "cap open android",

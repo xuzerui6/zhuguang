@@ -1103,6 +1103,7 @@ label {
 
 .app-edition span,
 .app-readiness .section-heading span,
+.release-pipeline .section-heading span,
 .native-roadmap .section-heading span {
   color: var(--brand);
   font-size: 12px;
@@ -1151,6 +1152,7 @@ label {
 
 .app-readiness,
 .native-targets,
+.release-pipeline,
 .native-roadmap {
   padding: 24px;
 }
@@ -1203,6 +1205,10 @@ label {
   grid-column: 1 / -1;
 }
 
+.release-pipeline {
+  grid-column: 1 / -1;
+}
+
 .target-grid {
   display: grid;
   gap: 12px;
@@ -1241,6 +1247,43 @@ label {
 .target-card small {
   border-top: 1px solid var(--line);
   padding-top: 10px;
+}
+
+.pipeline-list {
+  display: grid;
+  gap: 10px;
+}
+
+.pipeline-row {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 120px minmax(240px, 0.65fr) minmax(0, 1fr);
+  min-height: 76px;
+  padding: 14px 16px;
+}
+
+.pipeline-row span {
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.pipeline-row strong {
+  background: #f4f7f4;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.pipeline-row p {
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0;
 }
 
 .roadmap-grid {
@@ -1813,6 +1856,10 @@ label {
   .target-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .pipeline-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 760px) {
@@ -1881,6 +1928,7 @@ label {
   .app-edition,
   .app-readiness,
   .native-targets,
+  .release-pipeline,
   .native-roadmap,
   .onboard-form,
   .coach-side > .panel,

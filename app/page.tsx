@@ -223,6 +223,8 @@ const appReadiness = [
   ["Service Worker", "支持离线兜底页和核心静态资源缓存"],
   ["Capacitor", "iOS / Android 原生项目已生成并同步"],
   ["Tauri", "Windows / Linux / macOS 桌面项目已生成"],
+  ["Brand Icons", "Android / iOS / Desktop 图标已统一为逐光品牌"],
+  ["CI Pipeline", "五端构建工作流已准备，支持手动触发"],
 ];
 
 const nativeTargets = [
@@ -261,6 +263,13 @@ const nativeTargets = [
     status: "桌面壳已生成",
     requirement: "需要 macOS + Xcode Command Line Tools + Apple 签名证书",
   },
+];
+
+const releasePipelines = [
+  ["质量检查", "native:check / lint / test", "每次发布前确认前端、PWA、Capacitor、Tauri 配置完整"],
+  ["移动端构建", "mobile:android:build / mobile:ios:build", "Android 可在装好 JDK/SDK 后打包，iOS 必须在 macOS/Xcode 上签名"],
+  ["桌面端构建", "desktop:build", "Windows、Linux、macOS 由 Tauri 生成系统安装包"],
+  ["工具链诊断", "native:toolchain", "本机或 CI 可直接显示哪些平台 ready、哪些平台 blocked"],
 ];
 
 function asVars(vars: Record<string, string>) {
@@ -880,6 +889,25 @@ export default function Home() {
                       <strong>{target.stack}</strong>
                       <p>{target.output}</p>
                       <small>{target.requirement}</small>
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              <section className="release-pipeline panel">
+                <div className="section-heading compact">
+                  <div>
+                    <span>发布能力</span>
+                    <strong>构建流水线和本机诊断</strong>
+                  </div>
+                  <small>GitHub Actions / Local CLI</small>
+                </div>
+                <div className="pipeline-list">
+                  {releasePipelines.map(([title, command, body]) => (
+                    <article className="pipeline-row" key={title}>
+                      <span>{title}</span>
+                      <strong>{command}</strong>
+                      <p>{body}</p>
                     </article>
                   ))}
                 </div>

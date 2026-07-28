@@ -50,7 +50,23 @@ test("server-renders the premium coach platform shell", async () => {
 });
 
 test("keeps the full product UI surfaces wired", async () => {
-  const [page, layout, css, packageJson, manifest, sw, offline, capacitorConfig, tauriConfig, mobileShell, desktopShell] =
+  const [
+    page,
+    layout,
+    css,
+    packageJson,
+    manifest,
+    sw,
+    offline,
+    capacitorConfig,
+    tauriConfig,
+    mobileShell,
+    desktopShell,
+    workflow,
+    nativeDocs,
+    iconSync,
+    toolchainCheck,
+  ] =
     await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/layout.tsx", root), "utf8"),
@@ -63,6 +79,10 @@ test("keeps the full product UI surfaces wired", async () => {
     readFile(new URL("src-tauri/tauri.conf.json", root), "utf8"),
     readFile(new URL("native/mobile/www/index.html", root), "utf8"),
     readFile(new URL("native/desktop/www/index.html", root), "utf8"),
+    readFile(new URL(".github/workflows/native-builds.yml", root), "utf8"),
+    readFile(new URL("docs/native-apps.md", root), "utf8"),
+    readFile(new URL("scripts/sync-native-icons.mjs", root), "utf8"),
+    readFile(new URL("scripts/check-native-toolchain.mjs", root), "utf8"),
   ]);
 
   assert.match(page, /type Surface = "command" \| "web" \| "mobile" \| "apps" \| "coach" \| "ops"/);
@@ -71,7 +91,9 @@ test("keeps the full product UI surfaces wired", async () => {
   assert.match(page, /phone-frame/);
   assert.match(page, /appEditions/);
   assert.match(page, /nativeTargets/);
+  assert.match(page, /releasePipelines/);
   assert.match(page, /五端原生交付矩阵/);
+  assert.match(page, /构建流水线和本机诊断/);
   assert.match(page, /Capacitor/);
   assert.match(page, /Tauri/);
   assert.match(page, /handleInstallApp/);
@@ -87,6 +109,7 @@ test("keeps the full product UI surfaces wired", async () => {
   assert.match(layout, /全平台服务系统/);
   assert.match(css, /app-grid/);
   assert.match(css, /target-grid/);
+  assert.match(css, /pipeline-row/);
   assert.match(css, /@keyframes surfaceIn/);
   assert.match(css, /@keyframes tileIn/);
   assert.match(css, /@keyframes growBar/);
@@ -103,5 +126,12 @@ test("keeps the full product UI surfaces wired", async () => {
   assert.match(tauriConfig, /native\/desktop\/www/);
   assert.match(mobileShell, /iOS \/ Android 原生应用启动壳/);
   assert.match(desktopShell, /Windows \/ Linux \/ macOS/);
+  assert.match(workflow, /android-debug/);
+  assert.match(workflow, /ios-simulator/);
+  assert.match(workflow, /desktop/);
+  assert.match(nativeDocs, /native:toolchain/);
+  assert.match(nativeDocs, /native-builds\.yml/);
+  assert.match(iconSync, /ios-app-icon-1024\.png/);
+  assert.match(toolchainCheck, /BLOCKED/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });

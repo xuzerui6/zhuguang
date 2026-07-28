@@ -19,8 +19,44 @@
 
 ```bash
 npm run native:check
+npm run native:toolchain
+npm run native:icons
 npm test
 ```
+
+`native:toolchain` 默认只输出诊断，不会因为当前机器缺少某个平台工具链而失败；如果需要在 CI 中强制失败，可直接运行：
+
+```bash
+node scripts/check-native-toolchain.mjs --strict
+```
+
+## 品牌图标
+
+逐光图标源在 `public/app-icon-512.png` 和 `src-tauri/icons/`。移动端原生工程使用：
+
+```bash
+npm run native:icons
+```
+
+该命令会把品牌图标同步到：
+
+- `android/app/src/main/res/`
+- `ios/App/App/Assets.xcassets/AppIcon.appiconset/`
+
+## CI 构建
+
+五端构建骨架在 `.github/workflows/native-builds.yml`。
+
+当前工作流包含：
+
+- Web/PWA + 原生配置检查
+- Android debug APK
+- iOS simulator build
+- Windows Tauri bundle
+- Linux Tauri bundle
+- macOS Tauri bundle
+
+商店发布阶段还需要补充签名 secrets、证书、notarization、Android keystore 和 Apple provisioning profile。
 
 ## iOS
 

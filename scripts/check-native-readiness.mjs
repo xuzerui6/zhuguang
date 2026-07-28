@@ -1,4 +1,5 @@
 import { access, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -11,6 +12,8 @@ const files = [
   "src-tauri/tauri.conf.json",
   "src-tauri/Cargo.toml",
   "native/desktop/www/index.html",
+  "native/assets/ios-app-icon-1024.png",
+  ".github/workflows/native-builds.yml",
 ];
 
 for (const file of files) {
@@ -23,6 +26,18 @@ const [capacitorConfig, tauriConfigRaw, packageJsonRaw] = await Promise.all([
   readFile(join(root, "package.json"), "utf8"),
 ]);
 
+async function digest(file) {
+  const body = await readFile(join(root, file));
+  return createHash("sha256").update(body).digest("hex");
+}
+
+const [androidSourceIcon, androidAppIcon, iosSourceIcon, iosAppIcon] = await Promise.all([
+  digest("src-tauri/icons/android/mipmap-xxxhdpi/ic_launcher.png"),
+  digest("android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"),
+  digest("native/assets/ios-app-icon-1024.png"),
+  digest("ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png"),
+]);
+
 const tauriConfig = JSON.parse(tauriConfigRaw);
 const packageJson = JSON.parse(packageJsonRaw);
 
@@ -33,6 +48,9 @@ const checks = [
   ["Tauri desktop identifier", tauriConfig.identifier === "com.zhuguang.coachos.desktop"],
   ["Tauri desktop frontend", tauriConfig.build?.frontendDist === "../native/desktop/www"],
   ["Tauri bundle enabled", tauriConfig.bundle?.active === true],
+  ["Android branded icon synced", androidSourceIcon === androidAppIcon],
+  ["iOS branded icon synced", iosSourceIcon === iosAppIcon],
+  ["Native CI workflow present", packageJson.scripts?.["native:toolchain"] === "node scripts/check-native-toolchain.mjs"],
 ];
 
 const failed = checks.filter(([, passed]) => !passed);

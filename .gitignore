@@ -43,3 +43,11 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# native build outputs
+/android/.gradle/
+/android/build/
+/android/app/build/
+/ios/DerivedData/
+/ios/build/
+/src-tauri/target/

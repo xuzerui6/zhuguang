@@ -6,6 +6,8 @@
 
 核心界面按环境自动分流：
 
+- 未登录根路径：先进入公开官网介绍，建立信任、说明平台机制，并提供登录、预约找教练、注册教练入口。
+- 登录/进入后：再展示平台操作界面，按设备和来源进入 PC 工作台、手机预约流或原生应用壳。
 - PC / 桌面端：推荐队列、审核队列、教练入驻、应用交付。
 - 手机端：找教练、预约确认、教练入驻、浏览器安装。
 - 原生壳：iOS、Android、Windows、Linux、macOS 共享同一套入口与品牌资产。
@@ -58,6 +60,7 @@
 
 - 桌面截图：`outputs/qa-enterprise-desktop.png`
 - 手机截图：`outputs/qa-enterprise-mobile.png`
+- 官网入口概念图：`docs/design/zhuguang-public-landing-concept.png`
 - 设计概念图：`docs/design/zhuguang-enterprise-dashboard-concept.png`
 
 ## 验证结论

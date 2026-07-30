@@ -455,6 +455,29 @@ const releasePipelines = [
   ["工具链诊断", "native:toolchain", "本机或 CI 可直接显示哪些平台 ready、哪些平台 blocked"],
 ];
 
+const publicNav = ["平台如何运转", "教练资质核验", "学员智能匹配", "全流程履约保障"];
+
+const publicStats = [
+  ["10,000+", "认证教练"],
+  ["320,000+", "学员与家长选择"],
+  ["98%", "好评率"],
+];
+
+const publicPillars = [
+  ["教练资质核验", "多重资质审核，确保教练真实、专业、合规。"],
+  ["学员智能匹配", "基于目标、位置、年龄和训练风格推荐合适教练。"],
+  ["课程预约管理", "在线预约课程，灵活安排时间，行程清晰可控。"],
+  ["全流程履约保障", "从上课到评价，全流程保障教学体验与权益。"],
+];
+
+const publicAuditItems = ["身份实名验证", "退役运动员证明", "执教资质证书", "安全培训证书"];
+
+const publicSchedule = [
+  ["05/09 周四", "16:00-17:30", "篮球基础训练课", "已预约"],
+  ["05/12 周日", "10:00-11:30", "进攻技巧提升课", "待确认"],
+  ["05/16 周四", "16:00-17:30", "实战对抗训练课", "待上课"],
+];
+
 const defaultDeviceProfile: DeviceProfile = {
   deviceClass: "desktop",
   os: "Desktop",
@@ -568,6 +591,7 @@ function asVars(vars: Record<string, string>) {
 }
 
 export default function Home() {
+  const [hasEnteredPlatform, setHasEnteredPlatform] = useState(false);
   const [surface, setSurface] = useState<Surface>("command");
   const [activeNavId, setActiveNavId] = useState(defaultNavIdBySurface.command);
   const [routeMode, setRouteMode] = useState<RouteMode>("auto");
@@ -674,26 +698,31 @@ export default function Home() {
       const role = params.get("role");
 
       if (requestedMenu) {
+        setHasEnteredPlatform(true);
         setSurface(requestedMenu.surface);
         setActiveNavId(requestedMenu.id);
         setRouteMode("link");
       } else if (requestedSurface) {
+        setHasEnteredPlatform(true);
         setSurface(requestedSurface);
         setActiveNavId(getDefaultNavItem(requestedSurface).id);
         setRouteMode("link");
       } else if (source === "native-mobile") {
+        setHasEnteredPlatform(true);
         setSurface("mobile");
         setActiveNavId("student-match");
         setRouteMode("auto");
       } else if (source === "native-desktop") {
+        setHasEnteredPlatform(true);
         setSurface("command");
         setActiveNavId("match-queue");
         setRouteMode("auto");
       } else if (role === "coach") {
+        setHasEnteredPlatform(true);
         setSurface("coach");
         setActiveNavId("coach-onboard");
         setRouteMode("link");
-      } else {
+      } else if (hasEnteredPlatform) {
         chooseSurface(profile.recommendedSurface, "auto");
         setRouteMode("auto");
       }
@@ -703,7 +732,7 @@ export default function Home() {
       const profile = detectDeviceProfile();
       setDeviceProfile(profile);
 
-      if (routeModeRef.current === "auto") {
+      if (hasEnteredPlatform && routeModeRef.current === "auto") {
         chooseSurface(profile.recommendedSurface, "auto");
       }
     };
@@ -731,7 +760,7 @@ export default function Home() {
       window.removeEventListener("orientationchange", handleViewportChange);
       window.clearTimeout(syncClientState);
     };
-  }, []);
+  }, [hasEnteredPlatform]);
 
   function chooseSurface(nextSurface: Surface, mode: RouteMode = "manual", nextNavId?: string) {
     const nextNavItem = nextNavId ? getNavItem(nextNavId) : getDefaultNavItem(nextSurface);
@@ -744,6 +773,11 @@ export default function Home() {
     setSurface(item.surface);
     setActiveNavId(item.id);
     setRouteMode(mode);
+  }
+
+  function enterPlatform(nextSurface: Surface = deviceProfile.recommendedSurface, nextNavId?: string) {
+    setHasEnteredPlatform(true);
+    chooseSurface(nextSurface, "manual", nextNavId);
   }
 
   function resetFilters() {
@@ -794,6 +828,122 @@ export default function Home() {
 
   function updateDraft(field: keyof typeof coachDraft, value: string) {
     setCoachDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  if (!hasEnteredPlatform) {
+    return (
+      <main className="public-shell">
+        <header className="public-nav" aria-label="官网导航">
+          <button className="public-brand" onClick={() => setHasEnteredPlatform(false)} type="button">
+            <Image alt="" height={40} src="/logo-mark.svg" width={40} />
+            <strong>逐光 Coach OS</strong>
+          </button>
+          <nav aria-label="官网主导航">
+            {publicNav.map((item) => (
+              <a href={`#${item}`} key={item}>{item}</a>
+            ))}
+          </nav>
+          <div className="public-nav-actions">
+            <button className="secondary-button" onClick={() => enterPlatform()} type="button">
+              登录
+            </button>
+            <button className="primary-button" onClick={() => enterPlatform("coach", "coach-onboard")} type="button">
+              注册教练
+            </button>
+          </div>
+        </header>
+
+        <section className="public-hero">
+          <div className="public-hero-copy">
+            <h1>
+              逐光而行，
+              <span>成就每一份热爱</span>
+            </h1>
+            <p>
+              逐光 Coach OS 连接退役专业运动员与学员家庭，让专业的人被看见，让训练目标被认真完成。
+            </p>
+            <div className="public-trust-row" aria-label="平台信任点">
+              <span>退役运动员严选</span>
+              <span>智能匹配更合适</span>
+              <span>全流程安全保障</span>
+            </div>
+            <div className="public-hero-actions">
+              <button className="primary-button" onClick={() => enterPlatform()} type="button">
+                登录进入工作台
+              </button>
+              <button className="secondary-button" onClick={() => enterPlatform("mobile", "student-match")} type="button">
+                预约找教练
+              </button>
+            </div>
+            <div className="public-stats">
+              {publicStats.map(([value, label]) => (
+                <div key={label}>
+                  <strong>{value}</strong>
+                  <span>{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="public-visual" aria-label="平台服务预览">
+            <Image alt="退役运动员教练服务预览" fill priority sizes="(max-width: 980px) 100vw, 48vw" src="/coach-visual.png" />
+            <section className="public-audit-card">
+              <div>
+                <strong>教练资质核验</strong>
+                <em>已通过</em>
+              </div>
+              <p>张明辉 / 篮球 / 前职业运动员</p>
+              {publicAuditItems.map((item) => (
+                <span key={item}>{item}<b>已通过</b></span>
+              ))}
+            </section>
+            <section className="public-match-card">
+              <div>
+                <strong>学员智能匹配</strong>
+                <button onClick={() => enterPlatform("mobile", "student-match")} type="button">更多教练</button>
+              </div>
+              <div className="public-match-list">
+                {coaches.slice(0, 3).map((coach) => (
+                  <span key={coach.id}>
+                    <b>{coach.name.slice(0, 1)}</b>
+                    <strong>{coach.fit}</strong>
+                    <small>匹配度</small>
+                  </span>
+                ))}
+              </div>
+            </section>
+            <section className="public-schedule-card">
+              <strong>课程安排</strong>
+              {publicSchedule.map(([date, time, title, state]) => (
+                <div key={`${date}-${title}`}>
+                  <span>{date} · {time}</span>
+                  <b>{title}</b>
+                  <em>{state}</em>
+                </div>
+              ))}
+              <button onClick={() => enterPlatform("command", "trial-schedule")} type="button">
+                查看全部课程
+              </button>
+            </section>
+          </div>
+        </section>
+
+        <section className="public-how" id="平台如何运转">
+          <h2>平台如何运转</h2>
+          <div className="public-pillar-grid">
+            {publicPillars.map(([title, body]) => (
+              <article id={title} key={title}>
+                <strong>{title}</strong>
+                <p>{body}</p>
+                <button onClick={() => enterPlatform(title === "教练资质核验" ? "coach" : "mobile")} type="button">
+                  了解更多
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+      </main>
+    );
   }
 
   return (

@@ -25,36 +25,24 @@ async function render() {
   );
 }
 
-test("server-renders the premium coach platform shell", async () => {
+test("server-renders the public landing page before the app shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
   assert.match(html, /<title>逐光 Coach OS<\/title>/);
-  assert.match(html, /PC 工作台/);
-  assert.match(html, /智能工作台/);
-  assert.match(html, /学员服务/);
-  assert.match(html, /教练供给/);
-  assert.match(html, /运营治理/);
-  assert.match(html, /应用交付/);
-  assert.match(html, /找教练/);
-  assert.match(html, /教练入驻/);
-  assert.match(html, /审核队列/);
-  assert.match(html, /iOS \/ Android/);
-  assert.match(html, /桌面客户端/);
-  assert.match(html, /待匹配学员/);
-  assert.match(html, /高契合推荐/);
-  assert.match(html, /30日满意度/);
-  assert.match(html, /服务队列/);
-  assert.match(html, /风险预警/);
-  assert.match(html, /智能建议/);
-  assert.match(html, /学员匹配工作台/);
-  assert.match(html, /学员匹配列表/);
-  assert.match(html, /教练信任档案/);
-  assert.match(html, /Trust &amp; Fit/);
-  assert.match(html, /自动入口/);
-  assert.match(html, /已在推荐入口/);
+  assert.match(html, /逐光而行，/);
+  assert.match(html, /成就每一份热爱/);
+  assert.match(html, /登录进入工作台/);
+  assert.match(html, /预约找教练/);
+  assert.match(html, /平台如何运转/);
+  assert.match(html, /教练资质核验/);
+  assert.match(html, /学员智能匹配/);
+  assert.match(html, /全流程履约保障/);
+  assert.match(html, /10,000\+/);
+  assert.doesNotMatch(html, /学员匹配工作台/);
+  assert.doesNotMatch(html, /教练信任档案/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
 });
 
@@ -105,6 +93,11 @@ test("keeps the full product UI surfaces wired", async () => {
   assert.match(page, /type Surface = "command" \| "web" \| "mobile" \| "apps" \| "coach" \| "ops"/);
   assert.match(page, /type DeviceClass = "phone" \| "tablet" \| "desktop"/);
   assert.match(page, /type NavItem/);
+  assert.match(page, /hasEnteredPlatform/);
+  assert.match(page, /publicNav/);
+  assert.match(page, /enterPlatform/);
+  assert.match(page, /登录进入工作台/);
+  assert.match(page, /预约找教练/);
   assert.match(page, /navGroups/);
   assert.match(page, /defaultNavIdBySurface/);
   assert.match(page, /detectDeviceProfile/);
@@ -139,6 +132,9 @@ test("keeps the full product UI surfaces wired", async () => {
   assert.match(layout, /manifest: "\/manifest\.webmanifest"/);
   assert.match(layout, /appleWebApp/);
   assert.match(layout, /全平台服务系统/);
+  assert.match(css, /public-shell/);
+  assert.match(css, /public-hero/);
+  assert.match(css, /public-pillar-grid/);
   assert.match(css, /app-grid/);
   assert.match(css, /enterprise-grid/);
   assert.match(css, /kpi-strip/);

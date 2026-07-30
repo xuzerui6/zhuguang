@@ -1,6 +1,6 @@
 "use client";
 
-import { CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
+import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 
 type Surface = "command" | "web" | "mobile" | "apps" | "coach" | "ops";
@@ -213,10 +213,131 @@ const filters = {
 };
 
 const commandMetrics = [
-  ["1,284", "认证教练", "+18% 本月增长"],
-  ["4,692", "本周匹配", "+31% 推荐命中"],
-  ["42.8%", "试课转化", "+6.4 环比"],
-  ["4.86", "平均评分", "课后回收稳定"],
+  ["24", "待匹配学员", "较昨日 +8", "green"],
+  ["12", "高契合推荐", "较昨日 +5", "gold"],
+  ["18", "试课待安排", "较昨日 +6", "coral"],
+  ["36", "今日试课", "较昨日 +9", "blue"],
+  ["23.6%", "7日转化率", "环比 +2.1%", "violet"],
+  ["4.8/5", "30日满意度", "环比 +0.2", "sky"],
+];
+
+const matchRows = [
+  {
+    id: 1,
+    student: "李明轩",
+    profile: "12岁 / 上海",
+    demand: "提升比赛成绩",
+    tags: ["羽毛球", "单打", "提高反手稳定性"],
+    coach: "周明",
+    coachMeta: "国家队 · 原国家青年队",
+    fit: 92,
+    phase: "待确认",
+    phaseTone: "success",
+    time: "10:24",
+    accent: "#3aa483",
+  },
+  {
+    id: 2,
+    student: "王思涵",
+    profile: "14岁 / 杭州",
+    demand: "中考体育提分",
+    tags: ["田径", "短跑", "100米"],
+    coach: "陈伟",
+    coachMeta: "健将级 · 原省队",
+    fit: 88,
+    phase: "待匹配",
+    phaseTone: "warning",
+    time: "09:58",
+    accent: "#ee936f",
+  },
+  {
+    id: 3,
+    student: "张子睿",
+    profile: "10岁 / 深圳",
+    demand: "兴趣培养",
+    tags: ["篮球", "基础", "控球/投篮"],
+    coach: "刘洋",
+    coachMeta: "国家级 · 原CBA青年队",
+    fit: 85,
+    phase: "试课推荐",
+    phaseTone: "info",
+    time: "09:12",
+    accent: "#748df0",
+  },
+  {
+    id: 4,
+    student: "陈一诺",
+    profile: "13岁 / 成都",
+    demand: "提高专项技术",
+    tags: ["游泳", "蝶泳", "体能提升"],
+    coach: "赵雪",
+    coachMeta: "健将级 · 原省队",
+    fit: 81,
+    phase: "待确认",
+    phaseTone: "success",
+    time: "昨天 18:45",
+    accent: "#ec6f64",
+  },
+  {
+    id: 5,
+    student: "刘梓豪",
+    profile: "11岁 / 武汉",
+    demand: "体能增强",
+    tags: ["足球", "体能", "耐力提升"],
+    coach: "孙磊",
+    coachMeta: "国家级 · 原中超梯队",
+    fit: 78,
+    phase: "待匹配",
+    phaseTone: "warning",
+    time: "昨天 17:32",
+    accent: "#48a997",
+  },
+  {
+    id: 6,
+    student: "黄若曦",
+    profile: "12岁 / 南京",
+    demand: "赛事准备",
+    tags: ["乒乓球", "单打", "发球抢攻"],
+    coach: "周婷",
+    coachMeta: "健将级 · 原省队",
+    fit: 76,
+    phase: "待确认",
+    phaseTone: "success",
+    time: "昨天 16:05",
+    accent: "#f3a15f",
+  },
+];
+
+const queuePanels = [
+  {
+    title: "服务队列",
+    total: "18",
+    rows: [
+      ["试课后跟进", "8"],
+      ["已排课续费跟进", "6"],
+      ["家长咨询待回复", "3"],
+      ["课后反馈待处理", "1"],
+    ],
+  },
+  {
+    title: "风险预警",
+    total: "7",
+    rows: [
+      ["中风险 · 李明轩连续3次试课未转化", "10:24"],
+      ["低风险 · 王强资质即将过期", "09:34"],
+      ["中风险 · 订单异常退款申请", "09:12"],
+      ["低风险 · 陈伟30日内投诉偏高", "08:45"],
+    ],
+  },
+  {
+    title: "智能建议",
+    total: "3",
+    rows: [
+      ["有 5 位学员契合度提升，建议重新推荐", "推荐"],
+      ["周明今日可排课时段 14:00-18:00", "排期"],
+      ["本周羽毛球兴趣需求环比上升 18%", "供需"],
+    ],
+  },
 ];
 
 const trustBars = [
@@ -230,21 +351,6 @@ const opsRail = [
   ["服务异常", "3", "投诉与爽约预警"],
   ["合同待签", "27", "自动提醒学员和教练"],
   ["复购机会", "142", "训练周期满 6 周"],
-];
-
-const commandSegments = ["推荐队列", "资质核验", "试课排期", "履约回访"];
-
-const workQueue = [
-  ["待确认试课", "9", "需要完成场地和时间确认", "18:00 前", "high"],
-  ["新教练复核", "7", "退役经历、证书与样片待核验", "今日", "normal"],
-  ["学员回访", "21", "首次试课后 24 小时反馈", "滚动处理", "normal"],
-  ["风险预警", "3", "爽约、投诉、未成年人保护", "立即处理", "risk"],
-];
-
-const decisionSignals = [
-  ["匹配质量", "Fit 90+ 的推荐占比 64%，高于上周 8%。"],
-  ["供给缺口", "北京羽毛球青少年时段供给紧张，周末缺口 14 节。"],
-  ["转化机会", "已试课学员中 142 个训练周期满 6 周，适合复购触达。"],
 ];
 
 const journey = [
@@ -414,11 +520,13 @@ function detectDeviceProfile(): DeviceProfile {
   const isStandalone = window.matchMedia("(display-mode: standalone)").matches || nav.standalone === true;
   const mobileUA = Boolean(nav.userAgentData?.mobile) || /Android|iPhone|iPod|Mobile/i.test(userAgent);
   const tabletUA = /iPad|Tablet/i.test(userAgent) || (uaPlatform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const viewportPhone = width < 760 || (mobileUA && width < 920);
+  const viewportTablet = width < 1180;
   const deviceClass: DeviceClass =
-    mobileUA && width < 820 ? "phone" : tabletUA || (hasCoarsePointer && width < 1180) ? "tablet" : "desktop";
+    viewportPhone ? "phone" : tabletUA || (hasCoarsePointer && viewportTablet) || viewportTablet ? "tablet" : "desktop";
   const os = detectOS(userAgent, uaPlatform);
   const browser = detectBrowser(userAgent);
-  const input = hasCoarsePointer ? "触控" : "键鼠";
+  const input = hasCoarsePointer || deviceClass !== "desktop" ? "触控" : "键鼠";
 
   if (deviceClass === "phone") {
     return {
@@ -484,6 +592,7 @@ export default function Home() {
     intro: "",
   });
   const [submittedCoach, setSubmittedCoach] = useState<typeof coachDraft | null>(null);
+  const routeModeRef = useRef(routeMode);
 
   const activeSurface = surfaces.find((item) => item.id === surface) ?? surfaces[0];
   const activeNavItem = getNavItem(activeNavId) ?? getDefaultNavItem(surface);
@@ -493,6 +602,10 @@ export default function Home() {
     .filter((item): item is NavItem => Boolean(item));
   const routeModeLabel = routeMode === "auto" ? "自动入口" : routeMode === "link" ? "链接入口" : "手动切换";
   const isRecommendedSurface = activeNavItem.id === recommendedNavItem.id;
+
+  useEffect(() => {
+    routeModeRef.current = routeMode;
+  }, [routeMode]);
 
   const filteredCoaches = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -581,14 +694,18 @@ export default function Home() {
         setActiveNavId("coach-onboard");
         setRouteMode("link");
       } else {
-        setSurface(profile.recommendedSurface);
-        setActiveNavId(getDefaultNavItem(profile.recommendedSurface).id);
+        chooseSurface(profile.recommendedSurface, "auto");
         setRouteMode("auto");
       }
     }, 0);
 
     const handleViewportChange = () => {
-      setDeviceProfile(detectDeviceProfile());
+      const profile = detectDeviceProfile();
+      setDeviceProfile(profile);
+
+      if (routeModeRef.current === "auto") {
+        chooseSurface(profile.recommendedSurface, "auto");
+      }
     };
 
     const handleBeforeInstallPrompt = (event: Event) => {
@@ -797,51 +914,40 @@ export default function Home() {
 
         <div className="surface-stage" key={surface}>
           {surface === "command" && (
-            <section className="command-grid">
-              <div className="command-header panel">
-                <div className="command-summary">
-                  <span>教练服务中台 / 今日视图</span>
-                  <h2>推荐队列</h2>
-                  <p>北京 · 羽毛球 · 青少年专项提升 · 4 位高匹配教练待确认</p>
-                </div>
-                <div className="command-segments" aria-label="工作台分区">
-                  {commandSegments.map((item, index) => (
-                    <button className={index === 0 ? "active" : ""} key={item} type="button">
-                      {item}
-                    </button>
-                  ))}
-                </div>
-                <div className="command-health">
-                  <span>服务健康度</span>
-                  <strong>92</strong>
-                  <small>3 项需要关注</small>
-                </div>
-              </div>
-
-              <div className="metric-row">
-                {commandMetrics.map(([value, label, detail], index) => (
-                  <article className="metric-tile" key={label} style={asVars({ "--delay": `${index * 55}ms` })}>
+            <section className="enterprise-grid">
+              <div className="kpi-strip">
+                {commandMetrics.map(([value, label, detail, tone], index) => (
+                  <article className="kpi-cell" data-tone={tone} key={label} style={asVars({ "--delay": `${index * 45}ms` })}>
                     <span>{label}</span>
                     <strong>{value}</strong>
                     <small>{detail}</small>
+                    <i aria-hidden="true" />
                   </article>
                 ))}
               </div>
 
-              <section className="match-workbench panel">
-                <div className="section-heading">
+              <section className="match-console panel">
+                <div className="console-heading">
                   <div>
-                    <span>学员匹配工作台</span>
-                    <strong>按目标、基础、预算和位置解释推荐结果</strong>
+                    <h2>学员匹配工作台</h2>
+                    <p>按需求摘要、推荐教练、契合度、匹配阶段和更新时间统一处理撮合队列。</p>
                   </div>
-                  <button onClick={resetFilters} type="button">
-                    重置画像
+                  <button className="secondary-button compact-action" type="button">
+                    智能排序
                   </button>
                 </div>
 
-                <div className="filter-strip">
+                <div className="console-filters" aria-label="匹配筛选">
                   <label>
-                    人群
+                    推荐类型
+                    <select onChange={(event) => setGoal(event.target.value)} value={goal}>
+                      {filters.goals.map((item) => (
+                        <option key={item}>{item}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    匹配阶段
                     <select onChange={(event) => setAudience(event.target.value)} value={audience}>
                       {filters.audiences.map((item) => (
                         <option key={item}>{item}</option>
@@ -849,7 +955,7 @@ export default function Home() {
                     </select>
                   </label>
                   <label>
-                    项目
+                    契合度
                     <select onChange={(event) => setSport(event.target.value)} value={sport}>
                       {filters.sports.map((item) => (
                         <option key={item}>{item}</option>
@@ -857,136 +963,155 @@ export default function Home() {
                     </select>
                   </label>
                   <label>
-                    城市
+                    所在区域
                     <select onChange={(event) => setCity(event.target.value)} value={city}>
                       {filters.cities.map((item) => (
                         <option key={item}>{item}</option>
                       ))}
                     </select>
                   </label>
-                  <label>
-                    目标
-                    <select onChange={(event) => setGoal(event.target.value)} value={goal}>
-                      {filters.goals.map((item) => (
-                        <option key={item}>{item}</option>
-                      ))}
-                    </select>
+                  <label className="inline-check">
+                    <input type="checkbox" />
+                    只看高契合
                   </label>
+                  <button onClick={resetFilters} type="button">
+                    重置
+                  </button>
                 </div>
 
-                <div className="coach-table">
-                  {filteredCoaches.map((coach, index) => (
+                <div className="match-table" role="table" aria-label="学员匹配列表">
+                  <div className="match-row table-head" role="row">
+                    <span>学员信息</span>
+                    <span>需求摘要</span>
+                    <span>推荐教练</span>
+                    <span>契合度</span>
+                    <span>匹配阶段</span>
+                    <span>更新时间</span>
+                    <span>操作</span>
+                  </div>
+                  {matchRows.map((row, index) => (
                     <button
-                      className={coach.id === selectedCoach.id ? "coach-line selected" : "coach-line"}
-                      key={coach.id}
-                      onClick={() => setSelectedCoachId(coach.id)}
-                      style={asVars({ "--accent": coach.accent, "--delay": `${index * 50}ms` })}
+                      className={row.coach === selectedCoach.name ? "match-row selected" : "match-row"}
+                      key={row.id}
+                      onClick={() => {
+                        const nextCoach = coaches.find((coach) => coach.name === row.coach) ?? selectedCoach;
+                        setSelectedCoachId(nextCoach.id);
+                      }}
+                      style={asVars({ "--accent": row.accent, "--delay": `${index * 48}ms` })}
                       type="button"
                     >
-                      <span className="avatar">{coach.name.slice(0, 1)}</span>
-                      <span className="coach-copy">
-                        <strong>{coach.name}</strong>
-                        <small>
-                          {coach.level} · {coach.sport} · {coach.city}
-                        </small>
+                      <span className="student-cell">
+                        <b>{row.student.slice(0, 1)}</b>
+                        <span>
+                          <strong>{row.student}</strong>
+                          <small>{row.profile}</small>
+                        </span>
                       </span>
-                      <span className="coach-specialty">{coach.strengths.slice(0, 2).join(" / ")}</span>
-                      <span className="coach-fit">
-                        {coach.fit}
-                        <small>Fit</small>
+                      <span className="demand-cell">
+                        <strong>{row.demand}</strong>
+                        <small>{row.tags.join(" · ")}</small>
                       </span>
+                      <span className="coach-cell">
+                        <strong>{row.coach}</strong>
+                        <small>{row.coachMeta}</small>
+                      </span>
+                      <span className="fit-cell">
+                        <strong>{row.fit}%</strong>
+                        <i style={asVars({ "--progress": `${row.fit}%` })} />
+                      </span>
+                      <span className={`phase-pill ${row.phaseTone}`}>{row.phase}</span>
+                      <span className="time-cell">{row.time}</span>
+                      <span className="row-actions">查看</span>
                     </button>
                   ))}
                 </div>
 
-                <div className="explain-bar">
-                  推荐解释：目标匹配 38% · 教学风格 24% · 通勤与预算 22% · 近期可约 16%
+                <div className="table-footer">
+                  <span>共 24 条</span>
+                  <div>
+                    <button type="button">上一页</button>
+                    <button className="active" type="button">1</button>
+                    <button type="button">2</button>
+                    <button type="button">3</button>
+                    <button type="button">下一页</button>
+                  </div>
+                  <select aria-label="每页条数" defaultValue="10">
+                    <option>10 条/页</option>
+                    <option>20 条/页</option>
+                  </select>
                 </div>
               </section>
 
-              <aside className="trust-panel panel" style={asVars({ "--accent": selectedCoach.accent })}>
-                <div className="trust-head">
+              <aside className="trust-inspector panel" style={asVars({ "--accent": selectedCoach.accent })}>
+                <div className="inspector-tabs">
+                  <button className="active" type="button">教练信任档案</button>
+                  <button type="button">服务队列</button>
+                  <button type="button">风险预警</button>
+                </div>
+                <div className="inspector-hero">
                   <div>
-                    <span>教练信任档案</span>
                     <h2>{selectedCoach.name}</h2>
                     <p>
-                      {selectedCoach.level} · {selectedCoach.title}
+                      {selectedCoach.level} / {selectedCoach.sport} / {selectedCoach.lessons} 节履约
                     </p>
+                    <small>ID：COACH000{selectedCoach.id}2345 · Trust & Fit {selectedFit}</small>
                   </div>
-                  <em>{selectedCoach.status}</em>
+                  <strong>{selectedCoach.rating}</strong>
                 </div>
-
-                <div className="score-card">
-                  <span>Trust & Fit Score</span>
-                  <strong>{selectedFit}</strong>
-                  <p>{selectedCoach.note}</p>
-                </div>
-
-                <div className="trust-list">
-                  {trustBars.map(([title, body, value]) => (
-                    <div className="trust-row" key={title}>
-                      <div>
-                        <strong>{title}</strong>
-                        <small>{body}</small>
-                      </div>
-                      <i style={asVars({ "--progress": `${value}%` })} />
+                <section className="inspector-section">
+                  <h3>资质与认证</h3>
+                  {selectedCoach.proof.map((item) => (
+                    <div className="cert-row" key={item}>
+                      <span>{item}</span>
+                      <em>已认证</em>
                     </div>
                   ))}
-                </div>
-
-                <div className="slot-grid">
-                  {selectedCoach.availability.map((slot) => (
-                    <span key={slot}>{slot}</span>
-                  ))}
-                </div>
-              </aside>
-
-              <section className="task-board panel">
-                <div className="section-heading compact">
-                  <div>
-                    <span>今日待办</span>
-                    <strong>服务队列</strong>
-                  </div>
-                  <small>按时效和风险排序</small>
-                </div>
-                <div className="task-list">
-                  {workQueue.map(([title, value, body, deadline, state]) => (
-                    <button className={`task-item ${state}`} key={title} type="button">
+                  <button type="button">查看全部资质</button>
+                </section>
+                <section className="inspector-section">
+                  <h3>履历与荣誉</h3>
+                  <ul>
+                    <li>2010年 全国青年锦标赛男单冠军</li>
+                    <li>2012年 亚洲青年锦标赛团体冠军</li>
+                    <li>2014年 全国羽毛球锦标赛双打季军</li>
+                  </ul>
+                </section>
+                <section className="inspector-section">
+                  <h3>教学能力</h3>
+                  {trustBars.map(([title, body, value]) => (
+                    <div className="skill-row" key={title}>
                       <span>
                         <strong>{title}</strong>
                         <small>{body}</small>
                       </span>
-                      <b>{value}</b>
-                      <em>{deadline}</em>
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              <section className="decision-panel panel">
-                <div className="section-heading compact">
-                  <div>
-                    <span>决策信号</span>
-                    <strong>平台经营判断</strong>
-                  </div>
-                </div>
-                <div className="signal-list">
-                  {decisionSignals.map(([title, body]) => (
-                    <div className="signal-item" key={title}>
-                      <strong>{title}</strong>
-                      <p>{body}</p>
+                      <i style={asVars({ "--progress": `${value}%` })} />
                     </div>
                   ))}
-                </div>
-              </section>
+                </section>
+                <section className="inspector-section risk-safe">
+                  <h3>合规与风险</h3>
+                  <strong>96 / 100</strong>
+                  <i style={asVars({ "--progress": "96%" })} />
+                  <p>近 90 天无风险记录，适合进入优先推荐池。</p>
+                </section>
+              </aside>
 
-              <div className="ops-rail panel">
-                {opsRail.map(([label, value, detail]) => (
-                  <div key={label}>
-                    <span>{label}</span>
-                    <strong>{value}</strong>
-                    <small>{detail}</small>
-                  </div>
+              <div className="queue-grid">
+                {queuePanels.map((panel) => (
+                  <section className="queue-panel panel" key={panel.title}>
+                    <div className="mini-heading">
+                      <strong>{panel.title}（{panel.total}）</strong>
+                      <button type="button">查看更多</button>
+                    </div>
+                    <div className="queue-list">
+                      {panel.rows.map(([label, value]) => (
+                        <div className="queue-row" key={label}>
+                          <span>{label}</span>
+                          <em>{value}</em>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
                 ))}
               </div>
             </section>

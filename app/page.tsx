@@ -30,6 +30,20 @@ type NavigatorWithUAData = Navigator & {
   };
 };
 
+type NavItem = {
+  id: string;
+  surface: Surface;
+  label: string;
+  desc: string;
+  code: string;
+  badge?: string;
+};
+
+type NavGroup = {
+  title: string;
+  items: NavItem[];
+};
+
 type Coach = {
   id: number;
   name: string;
@@ -59,6 +73,49 @@ const surfaces: Array<{ id: Surface; label: string; desc: string; code: string }
   { id: "apps", label: "应用版本", desc: "iOS、Android、Windows、Linux、macOS 五端原生工程", code: "04" },
   { id: "coach", label: "教练端", desc: "入驻、线索和服务经营", code: "05" },
   { id: "ops", label: "运营端", desc: "审核、风险和转化看板", code: "06" },
+];
+
+const navGroups: NavGroup[] = [
+  {
+    title: "智能工作台",
+    items: [
+      { id: "match-queue", surface: "command", label: "推荐队列", desc: "画像、Fit 排序、解释推荐", code: "MQ", badge: "34" },
+      { id: "trial-schedule", surface: "command", label: "试课排期", desc: "时间、场地、跟进节奏", code: "TS", badge: "9" },
+      { id: "fulfillment", surface: "command", label: "履约回访", desc: "课后反馈、复购、异常处理", code: "FV" },
+    ],
+  },
+  {
+    title: "学员服务",
+    items: [
+      { id: "student-match", surface: "mobile", label: "找教练", desc: "移动端快速匹配与比较", code: "SM" },
+      { id: "booking-flow", surface: "mobile", label: "预约确认", desc: "试课确认、提醒、订单状态", code: "BK", badge: "2" },
+      { id: "web-entry", surface: "web", label: "网页介绍", desc: "平台价值、信任机制、转化入口", code: "WE" },
+    ],
+  },
+  {
+    title: "教练供给",
+    items: [
+      { id: "coach-onboard", surface: "coach", label: "教练入驻", desc: "资料、项目、报价与名片", code: "CO" },
+      { id: "coach-leads", surface: "coach", label: "线索经营", desc: "咨询、报价、试课转化", code: "CL" },
+      { id: "credential-review", surface: "ops", label: "资质复核", desc: "退役经历、证书、视频样片", code: "CR", badge: "7" },
+    ],
+  },
+  {
+    title: "运营治理",
+    items: [
+      { id: "audit-queue", surface: "ops", label: "审核队列", desc: "资料、合同、未成年人保护", code: "AQ", badge: "18" },
+      { id: "risk-alerts", surface: "ops", label: "风险预警", desc: "爽约、投诉、服务异常", code: "RA", badge: "3" },
+      { id: "conversion-board", surface: "ops", label: "转化看板", desc: "供需缺口、试课转化、复购", code: "CB" },
+    ],
+  },
+  {
+    title: "应用交付",
+    items: [
+      { id: "pwa-install", surface: "apps", label: "浏览器安装", desc: "PWA、离线壳、主屏入口", code: "PW" },
+      { id: "native-mobile", surface: "apps", label: "iOS / Android", desc: "Capacitor 原生工程", code: "NA" },
+      { id: "native-desktop", surface: "apps", label: "桌面客户端", desc: "Windows、macOS、Linux", code: "DT" },
+    ],
+  },
 ];
 
 const coaches: Coach[] = [
@@ -302,14 +359,33 @@ const defaultDeviceProfile: DeviceProfile = {
   detail: "适合运营、机构和教练反复处理匹配、排期、审核与履约。",
 };
 
-const compactSurfaceIds: Record<DeviceClass, Surface[]> = {
-  phone: ["mobile", "coach", "apps", "web"],
-  tablet: ["mobile", "command", "coach", "apps"],
-  desktop: ["command", "ops", "coach", "apps"],
+const menuItems = navGroups.flatMap((group) => group.items);
+
+const defaultNavIdBySurface: Record<Surface, string> = {
+  command: "match-queue",
+  web: "web-entry",
+  mobile: "student-match",
+  apps: "pwa-install",
+  coach: "coach-onboard",
+  ops: "audit-queue",
+};
+
+const compactNavIds: Record<DeviceClass, string[]> = {
+  phone: ["student-match", "booking-flow", "coach-onboard", "pwa-install"],
+  tablet: ["student-match", "match-queue", "coach-onboard", "pwa-install"],
+  desktop: ["match-queue", "audit-queue", "coach-onboard", "pwa-install"],
 };
 
 function getSurfaceFromParam(value: string | null): Surface | null {
   return surfaces.some((item) => item.id === value) ? (value as Surface) : null;
+}
+
+function getNavItem(id: string | null) {
+  return menuItems.find((item) => item.id === id) ?? null;
+}
+
+function getDefaultNavItem(surface: Surface) {
+  return getNavItem(defaultNavIdBySurface[surface]) ?? menuItems[0];
 }
 
 function detectBrowser(userAgent: string) {
@@ -385,6 +461,7 @@ function asVars(vars: Record<string, string>) {
 
 export default function Home() {
   const [surface, setSurface] = useState<Surface>("command");
+  const [activeNavId, setActiveNavId] = useState(defaultNavIdBySurface.command);
   const [routeMode, setRouteMode] = useState<RouteMode>("auto");
   const [deviceProfile, setDeviceProfile] = useState<DeviceProfile>(defaultDeviceProfile);
   const [sport, setSport] = useState("全部项目");
@@ -409,12 +486,13 @@ export default function Home() {
   const [submittedCoach, setSubmittedCoach] = useState<typeof coachDraft | null>(null);
 
   const activeSurface = surfaces.find((item) => item.id === surface) ?? surfaces[0];
-  const recommendedSurface = surfaces.find((item) => item.id === deviceProfile.recommendedSurface) ?? surfaces[0];
-  const compactSurfaces = compactSurfaceIds[deviceProfile.deviceClass]
-    .map((id) => surfaces.find((item) => item.id === id))
-    .filter((item): item is (typeof surfaces)[number] => Boolean(item));
+  const activeNavItem = getNavItem(activeNavId) ?? getDefaultNavItem(surface);
+  const recommendedNavItem = getDefaultNavItem(deviceProfile.recommendedSurface);
+  const compactNavItems = compactNavIds[deviceProfile.deviceClass]
+    .map((id) => getNavItem(id))
+    .filter((item): item is NavItem => Boolean(item));
   const routeModeLabel = routeMode === "auto" ? "自动入口" : routeMode === "link" ? "链接入口" : "手动切换";
-  const isRecommendedSurface = surface === deviceProfile.recommendedSurface;
+  const isRecommendedSurface = activeNavItem.id === recommendedNavItem.id;
 
   const filteredCoaches = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -478,23 +556,33 @@ export default function Home() {
 
       const params = new URLSearchParams(window.location.search);
       const requestedSurface = getSurfaceFromParam(params.get("surface"));
+      const requestedMenu = getNavItem(params.get("menu"));
       const source = params.get("source");
       const role = params.get("role");
 
-      if (requestedSurface) {
+      if (requestedMenu) {
+        setSurface(requestedMenu.surface);
+        setActiveNavId(requestedMenu.id);
+        setRouteMode("link");
+      } else if (requestedSurface) {
         setSurface(requestedSurface);
+        setActiveNavId(getDefaultNavItem(requestedSurface).id);
         setRouteMode("link");
       } else if (source === "native-mobile") {
         setSurface("mobile");
+        setActiveNavId("student-match");
         setRouteMode("auto");
       } else if (source === "native-desktop") {
         setSurface("command");
+        setActiveNavId("match-queue");
         setRouteMode("auto");
       } else if (role === "coach") {
         setSurface("coach");
+        setActiveNavId("coach-onboard");
         setRouteMode("link");
       } else {
         setSurface(profile.recommendedSurface);
+        setActiveNavId(getDefaultNavItem(profile.recommendedSurface).id);
         setRouteMode("auto");
       }
     }, 0);
@@ -528,8 +616,16 @@ export default function Home() {
     };
   }, []);
 
-  function chooseSurface(nextSurface: Surface, mode: RouteMode = "manual") {
-    setSurface(nextSurface);
+  function chooseSurface(nextSurface: Surface, mode: RouteMode = "manual", nextNavId?: string) {
+    const nextNavItem = nextNavId ? getNavItem(nextNavId) : getDefaultNavItem(nextSurface);
+    setSurface(nextNavItem?.surface ?? nextSurface);
+    setActiveNavId(nextNavItem?.id ?? defaultNavIdBySurface[nextSurface]);
+    setRouteMode(mode);
+  }
+
+  function chooseNavItem(item: NavItem, mode: RouteMode = "manual") {
+    setSurface(item.surface);
+    setActiveNavId(item.id);
     setRouteMode(mode);
   }
 
@@ -596,20 +692,28 @@ export default function Home() {
           </div>
         </div>
 
-        <nav className="rail-nav" aria-label="产品端导航">
-          {surfaces.map((item) => (
-            <button
-              aria-pressed={surface === item.id}
-              className={surface === item.id ? "active" : ""}
-              key={item.id}
-              onClick={() => chooseSurface(item.id)}
-              type="button"
-            >
-              <span>{item.code}</span>
-              <strong>{item.label}</strong>
-              <small>{item.desc}</small>
-              {deviceProfile.recommendedSurface === item.id && <em>推荐</em>}
-            </button>
+        <nav className="rail-nav" aria-label="产品任务导航">
+          {navGroups.map((group) => (
+            <section className="rail-section" key={group.title}>
+              <h2>{group.title}</h2>
+              <div className="rail-section-items">
+                {group.items.map((item) => (
+                  <button
+                    aria-pressed={activeNavItem.id === item.id}
+                    className={activeNavItem.id === item.id ? "active" : ""}
+                    key={item.id}
+                    onClick={() => chooseNavItem(item)}
+                    type="button"
+                  >
+                    <span>{item.code}</span>
+                    <strong>{item.label}</strong>
+                    {item.badge && <b>{item.badge}</b>}
+                    <small>{item.desc}</small>
+                    {recommendedNavItem.id === item.id && <em>推荐</em>}
+                  </button>
+                ))}
+              </div>
+            </section>
           ))}
         </nav>
 
@@ -629,8 +733,10 @@ export default function Home() {
         <header className="command-bar">
           <div>
             <span className="eyebrow">ZhuGuang Product Platform</span>
-            <h1>{activeSurface.label}</h1>
-            <p>{activeSurface.desc}</p>
+            <h1>{activeNavItem.label}</h1>
+            <p>
+              {activeSurface.label} · {activeNavItem.desc}
+            </p>
           </div>
           <div className="command-actions">
             <input
@@ -654,16 +760,20 @@ export default function Home() {
             <span>{routeModeLabel}</span>
             <strong>{deviceProfile.title}</strong>
             <p>
-              {deviceProfile.os} · {deviceProfile.browser} · {deviceProfile.input}，当前入口：
-              {activeSurface.label}。{deviceProfile.detail}
+              {deviceProfile.os} · {deviceProfile.browser} · {deviceProfile.input}，当前任务：
+              {activeNavItem.label} / {activeSurface.label}。{deviceProfile.detail}
             </p>
           </div>
           <div className="handoff-actions">
             <span className={isRecommendedSurface ? "route-pill aligned" : "route-pill"}>
-              {isRecommendedSurface ? "已在推荐入口" : `推荐：${recommendedSurface.label}`}
+              {isRecommendedSurface ? "已在推荐入口" : `推荐：${recommendedNavItem.label}`}
             </span>
             {!isRecommendedSurface && (
-              <button className="secondary-button" onClick={() => chooseSurface(deviceProfile.recommendedSurface, "auto")} type="button">
+              <button
+                className="secondary-button"
+                onClick={() => chooseNavItem(recommendedNavItem, "auto")}
+                type="button"
+              >
                 回到推荐入口
               </button>
             )}
@@ -671,12 +781,12 @@ export default function Home() {
         </section>
 
         <nav className="mobile-tabs" aria-label="紧凑端主导航">
-          {compactSurfaces.map((item) => (
+          {compactNavItems.map((item) => (
             <button
-              aria-pressed={surface === item.id}
-              className={surface === item.id ? "active" : ""}
+              aria-pressed={activeNavItem.id === item.id}
+              className={activeNavItem.id === item.id ? "active" : ""}
               key={item.id}
-              onClick={() => chooseSurface(item.id)}
+              onClick={() => chooseNavItem(item)}
               type="button"
             >
               <span>{item.code}</span>

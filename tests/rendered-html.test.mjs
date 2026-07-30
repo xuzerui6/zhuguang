@@ -33,12 +33,16 @@ test("server-renders the premium coach platform shell", async () => {
   const html = await response.text();
   assert.match(html, /<title>逐光 Coach OS<\/title>/);
   assert.match(html, /PC 工作台/);
-  assert.match(html, /浏览器介绍/);
-  assert.match(html, /手机端/);
-  assert.match(html, /应用版本/);
-  assert.match(html, /教练端/);
-  assert.match(html, /运营端/);
-  assert.match(html, /iOS、Android、Windows、Linux、macOS/);
+  assert.match(html, /智能工作台/);
+  assert.match(html, /学员服务/);
+  assert.match(html, /教练供给/);
+  assert.match(html, /运营治理/);
+  assert.match(html, /应用交付/);
+  assert.match(html, /找教练/);
+  assert.match(html, /教练入驻/);
+  assert.match(html, /审核队列/);
+  assert.match(html, /iOS \/ Android/);
+  assert.match(html, /桌面客户端/);
   assert.match(html, /教练服务中台/);
   assert.match(html, /推荐队列/);
   assert.match(html, /服务健康度/);
@@ -97,8 +101,14 @@ test("keeps the full product UI surfaces wired", async () => {
 
   assert.match(page, /type Surface = "command" \| "web" \| "mobile" \| "apps" \| "coach" \| "ops"/);
   assert.match(page, /type DeviceClass = "phone" \| "tablet" \| "desktop"/);
+  assert.match(page, /type NavItem/);
+  assert.match(page, /navGroups/);
+  assert.match(page, /defaultNavIdBySurface/);
   assert.match(page, /detectDeviceProfile/);
-  assert.match(page, /compactSurfaceIds/);
+  assert.match(page, /compactNavIds/);
+  assert.match(page, /getNavItem/);
+  assert.match(page, /chooseNavItem/);
+  assert.match(page, /产品任务导航/);
   assert.match(page, /source === "native-mobile"/);
   assert.match(page, /source === "native-desktop"/);
   assert.match(page, /chooseSurface/);
@@ -128,6 +138,7 @@ test("keeps the full product UI surfaces wired", async () => {
   assert.match(css, /app-grid/);
   assert.match(css, /smart-handoff/);
   assert.match(css, /route-pill/);
+  assert.match(css, /rail-section/);
   assert.match(css, /target-grid/);
   assert.match(css, /pipeline-row/);
   assert.match(css, /@keyframes surfaceIn/);

@@ -32,7 +32,7 @@ import type {
   MobileTab,
 } from "./types";
 import { previewRelease, UpdateCenter } from "./update/update-center";
-import { getUpdateDecision, parseZhuguangDeepLink, resolveAccountMode } from "./unified-domain";
+import { getUpdateDecision, parsePrivateQaNotification, parseZhuguangDeepLink, resolveAccountMode } from "./unified-domain";
 
 type Surface = "app" | "updates";
 
@@ -71,6 +71,17 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   const hasCoachMode = identity.availableModes.includes("coach") && identity.coach?.auditStatus === "approved";
 
   const applyDeepLink = useCallback((url: string) => {
+    const diagnostic = demoMode ? parsePrivateQaNotification(url) : null;
+    if (diagnostic) {
+      void pushBridge.simulateNotification(diagnostic).then(() => {
+        setDeepLinkNotice("测试通知已发送");
+        window.setTimeout(() => setDeepLinkNotice(""), 2400);
+      }).catch(() => {
+        setDeepLinkNotice("请先开启通知权限");
+        window.setTimeout(() => setDeepLinkNotice(""), 2400);
+      });
+      return;
+    }
     const target = parseZhuguangDeepLink(url);
     if (target.updates) {
       setSurface("updates");
@@ -97,7 +108,7 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
       setRouteRevision((revision) => revision + 1);
     }
     setSurface("app");
-  }, [hasCoachMode]);
+  }, [demoMode, hasCoachMode]);
 
   const checkForUpdates = useCallback(async () => {
     if (demoMode) return;

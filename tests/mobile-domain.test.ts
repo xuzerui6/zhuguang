@@ -11,7 +11,7 @@ import {
 } from "../app/mobile/domain";
 import type { MatchPreferences } from "../app/mobile/types";
 import type { AppRelease, CoachAccountSummary } from "../app/mobile/types";
-import { getUpdateDecision, parseZhuguangDeepLink, resolveAccountMode } from "../app/mobile/unified-domain";
+import { getUpdateDecision, parsePrivateQaNotification, parseZhuguangDeepLink, resolveAccountMode } from "../app/mobile/unified-domain";
 import { stableRolloutBucket } from "../server/api/releases";
 import { pushLockScreenBody } from "../server/api/push";
 
@@ -85,6 +85,19 @@ test("role deep links and update policy are deterministic", () => {
   assert.equal(getUpdateDecision(2, release, 0, 100), "forced");
   assert.equal(getUpdateDecision(3, release, 200, 100), "deferred");
   assert.equal(getUpdateDecision(4, release, 0, 100), "current");
+});
+
+test("private QA notification routes cover all native channels without private names", () => {
+  assert.deepEqual(parsePrivateQaNotification("zhuguang://diagnostics/notification/booking"), {
+    body: "你的预约状态已更新，请进入逐光查看。",
+    deepLink: "zhuguang://student/bookings",
+    targetMode: "student",
+    title: "预约进度",
+    type: "booking",
+  });
+  assert.equal(parsePrivateQaNotification("zhuguang://diagnostics/notification/message")?.deepLink, "zhuguang://coach/messages");
+  assert.equal(parsePrivateQaNotification("zhuguang://diagnostics/notification/update")?.deepLink, "zhuguang://updates/latest");
+  assert.equal(parsePrivateQaNotification("zhuguang://student/messages"), null);
 });
 
 test("release rollout uses a stable installation bucket", async () => {

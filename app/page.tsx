@@ -2,6 +2,7 @@
 
 import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import MobileStudentApp from "./mobile-student-app";
 
 type Surface = "command" | "web" | "mobile" | "apps" | "coach" | "ops";
 type DeviceClass = "phone" | "tablet" | "desktop";
@@ -54,6 +55,7 @@ type Coach = {
   price: number;
   rating: number;
   lessons: number;
+  reviewCount: number;
   response: string;
   status: "优先推荐" | "平台已核验" | "复核中";
   fit: number;
@@ -95,7 +97,7 @@ const navGroups: NavGroup[] = [
   {
     title: "教练供给",
     items: [
-      { id: "coach-onboard", surface: "coach", label: "教练入驻", desc: "资料、项目、报价与名片", code: "CO" },
+      { id: "coach-onboard", surface: "coach", label: "教练档案", desc: "人工审核、项目、报价与名片", code: "CO" },
       { id: "coach-leads", surface: "coach", label: "线索经营", desc: "咨询、报价、试课转化", code: "CL" },
       { id: "credential-review", surface: "ops", label: "资质复核", desc: "退役经历、证书、视频样片", code: "CR", badge: "7" },
     ],
@@ -129,6 +131,7 @@ const coaches: Coach[] = [
     price: 520,
     rating: 4.92,
     lessons: 386,
+    reviewCount: 92,
     response: "9 分钟",
     status: "优先推荐",
     fit: 94,
@@ -150,6 +153,7 @@ const coaches: Coach[] = [
     price: 420,
     rating: 4.86,
     lessons: 264,
+    reviewCount: 71,
     response: "18 分钟",
     status: "平台已核验",
     fit: 91,
@@ -171,6 +175,7 @@ const coaches: Coach[] = [
     price: 680,
     rating: 4.95,
     lessons: 441,
+    reviewCount: 128,
     response: "12 分钟",
     status: "优先推荐",
     fit: 88,
@@ -192,6 +197,7 @@ const coaches: Coach[] = [
     price: 460,
     rating: 4.88,
     lessons: 318,
+    reviewCount: 84,
     response: "15 分钟",
     status: "平台已核验",
     fit: 86,
@@ -224,10 +230,14 @@ const commandMetrics = [
 const matchRows = [
   {
     id: 1,
+    coachId: 1,
     student: "李明轩",
-    profile: "12岁 / 上海",
+    profile: "12岁 / 北京",
     demand: "提升比赛成绩",
     tags: ["羽毛球", "单打", "提高反手稳定性"],
+    sport: "羽毛球",
+    city: "北京",
+    audience: "青少年",
     coach: "周明",
     coachMeta: "国家队 · 原国家青年队",
     fit: 92,
@@ -238,12 +248,16 @@ const matchRows = [
   },
   {
     id: 2,
+    coachId: 4,
     student: "王思涵",
-    profile: "14岁 / 杭州",
-    demand: "中考体育提分",
-    tags: ["田径", "短跑", "100米"],
-    coach: "陈伟",
-    coachMeta: "健将级 · 原省队",
+    profile: "14岁 / 广州",
+    demand: "校队选拔",
+    tags: ["篮球", "后卫", "控运稳定性"],
+    sport: "篮球",
+    city: "广州",
+    audience: "青少年",
+    coach: "陈思雨",
+    coachMeta: "前职业青年队 · 后卫专项",
     fit: 88,
     phase: "待匹配",
     phaseTone: "warning",
@@ -252,12 +266,16 @@ const matchRows = [
   },
   {
     id: 3,
+    coachId: 4,
     student: "张子睿",
     profile: "10岁 / 深圳",
     demand: "兴趣培养",
     tags: ["篮球", "基础", "控球/投篮"],
-    coach: "刘洋",
-    coachMeta: "国家级 · 原CBA青年队",
+    sport: "篮球",
+    city: "深圳",
+    audience: "儿童",
+    coach: "陈思雨",
+    coachMeta: "前职业青年队 · 后卫专项",
     fit: 85,
     phase: "试课推荐",
     phaseTone: "info",
@@ -266,12 +284,16 @@ const matchRows = [
   },
   {
     id: 4,
+    coachId: 2,
     student: "陈一诺",
-    profile: "13岁 / 成都",
+    profile: "13岁 / 上海",
     demand: "提高专项技术",
-    tags: ["游泳", "蝶泳", "体能提升"],
-    coach: "赵雪",
-    coachMeta: "健将级 · 原省队",
+    tags: ["游泳", "自由泳", "换气节奏"],
+    sport: "游泳",
+    city: "上海",
+    audience: "青少年",
+    coach: "林悦",
+    coachMeta: "省队退役 · 儿童安全专项",
     fit: 81,
     phase: "待确认",
     phaseTone: "success",
@@ -280,12 +302,16 @@ const matchRows = [
   },
   {
     id: 5,
+    coachId: 3,
     student: "刘梓豪",
-    profile: "11岁 / 武汉",
-    demand: "体能增强",
-    tags: ["足球", "体能", "耐力提升"],
-    coach: "孙磊",
-    coachMeta: "国家级 · 原中超梯队",
+    profile: "16岁 / 深圳",
+    demand: "比赛备战",
+    tags: ["网球", "发抢", "比赛节奏"],
+    sport: "网球",
+    city: "深圳",
+    audience: "青少年",
+    coach: "王浩然",
+    coachMeta: "职业队退役 · 实战进阶",
     fit: 78,
     phase: "待匹配",
     phaseTone: "warning",
@@ -294,12 +320,16 @@ const matchRows = [
   },
   {
     id: 6,
+    coachId: 1,
     student: "黄若曦",
-    profile: "12岁 / 南京",
-    demand: "赛事准备",
-    tags: ["乒乓球", "单打", "发球抢攻"],
-    coach: "周婷",
-    coachMeta: "健将级 · 原省队",
+    profile: "12岁 / 北京",
+    demand: "动作纠错",
+    tags: ["羽毛球", "步法", "后场动作"],
+    sport: "羽毛球",
+    city: "北京",
+    audience: "青少年",
+    coach: "周明",
+    coachMeta: "国家队退役 · 青训专项",
     fit: 76,
     phase: "待确认",
     phaseTone: "success",
@@ -384,13 +414,16 @@ const coachLeads = [
   ["陈同学", "游泳", "考级训练", "需排期"],
 ];
 
+const androidDownloadHref = "/downloads/zhuguang-android-private-1.1.1.apk";
+
 const appEditions = [
   {
     name: "Mobile Native",
-    platform: "iOS / Android",
-    status: "Capacitor 工程已接入",
-    body: "面向学员、家长和教练，使用同一套逐光服务能力，保留匹配、教练详情、试课预约和身份认证。",
-    actions: ["iOS Xcode 工程", "Android Gradle 工程", "本地启动壳"],
+    platform: "Android",
+    status: "Android 1.1.1 私有签名版",
+    body: "同一账号承载学员与认证教练两种模式，覆盖匹配、预约、排期、消息、版本更新与训练档案。",
+    actions: ["统一双身份", "Android 7.0+", "安全更新"],
+    downloadHref: androidDownloadHref,
   },
   {
     name: "Desktop Native",
@@ -398,6 +431,7 @@ const appEditions = [
     status: "Tauri 工程已接入",
     body: "面向运营和机构使用，以独立桌面窗口进入服务中台，后续可补系统通知、自动更新和本地缓存。",
     actions: ["Windows 安装包", "Linux 安装包", "macOS 安装包"],
+    downloadHref: "",
   },
 ];
 
@@ -421,9 +455,10 @@ const nativeTargets = [
   {
     name: "Android",
     stack: "Capacitor + Gradle",
-    output: ".aab / .apk",
-    status: "工程已生成",
-    requirement: "需要 JDK + Android Studio / Android SDK + 签名 keystore",
+    output: "可安装 APK",
+    status: "私有签名版可下载",
+    requirement: "Android 7.0+ · Release keystore 仓库外保管 · 仅限受邀试点",
+    downloadHref: androidDownloadHref,
   },
   {
     name: "Windows",
@@ -455,28 +490,132 @@ const releasePipelines = [
   ["工具链诊断", "native:toolchain", "本机或 CI 可直接显示哪些平台 ready、哪些平台 blocked"],
 ];
 
-const publicNav = ["平台如何运转", "教练资质核验", "学员智能匹配", "全流程履约保障"];
+const publicNav = [
+  {
+    label: "平台产品",
+    anchor: "platform",
+    summary: "把教练供给、学员匹配、试课履约和运营治理放进同一套系统。",
+    targetSurface: "command" as Surface,
+    targetNavId: "match-queue",
+    columns: [
+      ["核心能力", "教练资质核验", "学员智能匹配", "试课排期", "履约保障"],
+      ["全端应用", "浏览器官网", "手机预约流", "PC 工作台", "原生 App"],
+    ],
+  },
+  {
+    label: "解决方案",
+    anchor: "solutions",
+    summary: "针对学员家庭、退役运动员教练和机构运营分别提供清晰入口。",
+    targetSurface: "mobile" as Surface,
+    targetNavId: "student-match",
+    columns: [
+      ["学员家庭", "找教练", "比方案", "约试课", "看反馈"],
+      ["机构运营", "供需看板", "审核队列", "风险预警", "复购分析"],
+    ],
+  },
+  {
+    label: "教练资源",
+    anchor: "coach",
+    summary: "帮助优秀退役运动员建立可信名片、经营线索和长期课程。",
+    targetSurface: "coach" as Surface,
+    targetNavId: "coach-onboard",
+    columns: [
+      ["入驻经营", "资料审核", "课程定价", "线索管理", "收入记录"],
+      ["成长支持", "教学样片", "评价体系", "服务标准", "训练模板"],
+    ],
+  },
+  {
+    label: "客户案例",
+    anchor: "cases",
+    summary: "用真实履约链路展示学员成长、教练增收和机构效率。",
+    targetSurface: "ops" as Surface,
+    targetNavId: "conversion-board",
+    columns: [
+      ["案例类型", "青训提升", "体测冲刺", "兴趣启蒙", "机构转化"],
+      ["关键指标", "满意度", "续课率", "响应时效", "安全记录"],
+    ],
+  },
+  {
+    label: "关于我们",
+    anchor: "trust",
+    summary: "逐光的底层能力是核验、解释、履约和未成年人保护。",
+    targetSurface: "ops" as Surface,
+    targetNavId: "audit-queue",
+    columns: [
+      ["平台原则", "真实身份", "专业履历", "服务合规", "数据安全"],
+      ["治理机制", "人工复核", "合同保险", "投诉处理", "质量追踪"],
+    ],
+  },
+  {
+    label: "帮助中心",
+    anchor: "process",
+    summary: "把加入平台、预约训练和处理订单的路径拆成可执行步骤。",
+    targetSurface: "apps" as Surface,
+    targetNavId: "pwa-install",
+    columns: [
+      ["常见任务", "如何找教练", "如何入驻", "如何排课", "如何安装"],
+      ["支持范围", "浏览器", "iOS / Android", "Windows", "macOS / Linux"],
+    ],
+  },
+];
 
-const publicStats = [
-  ["10,000+", "认证教练"],
-  ["320,000+", "学员与家长选择"],
-  ["98%", "好评率"],
+const publicTrustProofs = [
+  ["真实身份认证", "退役运动员身份核验", "人工审核双重保障"],
+  ["运动员履历校验", "核验证书与历史成绩", "确保专业可靠"],
+  ["教学成果验证", "教学经历与学员反馈", "多维评估体系"],
+  ["服务合同与保险", "平台标准服务合同", "全程保险保障"],
 ];
 
 const publicPillars = [
-  ["教练资质核验", "多重资质审核，确保教练真实、专业、合规。"],
-  ["学员智能匹配", "基于目标、位置、年龄和训练风格推荐合适教练。"],
-  ["课程预约管理", "在线预约课程，灵活安排时间，行程清晰可控。"],
-  ["全流程履约保障", "从上课到评价，全流程保障教学体验与权益。"],
+  ["教练资质核验", "退役经历、证书、执教记录、视频样片和服务标准进入统一审核。"],
+  ["学员智能匹配", "基于项目、城市、年龄、目标、预算、可约时间和训练风格生成解释型推荐。"],
+  ["课程预约管理", "咨询、试课、排期、合同、提醒和评价都在同一条履约链路内完成。"],
+  ["全流程履约保障", "课前确认、课后反馈、异常预警、复购建议和未成年人保护形成闭环。"],
 ];
 
-const publicAuditItems = ["身份实名验证", "退役运动员证明", "执教资质证书", "安全培训证书"];
-
-const publicSchedule = [
-  ["05/09 周四", "16:00-17:30", "篮球基础训练课", "已预约"],
-  ["05/12 周日", "10:00-11:30", "进攻技巧提升课", "待确认"],
-  ["05/16 周四", "16:00-17:30", "实战对抗训练课", "待上课"],
+const publicRolePaths = [
+  {
+    title: "学员找教练",
+    desc: "海量优质教练，智能匹配更合适",
+    bullets: ["按项目、地区、水平精准筛选", "查看教练履历与学员评价", "在线沟通，预约试听课程", "课程管理与学习进度跟踪"],
+    cta: "去找教练",
+    tone: "green",
+    surface: "mobile" as Surface,
+    navId: "student-match",
+  },
+  {
+    title: "教练合作与工作台",
+    desc: "人工审核认证，高效管理学员",
+    bullets: ["定向邀请并人工核验专业履历", "预约确认、排期与学员沟通", "数据看板，掌握服务进度", "线下收款记录，状态清晰"],
+    cta: "了解教练合作",
+    tone: "blue",
+    surface: "coach" as Surface,
+    navId: "coach-onboard",
+  },
+  {
+    title: "机构运营治理",
+    desc: "数字化管理，提升运营效率",
+    bullets: ["教练与课程统一管理", "学员数据与成长档案", "运营数据分析与决策支持", "多校区权限与财务管理"],
+    cta: "了解机构方案",
+    tone: "coral",
+    surface: "ops" as Surface,
+    navId: "conversion-board",
+  },
 ];
+
+const publicProcessSteps = [
+  ["01", "核验教练供给", "实名、退役履历、证书、执教记录和视频样片先进入平台审核。"],
+  ["02", "解释匹配原因", "每次推荐都说明目标、水平、位置、风格和可约时间的匹配逻辑。"],
+  ["03", "完成试课履约", "咨询、排期、合同、保险、提醒和课后反馈形成统一订单链路。"],
+  ["04", "沉淀长期成长", "训练记录、满意度、续课机会和服务风险持续沉淀到学员档案。"],
+];
+
+const publicCoachPortraitPositions: Record<number, string> = {
+  1: "12.5% 0%",
+  2: "87.5% 0%",
+  3: "12.5% 100%",
+  4: "87.5% 100%",
+};
 
 const defaultDeviceProfile: DeviceProfile = {
   deviceClass: "desktop",
@@ -604,6 +743,17 @@ export default function Home() {
   const [selectedCoachId, setSelectedCoachId] = useState(1);
   const [savedCoachIds, setSavedCoachIds] = useState<number[]>([1, 2]);
   const [notice, setNotice] = useState<string[]>([]);
+  const [matchGoalFilter, setMatchGoalFilter] = useState("全部需求");
+  const [matchPhaseFilter, setMatchPhaseFilter] = useState("全部阶段");
+  const [matchSportFilter, setMatchSportFilter] = useState("全部项目");
+  const [matchCityFilter, setMatchCityFilter] = useState("全部城市");
+  const [onlyHighFit, setOnlyHighFit] = useState(false);
+  const [sortHighFitFirst, setSortHighFitFirst] = useState(true);
+  const [matchPage, setMatchPage] = useState(1);
+  const [matchPageSize, setMatchPageSize] = useState(3);
+  const [selectedMatchRowId, setSelectedMatchRowId] = useState(1);
+  const [inspectorTab, setInspectorTab] = useState<"profile" | "service" | "risk">("profile");
+  const [showAllCredentials, setShowAllCredentials] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [appInstalled, setAppInstalled] = useState(false);
   const [coachDraft, setCoachDraft] = useState({
@@ -617,6 +767,7 @@ export default function Home() {
   });
   const [submittedCoach, setSubmittedCoach] = useState<typeof coachDraft | null>(null);
   const routeModeRef = useRef(routeMode);
+  const hasEnteredPlatformRef = useRef(hasEnteredPlatform);
 
   const activeSurface = surfaces.find((item) => item.id === surface) ?? surfaces[0];
   const activeNavItem = getNavItem(activeNavId) ?? getDefaultNavItem(surface);
@@ -630,6 +781,10 @@ export default function Home() {
   useEffect(() => {
     routeModeRef.current = routeMode;
   }, [routeMode]);
+
+  useEffect(() => {
+    hasEnteredPlatformRef.current = hasEnteredPlatform;
+  }, [hasEnteredPlatform]);
 
   const filteredCoaches = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -649,6 +804,39 @@ export default function Home() {
       return bySport && byCity && byGoal && byAudience && byQuery;
     });
   }, [audience, city, goal, query, sport]);
+
+  const filteredMatchRows = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return [...matchRows]
+      .filter((row) => matchGoalFilter === "全部需求" || row.demand === matchGoalFilter)
+      .filter((row) => matchPhaseFilter === "全部阶段" || row.phase === matchPhaseFilter)
+      .filter((row) => matchSportFilter === "全部项目" || row.sport === matchSportFilter)
+      .filter((row) => matchCityFilter === "全部城市" || row.city === matchCityFilter)
+      .filter((row) => !onlyHighFit || row.fit >= 85)
+      .filter((row) =>
+        !normalizedQuery ||
+        [row.student, row.profile, row.demand, row.coach, row.coachMeta, ...row.tags]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedQuery),
+      )
+      .sort((left, right) => sortHighFitFirst ? right.fit - left.fit : left.id - right.id);
+  }, [
+    matchCityFilter,
+    matchGoalFilter,
+    matchPhaseFilter,
+    matchSportFilter,
+    onlyHighFit,
+    query,
+    sortHighFitFirst,
+  ]);
+  const matchPageCount = Math.max(1, Math.ceil(filteredMatchRows.length / matchPageSize));
+  const safeMatchPage = Math.min(matchPage, matchPageCount);
+  const visibleMatchRows = filteredMatchRows.slice(
+    (safeMatchPage - 1) * matchPageSize,
+    safeMatchPage * matchPageSize,
+  );
+  const selectedMatchRow = matchRows.find((row) => row.id === selectedMatchRowId) ?? matchRows[0];
 
   const selectedCoach =
     filteredCoaches.find((coach) => coach.id === selectedCoachId) ??
@@ -678,7 +866,7 @@ export default function Home() {
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => {
+      navigator.serviceWorker.register("/sw.js?v=23").catch(() => {
         setNotice((current) => ["应用离线能力暂未注册成功，在线功能不受影响", ...current].slice(0, 3));
       });
     }
@@ -707,24 +895,26 @@ export default function Home() {
         setSurface(requestedSurface);
         setActiveNavId(getDefaultNavItem(requestedSurface).id);
         setRouteMode("link");
-      } else if (source === "native-mobile") {
+      } else if (source === "native-mobile" || (source === "app" && profile.deviceClass === "phone")) {
         setHasEnteredPlatform(true);
         setSurface("mobile");
         setActiveNavId("student-match");
         setRouteMode("auto");
-      } else if (source === "native-desktop") {
+      } else if (source === "native-desktop" || source === "tauri-dev" || source === "tauri") {
         setHasEnteredPlatform(true);
         setSurface("command");
         setActiveNavId("match-queue");
+        setRouteMode("auto");
+      } else if (source === "app") {
+        setHasEnteredPlatform(true);
+        setSurface(profile.recommendedSurface);
+        setActiveNavId(getDefaultNavItem(profile.recommendedSurface).id);
         setRouteMode("auto");
       } else if (role === "coach") {
         setHasEnteredPlatform(true);
         setSurface("coach");
         setActiveNavId("coach-onboard");
         setRouteMode("link");
-      } else if (hasEnteredPlatform) {
-        chooseSurface(profile.recommendedSurface, "auto");
-        setRouteMode("auto");
       }
     }, 0);
 
@@ -732,7 +922,7 @@ export default function Home() {
       const profile = detectDeviceProfile();
       setDeviceProfile(profile);
 
-      if (hasEnteredPlatform && routeModeRef.current === "auto") {
+      if (hasEnteredPlatformRef.current && routeModeRef.current === "auto") {
         chooseSurface(profile.recommendedSurface, "auto");
       }
     };
@@ -760,7 +950,7 @@ export default function Home() {
       window.removeEventListener("orientationchange", handleViewportChange);
       window.clearTimeout(syncClientState);
     };
-  }, [hasEnteredPlatform]);
+  }, []);
 
   function chooseSurface(nextSurface: Surface, mode: RouteMode = "manual", nextNavId?: string) {
     const nextNavItem = nextNavId ? getNavItem(nextNavId) : getDefaultNavItem(nextSurface);
@@ -776,8 +966,12 @@ export default function Home() {
   }
 
   function enterPlatform(nextSurface: Surface = deviceProfile.recommendedSurface, nextNavId?: string) {
+    hasEnteredPlatformRef.current = true;
     setHasEnteredPlatform(true);
     chooseSurface(nextSurface, "manual", nextNavId);
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ behavior: "auto", left: 0, top: 0 });
+    });
   }
 
   function resetFilters() {
@@ -786,6 +980,21 @@ export default function Home() {
     setGoal("全部目标");
     setAudience("青少年");
     setQuery("");
+  }
+
+  function resetMatchFilters() {
+    setMatchGoalFilter("全部需求");
+    setMatchPhaseFilter("全部阶段");
+    setMatchSportFilter("全部项目");
+    setMatchCityFilter("全部城市");
+    setOnlyHighFit(false);
+    setQuery("");
+    setMatchPage(1);
+  }
+
+  function selectMatchRow(row: (typeof matchRows)[number]) {
+    setSelectedMatchRowId(row.id);
+    setSelectedCoachId(row.coachId);
   }
 
   function toggleSaved(id: number) {
@@ -838,11 +1047,54 @@ export default function Home() {
             <Image alt="" height={40} src="/logo-mark.svg" width={40} />
             <strong>逐光 Coach OS</strong>
           </button>
-          <nav aria-label="官网主导航">
-            {publicNav.map((item) => (
-              <a href={`#${item}`} key={item}>{item}</a>
+          <nav className="public-nav-menu" aria-label="官网主导航">
+            {publicNav.map((group) => (
+              <div className="public-menu-item" key={group.label}>
+                <a href={`#${group.anchor}`}>{group.label}</a>
+                <div className="public-mega-panel">
+                  <p>{group.summary}</p>
+                  <div>
+                    {group.columns.map(([title, ...items]) => (
+                      <section key={title}>
+                        <strong>{title}</strong>
+                        {items.map((item) => (
+                          <a href={`#${group.anchor}`} key={item}>{item}</a>
+                        ))}
+                      </section>
+                    ))}
+                  </div>
+                  <button onClick={() => enterPlatform(group.targetSurface, group.targetNavId)} type="button">
+                    进入{group.label}
+                  </button>
+                </div>
+              </div>
             ))}
           </nav>
+          <div className="public-mobile-actions">
+            <button className="public-mobile-login" onClick={() => enterPlatform()} type="button">
+              登录
+            </button>
+            <details className="public-mobile-menu">
+              <summary aria-label="打开官网菜单">
+                <span aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+              </summary>
+              <div className="public-mobile-menu-panel">
+                {publicNav.map((group) => (
+                  <a href={`#${group.anchor}`} key={group.label}>
+                    <strong>{group.label}</strong>
+                    <span>{group.summary}</span>
+                  </a>
+                ))}
+                <button onClick={() => enterPlatform("coach", "coach-onboard")} type="button">
+                  注册教练
+                </button>
+              </div>
+            </details>
+          </div>
           <div className="public-nav-actions">
             <button className="secondary-button" onClick={() => enterPlatform()} type="button">
               登录
@@ -853,83 +1105,162 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="public-hero">
-          <div className="public-hero-copy">
-            <h1>
-              逐光而行，
-              <span>成就每一份热爱</span>
-            </h1>
-            <p>
-              逐光 Coach OS 连接退役专业运动员与学员家庭，让专业的人被看见，让训练目标被认真完成。
-            </p>
-            <div className="public-trust-row" aria-label="平台信任点">
-              <span>退役运动员严选</span>
-              <span>智能匹配更合适</span>
-              <span>全流程安全保障</span>
+        <section className="public-marketplace-hero" id="find-coach">
+          <div className="public-marketplace-intro">
+            <div>
+              <span className="public-live-label">退役运动员教练服务平台</span>
+              <h1>找到适合你的专业教练</h1>
+              <p>先看真实履历、匹配理由、价格与可约时间，再决定是否预约试课。</p>
             </div>
-            <div className="public-hero-actions">
-              <button className="primary-button" onClick={() => enterPlatform()} type="button">
-                登录进入工作台
-              </button>
-              <button className="secondary-button" onClick={() => enterPlatform("mobile", "student-match")} type="button">
-                预约找教练
-              </button>
-            </div>
-            <div className="public-stats">
-              {publicStats.map(([value, label]) => (
-                <div key={label}>
-                  <strong>{value}</strong>
-                  <span>{label}</span>
-                </div>
-              ))}
+            <div className="public-marketplace-actions">
+              <button className="secondary-button" onClick={() => enterPlatform()} type="button">进入平台工作台</button>
+              <button className="primary-button" onClick={() => enterPlatform("coach", "coach-onboard")} type="button">教练申请入驻</button>
             </div>
           </div>
 
-          <div className="public-visual" aria-label="平台服务预览">
-            <Image alt="退役运动员教练服务预览" fill priority sizes="(max-width: 980px) 100vw, 48vw" src="/coach-visual.png" />
-            <section className="public-audit-card">
-              <div>
-                <strong>教练资质核验</strong>
-                <em>已通过</em>
-              </div>
-              <p>张明辉 / 篮球 / 前职业运动员</p>
-              {publicAuditItems.map((item) => (
-                <span key={item}>{item}<b>已通过</b></span>
-              ))}
-            </section>
-            <section className="public-match-card">
-              <div>
-                <strong>学员智能匹配</strong>
-                <button onClick={() => enterPlatform("mobile", "student-match")} type="button">更多教练</button>
-              </div>
-              <div className="public-match-list">
-                {coaches.slice(0, 3).map((coach) => (
-                  <span key={coach.id}>
-                    <b>{coach.name.slice(0, 1)}</b>
-                    <strong>{coach.fit}</strong>
-                    <small>匹配度</small>
-                  </span>
-                ))}
-              </div>
-            </section>
-            <section className="public-schedule-card">
-              <strong>课程安排</strong>
-              {publicSchedule.map(([date, time, title, state]) => (
-                <div key={`${date}-${title}`}>
-                  <span>{date} · {time}</span>
-                  <b>{title}</b>
-                  <em>{state}</em>
+          <form
+            className="public-coach-search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (filteredCoaches[0]) setSelectedCoachId(filteredCoaches[0].id);
+              enterPlatform("mobile", "student-match");
+            }}
+          >
+            <label>
+              城市
+              <select onChange={(event) => setCity(event.target.value)} value={city}>
+                {filters.cities.map((item) => <option key={item}>{item}</option>)}
+              </select>
+            </label>
+            <label>
+              运动项目
+              <select onChange={(event) => setSport(event.target.value)} value={sport}>
+                {filters.sports.map((item) => <option key={item}>{item}</option>)}
+              </select>
+            </label>
+            <label>
+              训练目标
+              <select onChange={(event) => setGoal(event.target.value)} value={goal}>
+                {filters.goals.map((item) => <option key={item}>{item}</option>)}
+              </select>
+            </label>
+            <label>
+              适合人群
+              <select onChange={(event) => setAudience(event.target.value)} value={audience}>
+                {filters.audiences.map((item) => <option key={item}>{item}</option>)}
+              </select>
+            </label>
+            <label className="public-coach-search-query">
+              搜索
+              <input
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="教练、项目、城市或训练关键词"
+                type="search"
+                value={query}
+              />
+            </label>
+            <button className="primary-button" type="submit">搜索教练</button>
+          </form>
+
+          <div className="public-marketplace-body">
+            <section className="public-coach-directory" aria-labelledby="public-coach-directory-title">
+              <div className="public-directory-heading">
+                <div>
+                  <span>平台样例供给 · 资料均可展开核验</span>
+                  <h2 id="public-coach-directory-title">为你找到 {filteredCoaches.length} 位教练</h2>
                 </div>
-              ))}
-              <button onClick={() => enterPlatform("command", "trial-schedule")} type="button">
-                查看全部课程
-              </button>
+                <button onClick={resetFilters} type="button">重置条件</button>
+              </div>
+
+              <div className="public-coach-results">
+                {filteredCoaches.length > 0 ? filteredCoaches.slice(0, 4).map((coach) => (
+                  <article className="public-coach-result" key={coach.id}>
+                    <span
+                      aria-label={`${coach.name}教练头像`}
+                      className="public-coach-result-avatar"
+                      role="img"
+                      style={asVars({ "--portrait-position": publicCoachPortraitPositions[coach.id] })}
+                    />
+                    <div className="public-coach-result-main">
+                      <div>
+                        <strong>{coach.name}</strong>
+                        <em>已核验</em>
+                        <span>{coach.sport} · {coach.title}</span>
+                      </div>
+                      <p>{coach.level} · {coach.note}</p>
+                      <small>★ {coach.rating}（{coach.reviewCount} 条评价） · {coach.city} · {coach.availability[0]} 可约</small>
+                      <div>
+                        {coach.strengths.slice(0, 3).map((item) => <span key={item}>{item}</span>)}
+                      </div>
+                    </div>
+                    <div className="public-coach-result-score">
+                      <span>匹配度</span>
+                      <strong>{coach.fit}%</strong>
+                      <small>¥{coach.price}/节</small>
+                      <button
+                        onClick={() => {
+                          setSelectedCoachId(coach.id);
+                          enterPlatform("mobile", "student-match");
+                        }}
+                        type="button"
+                      >
+                        查看并预约
+                      </button>
+                    </div>
+                  </article>
+                )) : (
+                  <div className="public-coach-empty">
+                    <strong>当前条件下暂时没有匹配结果</strong>
+                    <p>可以放宽城市、目标或人群条件后再试。</p>
+                    <button onClick={resetFilters} type="button">重置筛选</button>
+                  </div>
+                )}
+              </div>
             </section>
+
+            <aside className="public-match-explainer">
+              <span>匹配如何工作</span>
+              <h2>每一个推荐，都说清楚原因</h2>
+              {[
+                ["01", "填写需求", "项目、城市、目标、人群与时间"],
+                ["02", "解释匹配", "履历、教学方向与可约状态共同计算"],
+                ["03", "核对教练", "查看证书、评价、价格与服务规则"],
+                ["04", "预约试课", "确认时间、场馆与取消政策"],
+              ].map(([step, title, body]) => (
+                <div key={step}><b>{step}</b><p><strong>{title}</strong><small>{body}</small></p></div>
+              ))}
+              <button onClick={() => enterPlatform("mobile", "student-match")} type="button">开始完整匹配</button>
+            </aside>
+          </div>
+
+          <div className="public-marketplace-trust" aria-label="平台服务原则">
+            {[
+              ["身份与退役履历", "逐项核验"],
+              ["推荐理由", "清晰可解释"],
+              ["预约与服务进度", "全程有记录"],
+              ["当前展示数据", "产品演示"],
+            ].map(([title, detail]) => <span key={title}><strong>{title}</strong><small>{detail}</small></span>)}
           </div>
         </section>
 
-        <section className="public-how" id="平台如何运转">
-          <h2>平台如何运转</h2>
+        <section className="public-proof-strip" id="trust" aria-label="平台信任体系">
+          {publicTrustProofs.map(([title, body, detail]) => (
+            <article key={title}>
+              <span aria-hidden="true" />
+              <div>
+                <strong>{title}</strong>
+                <p>{body}</p>
+                <small>{detail}</small>
+              </div>
+            </article>
+          ))}
+        </section>
+
+        <section className="public-how" id="platform">
+          <div className="public-section-head">
+            <h2>平台如何运转</h2>
+            <p>逐光把“找得到教练”升级为“可信任、能履约、可持续成长”的服务系统。</p>
+          </div>
           <div className="public-pillar-grid">
             {publicPillars.map(([title, body]) => (
               <article id={title} key={title}>
@@ -942,7 +1273,117 @@ export default function Home() {
             ))}
           </div>
         </section>
+
+        <section className="public-role-section" id="solutions">
+          <div className="public-section-head">
+            <h2>三大角色，一站式服务</h2>
+            <p>无论你是学员、教练还是机构，都能在逐光找到适合的解决方案。</p>
+          </div>
+          <div className="public-role-grid">
+            {publicRolePaths.map((path) => (
+              <article data-tone={path.tone} id={path.tone === "blue" ? "coach" : path.tone === "coral" ? "cases" : undefined} key={path.title}>
+                <div>
+                  <span>{path.title.slice(0, 2)}</span>
+                  <h3>{path.title}</h3>
+                  <p>{path.desc}</p>
+                </div>
+                <ul>
+                  {path.bullets.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+                <button onClick={() => enterPlatform(path.surface, path.navId)} type="button">
+                  {path.cta}
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="public-process" id="process">
+          <div className="public-section-head">
+            <h2>从核验到复购，流程透明可控</h2>
+            <p>每个关键节点都能被记录、追踪和解释，降低优秀教练与学员之间的信任成本。</p>
+          </div>
+          <div className="public-process-grid">
+            {publicProcessSteps.map(([step, title, body]) => (
+              <article key={step}>
+                <span>{step}</span>
+                <strong>{title}</strong>
+                <p>{body}</p>
+              </article>
+            ))}
+          </div>
+          <div className="public-final-cta">
+            <h2>登录后进入完整平台能力</h2>
+            <p>系统会根据手机、平板、桌面或原生 App 环境自动进入最合适的工作界面。</p>
+            <div>
+              <button className="primary-button" onClick={() => enterPlatform()} type="button">
+                登录进入工作台
+              </button>
+              <button className="secondary-button" onClick={() => enterPlatform("coach", "coach-onboard")} type="button">
+                了解教练合作
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="public-app-download" id="download">
+          <div className="public-app-download-inner">
+            <Image alt="" height={52} src="/logo-mark.svg" width={52} />
+            <div>
+              <span>Android 私有试点版</span>
+              <h2>逐光 App 已可下载安装</h2>
+              <p>Release 签名、SHA-256 校验与签名指纹均已生成，支持 Android 7.0 及以上系统。</p>
+            </div>
+            <a download href={androidDownloadHref}>
+              下载 Android APK
+            </a>
+          </div>
+        </section>
+
+        <footer className="public-footer">
+          <div>
+            <Image alt="" height={34} src="/logo-mark.svg" width={34} />
+            <span><strong>逐光 Coach OS</strong><small>连接退役运动员教练与真正需要专业训练的学员</small></span>
+          </div>
+          <nav aria-label="页脚导航">
+            <a href="#find-coach">找教练</a>
+            <a href="#trust">服务保障</a>
+            <a href="#coach">教练合作</a>
+            <a href="#download">Android App</a>
+            <a href="#process">帮助中心</a>
+          </nav>
+          <p>当前版本为私有产品演示。正式运营前将补充平台主体、服务协议、隐私政策、未成年人保护与投诉渠道。</p>
+        </footer>
       </main>
+    );
+  }
+
+  const shouldUseStudentMobileApp =
+    surface === "mobile" &&
+    (deviceProfile.deviceClass === "phone" || activeNavId === "student-match");
+
+  if (shouldUseStudentMobileApp) {
+    return (
+      <MobileStudentApp
+        audience={audience}
+        city={city}
+        coaches={coaches}
+        goal={goal}
+        onBook={(coachName) => {
+          setNotice((current) => [`已提交 ${coachName} 的试课预约，等待教练确认`, ...current].slice(0, 3));
+        }}
+        onChangeAudience={setAudience}
+        onChangeCity={setCity}
+        onChangeGoal={setGoal}
+        onChangeSport={setSport}
+        onSelectCoach={setSelectedCoachId}
+        onToggleSaved={toggleSaved}
+        savedCoachIds={savedCoachIds}
+        selectedCoachId={selectedCoach.id}
+        sport={sport}
+      />
     );
   }
 
@@ -1008,7 +1449,10 @@ export default function Home() {
           <div className="command-actions">
             <input
               aria-label="搜索教练、城市、资质或学员目标"
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setMatchPage(1);
+              }}
               placeholder="搜索教练、城市、资质或学员目标"
               type="search"
               value={query}
@@ -1063,7 +1507,7 @@ export default function Home() {
         </nav>
 
         <div className="surface-stage" key={surface}>
-          {surface === "command" && (
+          {surface === "command" && activeNavId === "match-queue" && (
             <section className="enterprise-grid">
               <div className="kpi-strip">
                 {commandMetrics.map(([value, label, detail, tone], index) => (
@@ -1082,31 +1526,57 @@ export default function Home() {
                     <h2>学员匹配工作台</h2>
                     <p>按需求摘要、推荐教练、契合度、匹配阶段和更新时间统一处理撮合队列。</p>
                   </div>
-                  <button className="secondary-button compact-action" type="button">
-                    智能排序
+                  <button
+                    aria-pressed={sortHighFitFirst}
+                    className="secondary-button compact-action"
+                    onClick={() => {
+                      setSortHighFitFirst((current) => !current);
+                      setMatchPage(1);
+                    }}
+                    type="button"
+                  >
+                    {sortHighFitFirst ? "按契合度排序" : "按更新时间排序"}
                   </button>
                 </div>
 
                 <div className="console-filters" aria-label="匹配筛选">
                   <label>
-                    推荐类型
-                    <select onChange={(event) => setGoal(event.target.value)} value={goal}>
-                      {filters.goals.map((item) => (
+                    训练需求
+                    <select
+                      onChange={(event) => {
+                        setMatchGoalFilter(event.target.value);
+                        setMatchPage(1);
+                      }}
+                      value={matchGoalFilter}
+                    >
+                      {["全部需求", ...Array.from(new Set(matchRows.map((row) => row.demand)))].map((item) => (
                         <option key={item}>{item}</option>
                       ))}
                     </select>
                   </label>
                   <label>
                     匹配阶段
-                    <select onChange={(event) => setAudience(event.target.value)} value={audience}>
-                      {filters.audiences.map((item) => (
+                    <select
+                      onChange={(event) => {
+                        setMatchPhaseFilter(event.target.value);
+                        setMatchPage(1);
+                      }}
+                      value={matchPhaseFilter}
+                    >
+                      {["全部阶段", ...Array.from(new Set(matchRows.map((row) => row.phase)))].map((item) => (
                         <option key={item}>{item}</option>
                       ))}
                     </select>
                   </label>
                   <label>
-                    契合度
-                    <select onChange={(event) => setSport(event.target.value)} value={sport}>
+                    运动项目
+                    <select
+                      onChange={(event) => {
+                        setMatchSportFilter(event.target.value);
+                        setMatchPage(1);
+                      }}
+                      value={matchSportFilter}
+                    >
                       {filters.sports.map((item) => (
                         <option key={item}>{item}</option>
                       ))}
@@ -1114,89 +1584,135 @@ export default function Home() {
                   </label>
                   <label>
                     所在区域
-                    <select onChange={(event) => setCity(event.target.value)} value={city}>
+                    <select
+                      onChange={(event) => {
+                        setMatchCityFilter(event.target.value);
+                        setMatchPage(1);
+                      }}
+                      value={matchCityFilter}
+                    >
                       {filters.cities.map((item) => (
                         <option key={item}>{item}</option>
                       ))}
                     </select>
                   </label>
                   <label className="inline-check">
-                    <input type="checkbox" />
-                    只看高契合
+                    <input
+                      checked={onlyHighFit}
+                      onChange={(event) => {
+                        setOnlyHighFit(event.target.checked);
+                        setMatchPage(1);
+                      }}
+                      type="checkbox"
+                    />
+                    只看 85% 以上
                   </label>
-                  <button onClick={resetFilters} type="button">
+                  <button onClick={resetMatchFilters} type="button">
                     重置
                   </button>
                 </div>
 
                 <div className="match-table" role="table" aria-label="学员匹配列表">
                   <div className="match-row table-head" role="row">
-                    <span>学员信息</span>
-                    <span>需求摘要</span>
-                    <span>推荐教练</span>
-                    <span>契合度</span>
-                    <span>匹配阶段</span>
-                    <span>更新时间</span>
-                    <span>操作</span>
+                    <span role="columnheader">学员信息</span>
+                    <span role="columnheader">需求摘要</span>
+                    <span role="columnheader">推荐教练</span>
+                    <span role="columnheader">契合度</span>
+                    <span role="columnheader">匹配阶段</span>
+                    <span role="columnheader">更新时间</span>
+                    <span role="columnheader">操作</span>
                   </div>
-                  {matchRows.map((row, index) => (
-                    <button
-                      className={row.coach === selectedCoach.name ? "match-row selected" : "match-row"}
+                  {visibleMatchRows.map((row, index) => (
+                    <div
+                      className={row.id === selectedMatchRow.id ? "match-row selected" : "match-row"}
                       key={row.id}
-                      onClick={() => {
-                        const nextCoach = coaches.find((coach) => coach.name === row.coach) ?? selectedCoach;
-                        setSelectedCoachId(nextCoach.id);
-                      }}
                       style={asVars({ "--accent": row.accent, "--delay": `${index * 48}ms` })}
-                      type="button"
+                      role="row"
                     >
-                      <span className="student-cell">
+                      <span className="student-cell" role="cell">
                         <b>{row.student.slice(0, 1)}</b>
                         <span>
                           <strong>{row.student}</strong>
                           <small>{row.profile}</small>
                         </span>
                       </span>
-                      <span className="demand-cell">
+                      <span className="demand-cell" role="cell">
                         <strong>{row.demand}</strong>
                         <small>{row.tags.join(" · ")}</small>
                       </span>
-                      <span className="coach-cell">
+                      <span className="coach-cell" role="cell">
                         <strong>{row.coach}</strong>
                         <small>{row.coachMeta}</small>
                       </span>
-                      <span className="fit-cell">
+                      <span className="fit-cell" role="cell">
                         <strong>{row.fit}%</strong>
                         <i style={asVars({ "--progress": `${row.fit}%` })} />
                       </span>
-                      <span className={`phase-pill ${row.phaseTone}`}>{row.phase}</span>
-                      <span className="time-cell">{row.time}</span>
-                      <span className="row-actions">查看</span>
-                    </button>
+                      <span className={`phase-pill ${row.phaseTone}`} role="cell">{row.phase}</span>
+                      <span className="time-cell" role="cell">{row.time}</span>
+                      <span role="cell">
+                        <button className="row-actions" onClick={() => selectMatchRow(row)} type="button">
+                          {row.id === selectedMatchRow.id ? "已选" : "查看"}
+                        </button>
+                      </span>
+                    </div>
                   ))}
+                  {visibleMatchRows.length === 0 && (
+                    <div className="match-table-empty" role="row">
+                      <span role="cell">没有符合当前条件的学员匹配记录。请放宽筛选条件后重试。</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="table-footer">
-                  <span>共 24 条</span>
+                  <span>共 {filteredMatchRows.length} 条</span>
                   <div>
-                    <button type="button">上一页</button>
-                    <button className="active" type="button">1</button>
-                    <button type="button">2</button>
-                    <button type="button">3</button>
-                    <button type="button">下一页</button>
+                    <button disabled={safeMatchPage === 1} onClick={() => setMatchPage((page) => Math.max(1, page - 1))} type="button">上一页</button>
+                    {Array.from({ length: matchPageCount }, (_, index) => index + 1).map((page) => (
+                      <button
+                        aria-current={safeMatchPage === page ? "page" : undefined}
+                        className={safeMatchPage === page ? "active" : ""}
+                        key={page}
+                        onClick={() => setMatchPage(page)}
+                        type="button"
+                      >
+                        {page}
+                      </button>
+                    ))}
+                    <button disabled={safeMatchPage === matchPageCount} onClick={() => setMatchPage((page) => Math.min(matchPageCount, page + 1))} type="button">下一页</button>
                   </div>
-                  <select aria-label="每页条数" defaultValue="10">
-                    <option>10 条/页</option>
-                    <option>20 条/页</option>
+                  <select
+                    aria-label="每页条数"
+                    onChange={(event) => {
+                      setMatchPageSize(Number(event.target.value));
+                      setMatchPage(1);
+                    }}
+                    value={matchPageSize}
+                  >
+                    <option value="3">3 条/页</option>
+                    <option value="6">6 条/页</option>
                   </select>
                 </div>
               </section>
 
               <aside className="trust-inspector panel" style={asVars({ "--accent": selectedCoach.accent })}>
-                <div className="inspector-tabs">
-                  <button className="active" type="button">教练信任档案</button>
-                  <button type="button">服务队列</button>
-                  <button type="button">风险预警</button>
+                <div aria-label="教练详情视图" className="inspector-tabs" role="tablist">
+                  {[
+                    ["profile", "教练信任档案"],
+                    ["service", "服务队列"],
+                    ["risk", "风险预警"],
+                  ].map(([id, label]) => (
+                    <button
+                      aria-selected={inspectorTab === id}
+                      className={inspectorTab === id ? "active" : ""}
+                      key={id}
+                      onClick={() => setInspectorTab(id as typeof inspectorTab)}
+                      role="tab"
+                      type="button"
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
                 <div className="inspector-hero">
                   <div>
@@ -1208,42 +1724,89 @@ export default function Home() {
                   </div>
                   <strong>{selectedCoach.rating}</strong>
                 </div>
-                <section className="inspector-section">
-                  <h3>资质与认证</h3>
-                  {selectedCoach.proof.map((item) => (
-                    <div className="cert-row" key={item}>
-                      <span>{item}</span>
-                      <em>已认证</em>
-                    </div>
-                  ))}
-                  <button type="button">查看全部资质</button>
-                </section>
-                <section className="inspector-section">
-                  <h3>履历与荣誉</h3>
-                  <ul>
-                    <li>2010年 全国青年锦标赛男单冠军</li>
-                    <li>2012年 亚洲青年锦标赛团体冠军</li>
-                    <li>2014年 全国羽毛球锦标赛双打季军</li>
-                  </ul>
-                </section>
-                <section className="inspector-section">
-                  <h3>教学能力</h3>
-                  {trustBars.map(([title, body, value]) => (
-                    <div className="skill-row" key={title}>
-                      <span>
-                        <strong>{title}</strong>
-                        <small>{body}</small>
-                      </span>
-                      <i style={asVars({ "--progress": `${value}%` })} />
-                    </div>
-                  ))}
-                </section>
-                <section className="inspector-section risk-safe">
-                  <h3>合规与风险</h3>
-                  <strong>96 / 100</strong>
-                  <i style={asVars({ "--progress": "96%" })} />
-                  <p>近 90 天无风险记录，适合进入优先推荐池。</p>
-                </section>
+
+                {inspectorTab === "profile" && (
+                  <>
+                    <section className="inspector-section">
+                      <h3>资质与认证</h3>
+                      {[
+                        ...selectedCoach.proof,
+                        ...(showAllCredentials ? ["实名信息与收款主体一致", "最近一次人工复核：2026-07-28"] : []),
+                      ].map((item) => (
+                        <div className="cert-row" key={item}>
+                          <span>{item}</span>
+                          <em>已认证</em>
+                        </div>
+                      ))}
+                      <button onClick={() => setShowAllCredentials((current) => !current)} type="button">
+                        {showAllCredentials ? "收起补充资质" : "查看全部资质"}
+                      </button>
+                    </section>
+                    <section className="inspector-section">
+                      <h3>履历与荣誉</h3>
+                      <ul>
+                        <li>{selectedCoach.level}经历已完成档案核验</li>
+                        <li>{selectedCoach.lessons} 节平台服务记录</li>
+                        <li>{selectedCoach.reviewCount} 条可追溯学员评价</li>
+                      </ul>
+                    </section>
+                    <section className="inspector-section">
+                      <h3>教学能力</h3>
+                      {trustBars.map(([title, body, value]) => (
+                        <div className="skill-row" key={title}>
+                          <span>
+                            <strong>{title}</strong>
+                            <small>{body}</small>
+                          </span>
+                          <i style={asVars({ "--progress": `${value}%` })} />
+                        </div>
+                      ))}
+                    </section>
+                  </>
+                )}
+
+                {inspectorTab === "service" && (
+                  <>
+                    <section className="inspector-section inspector-service-summary">
+                      <h3>当前匹配任务</h3>
+                      <strong>{selectedMatchRow.student} · {selectedMatchRow.demand}</strong>
+                      <p>{selectedMatchRow.tags.join(" / ")}</p>
+                    </section>
+                    <section className="inspector-section">
+                      <h3>近期可约时段</h3>
+                      {selectedCoach.availability.map((item) => (
+                        <div className="cert-row" key={item}><span>{item}</span><em>可排期</em></div>
+                      ))}
+                      <button
+                        onClick={() => chooseNavItem(getNavItem("trial-schedule") ?? activeNavItem)}
+                        type="button"
+                      >
+                        进入试课排期
+                      </button>
+                    </section>
+                    <section className="inspector-section">
+                      <h3>服务备注</h3>
+                      <p>{selectedCoach.note}</p>
+                    </section>
+                  </>
+                )}
+
+                {inspectorTab === "risk" && (
+                  <>
+                    <section className="inspector-section risk-safe">
+                      <h3>合规与风险</h3>
+                      <strong>96 / 100</strong>
+                      <i style={asVars({ "--progress": "96%" })} />
+                      <p>近 90 天无投诉、爽约或资质过期记录，可进入优先推荐池。</p>
+                    </section>
+                    <section className="inspector-section">
+                      <h3>监测项目</h3>
+                      {["身份与收款主体一致", "证书仍在有效期", "近 30 天履约正常", "未成年人服务记录完整"].map((item) => (
+                        <div className="cert-row" key={item}><span>{item}</span><em>正常</em></div>
+                      ))}
+                    </section>
+                  </>
+                )}
               </aside>
 
               <div className="queue-grid">
@@ -1251,7 +1814,16 @@ export default function Home() {
                   <section className="queue-panel panel" key={panel.title}>
                     <div className="mini-heading">
                       <strong>{panel.title}（{panel.total}）</strong>
-                      <button type="button">查看更多</button>
+                      <button
+                        onClick={() => {
+                          if (panel.title === "服务队列") chooseNavItem(getNavItem("trial-schedule") ?? activeNavItem);
+                          else if (panel.title === "风险预警") chooseNavItem(getNavItem("fulfillment") ?? activeNavItem);
+                          else setNotice((current) => ["已刷新智能建议列表", ...current].slice(0, 3));
+                        }}
+                        type="button"
+                      >
+                        查看更多
+                      </button>
                     </div>
                     <div className="queue-list">
                       {panel.rows.map(([label, value]) => (
@@ -1264,6 +1836,100 @@ export default function Home() {
                   </section>
                 ))}
               </div>
+            </section>
+          )}
+
+          {surface === "command" && activeNavId === "trial-schedule" && (
+            <section className="command-task-view">
+              <div className="command-task-summary panel">
+                <div>
+                  <span className="eyebrow">Trial Scheduling</span>
+                  <h2>试课排期</h2>
+                  <p>把待确认预约、教练可约时间、场馆与家长回复放进同一条排期队列。</p>
+                </div>
+                <div>
+                  <strong>9</strong><span>待排期</span>
+                  <strong>3</strong><span>场馆待确认</span>
+                  <strong>2</strong><span>时间冲突</span>
+                </div>
+              </div>
+              <section className="schedule-board panel">
+                <div className="section-heading">
+                  <div><span>今天</span><strong>7 月 30 日 · 周四</strong></div>
+                  <button
+                    className="secondary-button"
+                    onClick={() => setNotice((current) => ["排期视图已刷新", ...current].slice(0, 3))}
+                    type="button"
+                  >
+                    刷新可约时段
+                  </button>
+                </div>
+                <div className="schedule-columns">
+                  {[
+                    ["待确认", "4", ["19:30 周明 / 李明轩", "20:00 陈思雨 / 王思涵"]],
+                    ["场馆确认中", "3", ["18:30 林悦 / 陈一诺", "周六 10:00 周明 / 黄若曦"]],
+                    ["已排期", "12", ["14:00 王浩然 / 刘梓豪", "15:30 陈思雨 / 张子睿"]],
+                  ].map(([title, total, rows]) => (
+                    <section key={title as string}>
+                      <header><strong>{title as string}</strong><span>{total as string}</span></header>
+                      {(rows as string[]).map((row) => (
+                        <article key={row}>
+                          <span>{row.split(" ")[0]}</span>
+                          <strong>{row.slice(row.indexOf(" ") + 1)}</strong>
+                          <button
+                            onClick={() => setNotice((current) => [`已打开排期：${row}`, ...current].slice(0, 3))}
+                            type="button"
+                          >
+                            处理
+                          </button>
+                        </article>
+                      ))}
+                    </section>
+                  ))}
+                </div>
+              </section>
+            </section>
+          )}
+
+          {surface === "command" && activeNavId === "fulfillment" && (
+            <section className="command-task-view">
+              <div className="command-task-summary panel">
+                <div>
+                  <span className="eyebrow">Service Fulfillment</span>
+                  <h2>履约回访</h2>
+                  <p>集中处理课后反馈、续课机会与异常服务，避免问题散落在聊天记录里。</p>
+                </div>
+                <div>
+                  <strong>8</strong><span>课后待回访</span>
+                  <strong>6</strong><span>续课机会</span>
+                  <strong>3</strong><span>服务异常</span>
+                </div>
+              </div>
+              <section className="fulfillment-board panel">
+                <div className="section-heading">
+                  <div><span>服务队列</span><strong>按优先级处理</strong></div>
+                  <small>最近更新：刚刚</small>
+                </div>
+                <div className="fulfillment-list">
+                  {[
+                    ["高", "李明轩 · 周明", "试课后 24 小时未完成回访", "课后回访"],
+                    ["中", "陈一诺 · 林悦", "本周期已完成 6 节，建议续课评估", "续课机会"],
+                    ["高", "王思涵 · 陈思雨", "场馆临时变更，等待家长确认", "服务异常"],
+                    ["低", "刘梓豪 · 王浩然", "已提交课后视频，等待教练点评", "反馈待处理"],
+                  ].map(([priority, title, body, type]) => (
+                    <article key={title}>
+                      <span data-priority={priority}>{priority}</span>
+                      <div><strong>{title}</strong><p>{body}</p><small>{type}</small></div>
+                      <button
+                        onClick={() => setNotice((current) => [`已进入处理：${title}`, ...current].slice(0, 3))}
+                        type="button"
+                      >
+                        处理
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              </section>
             </section>
           )}
 
@@ -1286,11 +1952,18 @@ export default function Home() {
               </div>
 
               <div className="visual-panel">
-                <Image alt="教练指导学员训练" fill priority sizes="(max-width: 1260px) 100vw, 40vw" src="/coach-visual.png" />
+                <Image
+                  alt="教练指导学员训练"
+                  fill
+                  priority
+                  sizes="(max-width: 1260px) 100vw, 40vw"
+                  src="/coach-visual-v23.webp"
+                  unoptimized
+                />
                 <div className="floating-proof">
                   <span>本周最佳匹配</span>
                   <strong>周明 / 羽毛球青训</strong>
-                  <small>目标匹配度 94%，今晚 19:30 可试课</small>
+                  <small>推荐依据已计算 · 时段以教练确认结果为准</small>
                 </div>
               </div>
 
@@ -1315,9 +1988,9 @@ export default function Home() {
                   适合家长和学员快速决策。每张教练卡片都显示 Fit 分数、真实身份、近期可约时间和推荐解释。
                 </p>
                 <div className="spec-list">
-                  <span>Fit 90+ 优先展示</span>
+                  <span>五项条件综合排序</span>
                   <span>推荐原因可解释</span>
-                  <span>底部四入口导航</span>
+                  <span>底部五入口导航</span>
                 </div>
               </div>
 
@@ -1379,12 +2052,17 @@ export default function Home() {
                   <span className="eyebrow">Application Suite</span>
                   <h2>iOS、Android、Windows、Linux、macOS 使用同一套服务中台能力</h2>
                   <p>
-                    当前已接入 PWA、Capacitor 和 Tauri 三层交付：浏览器可安装，iOS/Android 有原生工程，Windows/Linux/macOS 有桌面工程。
+                    当前已接入 PWA、Capacitor 和 Tauri 三层交付。Android 私有试点版使用独立 release keystore 签名，iOS 工程将在 macOS 完成签名后提供。
                   </p>
                 </div>
-                <button className="primary-button" onClick={handleInstallApp} type="button">
-                  {appInstalled ? "应用已安装" : canInstallApp ? "安装逐光 App" : "查看安装入口"}
-                </button>
+                <div className="app-hero-actions">
+                  <a className="primary-button" download href={androidDownloadHref}>
+                    下载 Android APK
+                  </a>
+                  <button className="secondary-button" onClick={handleInstallApp} type="button">
+                    {appInstalled ? "网页应用已安装" : canInstallApp ? "安装网页应用" : "PWA 安装说明"}
+                  </button>
+                </div>
               </div>
 
               <div className="app-edition-grid">
@@ -1405,6 +2083,11 @@ export default function Home() {
                           <strong key={item}>{item}</strong>
                         ))}
                       </div>
+                      {edition.downloadHref && (
+                        <a className="app-download-link" download href={edition.downloadHref}>
+                          下载 Android 私有版
+                        </a>
+                      )}
                     </div>
                   </article>
                 ))}
@@ -1446,6 +2129,11 @@ export default function Home() {
                       <strong>{target.stack}</strong>
                       <p>{target.output}</p>
                       <small>{target.requirement}</small>
+                      {"downloadHref" in target && target.downloadHref && (
+                        <a className="target-download-link" download href={target.downloadHref}>
+                          下载 APK
+                        </a>
+                      )}
                     </article>
                   ))}
                 </div>

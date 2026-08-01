@@ -1,5 +1,21 @@
 apply plugin: 'com.android.application'
 
+def releaseKeystorePath = System.getenv('ZHUGUANG_ANDROID_KEYSTORE')
+def releaseKeyAlias = System.getenv('ZHUGUANG_ANDROID_KEY_ALIAS')
+def releaseStorePassword = System.getenv('ZHUGUANG_ANDROID_STORE_PASSWORD')
+def releaseKeyPassword = System.getenv('ZHUGUANG_ANDROID_KEY_PASSWORD')
+def releaseVersionCode = (System.getenv('ZHUGUANG_ANDROID_VERSION_CODE') ?: '3').toInteger()
+def releaseVersionName = System.getenv('ZHUGUANG_ANDROID_VERSION_NAME') ?: '1.1.0'
+def jpushAppKey = System.getenv('JPUSH_APP_KEY') ?: 'NOT_CONFIGURED'
+def vivoAppId = System.getenv('JPUSH_VIVO_APP_ID') ?: ''
+def vivoAppKey = System.getenv('JPUSH_VIVO_APP_KEY') ?: ''
+def releaseSigningConfigured = [releaseKeystorePath, releaseKeyAlias, releaseStorePassword, releaseKeyPassword].every { it }
+def releaseTaskRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
+
+if (releaseTaskRequested && !releaseSigningConfigured) {
+    throw new GradleException('Release signing variables are required. Keep the keystore and passwords outside the repository.')
+}
+
 android {
     namespace = "com.zhuguang.coachos"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +23,15 @@ android {
         applicationId "com.zhuguang.coachos"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode releaseVersionCode
+        versionName releaseVersionName
+        manifestPlaceholders = [
+            JPUSH_PKGNAME: applicationId,
+            JPUSH_APPKEY: jpushAppKey,
+            JPUSH_CHANNEL: "private-pilot",
+            VIVO_APPID: vivoAppId,
+            VIVO_APPKEY: vivoAppKey
+        ]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,8 +39,22 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (releaseSigningConfigured) {
+                storeFile file(releaseKeystorePath)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+                enableV1Signing true
+                enableV2Signing true
+                enableV3Signing true
+            }
+        }
+    }
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
@@ -35,6 +72,10 @@ dependencies {
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation "cn.jiguang.sdk:jpush:6.2.0"
+    if (vivoAppId && vivoAppKey) {
+        implementation "cn.jiguang.sdk.plugin:vivo:5.5.3.a"
+    }
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

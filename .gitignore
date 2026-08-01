@@ -30,6 +30,11 @@ yarn-error.log*
 .npm-cache/
 dev.out.log
 dev.err.log
+preview.out.log
+preview.err.log
+preview.log
+preview-error.log
+/artifacts/
 
 # env files (can opt-in for committing if needed)
 .env*
@@ -39,10 +44,12 @@ dev.err.log
 
 # typescript
 next-env.d.ts
+*.tsbuildinfo
 /dist/
 /.wrangler/
 /outputs/
 /work/
+/.toolchains/
 
 # native build outputs
 /android/.gradle/

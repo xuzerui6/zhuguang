@@ -9,7 +9,8 @@
 ## 项目结构
 
 - `capacitor.config.ts`：iOS/Android 原生应用配置。
-- `native/mobile/www/`：移动端原生启动壳和离线兜底页。
+- `native/mobile/src/`：可独立运行的移动端 React 应用。
+- `native/mobile/www/`：Vite 生成的离线移动端资源包。
 - `android/`：Android Gradle 工程。
 - `ios/`：iOS Xcode 工程。
 - `src-tauri/`：Tauri 桌面端工程。
@@ -50,13 +51,14 @@ npm run native:icons
 当前工作流包含：
 
 - Web/PWA + 原生配置检查
-- Android debug APK
+- Android 编译检查（debug 包不上传、不分发）
+- Android 私有 release APK（仅手动触发并从 GitHub Secrets 注入签名）
 - iOS simulator build
 - Windows Tauri bundle
 - Linux Tauri bundle
 - macOS Tauri bundle
 
-商店发布阶段还需要补充签名 secrets、证书、notarization、Android keystore 和 Apple provisioning profile。
+iOS 和桌面商店发布仍需补充证书、notarization 与 Apple provisioning profile。
 
 ## iOS
 
@@ -81,13 +83,24 @@ npm run mobile:ios:build
 
 ## Android
 
+### Unified mobile API
+
+The Android client uses the standalone `worker/mobile-api.ts` Worker in production. Start from
+`wrangler.mobile-api.example.jsonc`, bind the dedicated `zhuguang-mobile-api` D1 database and the
+private `zhuguang-mobile-releases` R2 bucket, then store all authentication, SMS, update-ticket,
+operator, and JPush credentials as Worker secrets. The channel key is an identifier bundled into
+the APK and must not be treated as user authorization or as a secret.
+
+The Worker cron retries pending push deliveries every five minutes. JPush remains disabled until
+the server has an AppKey and Master Secret and the Android build receives only the public AppKey.
+
 工程已生成在 `android/`。
 
 构建要求：
 
-- JDK
-- Android Studio 或 Android SDK
-- Android signing keystore
+- JDK 21 或更高版本
+- Android SDK Platform 36 / Build Tools 36
+- 仓库外 Android release keystore
 
 常用命令：
 
@@ -95,12 +108,35 @@ npm run mobile:ios:build
 npm run mobile:android:sync
 npm run mobile:android:open
 npm run mobile:android:build
+npm run mobile:android:apk
+npm run mobile:android:release
 ```
 
 输出目标：
 
-- `.apk`：测试安装包
+- `public/downloads/zhuguang-android-private-1.1.0.apk`：统一双身份私有试点 release APK
+- `public/downloads/android-private-release.json`：版本、大小、SHA-256 与签名指纹
 - `.aab`：Google Play / 国内安卓商店更常用的发布格式
+
+`mobile:android:apk` 与 `mobile:android:release` 都只生成 release 签名包。构建前必须在当前终端提供：
+
+```bash
+ZHUGUANG_ANDROID_KEYSTORE=/outside/repository/zhuguang-release.jks
+ZHUGUANG_ANDROID_KEY_ALIAS=zhuguang-student
+ZHUGUANG_ANDROID_STORE_PASSWORD=***
+ZHUGUANG_ANDROID_KEY_PASSWORD=***
+```
+
+可选变量：
+
+```bash
+ZHUGUANG_API_BASE_URL=https://private-api.example.com
+VITE_PILOT_APP_KEY=***
+ZHUGUANG_ANDROID_VERSION_NAME=1.1.0
+ZHUGUANG_ANDROID_VERSION_CODE=3
+```
+
+密钥、密码和生产 API 凭据不得写入仓库或 APK。构建脚本会执行 Capacitor 同步、`assembleRelease`、`apksigner verify`，随后生成 SHA-256 校验值和签名证书指纹。
 
 ## Windows
 
@@ -159,4 +195,4 @@ npm run desktop:build
 
 ## 当前限制
 
-当前 native shell 会进入已发布的逐光私有平台。要达到应用商店长期发布标准，下一阶段应把核心前端拆成可本地静态打包的 App Core，并补齐推送、文件上传、定位、系统通知、自动更新和签名流水线。
+当前 Android App 已覆盖匿名浏览、手机号验证、收藏合并、教练筛选与详情、预约、消息、通知、学员档案、账号安全和注销。北京私有试点上线前仍需配置生产 D1/R2、腾讯云短信、手机号白名单与私有 HTTPS API；首版不包含在线支付、精确定位和原生推送。

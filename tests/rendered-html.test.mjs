@@ -1,179 +1,169 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
-async function render() {
+async function read(path) {
+  return readFile(new URL(path, root), "utf8");
+}
+
+async function render(path = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
-
   return worker.fetch(
-    new Request("http://localhost/", {
-      headers: { accept: "text/html" },
-    }),
-    {
-      ASSETS: {
-        fetch: async () => new Response("Not found", { status: 404 }),
-      },
-    },
-    {
-      waitUntil() {},
-      passThroughOnException() {},
-    },
+    new Request(`http://localhost${path}`, { headers: { accept: "text/html" } }),
+    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
+    { waitUntil() {}, passThroughOnException() {} },
   );
 }
 
-test("server-renders the public landing page before the app shell", async () => {
+test("server-renders the public introduction before authenticated workspaces", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
   assert.match(html, /<title>逐光 Coach OS<\/title>/);
-  assert.match(html, /逐光而行，/);
-  assert.match(html, /成就每一份热爱/);
+  assert.match(html, /找到适合你的专业教练/);
   assert.match(html, /登录进入工作台/);
-  assert.match(html, /预约找教练/);
-  assert.match(html, /平台如何运转/);
   assert.match(html, /教练资质核验/);
   assert.match(html, /学员智能匹配/);
   assert.match(html, /全流程履约保障/);
-  assert.match(html, /10,000\+/);
-  assert.doesNotMatch(html, /学员匹配工作台/);
-  assert.doesNotMatch(html, /教练信任档案/);
+  assert.match(html, /Android 私有试点版/);
+  assert.match(html, /zhuguang-android-private-1\.1\.1\.apk/);
+  assert.match(html, /了解教练合作/);
+  assert.doesNotMatch(html, /教练注册入驻/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
 });
 
-test("keeps the full product UI surfaces wired", async () => {
+test("keeps the mobile MVP, API and coach workspace wired", async () => {
   const [
     page,
-    layout,
-    css,
+    mobileApp,
+    components,
+    sheets,
+    profile,
+    domain,
+    device,
+    apiClient,
+    mobileCss,
+    router,
+    repository,
+    sms,
+    schema,
+    coachWorkspace,
     packageJson,
-    manifest,
-    sw,
-    offline,
     capacitorConfig,
-    tauriConfig,
-    mobileShell,
-    desktopShell,
+    androidBuild,
+    androidGradle,
     workflow,
     nativeDocs,
-    iconSync,
-    toolchainCheck,
-    appIcon,
-    favicon,
-    logoMark,
-    logoLockup,
-  ] =
-    await Promise.all([
-    readFile(new URL("app/page.tsx", root), "utf8"),
-    readFile(new URL("app/layout.tsx", root), "utf8"),
-    readFile(new URL("app/globals.css", root), "utf8"),
-    readFile(new URL("package.json", root), "utf8"),
-    readFile(new URL("public/manifest.webmanifest", root), "utf8"),
-    readFile(new URL("public/sw.js", root), "utf8"),
-    readFile(new URL("public/offline.html", root), "utf8"),
-    readFile(new URL("capacitor.config.ts", root), "utf8"),
-    readFile(new URL("src-tauri/tauri.conf.json", root), "utf8"),
-    readFile(new URL("native/mobile/www/index.html", root), "utf8"),
-    readFile(new URL("native/desktop/www/index.html", root), "utf8"),
-    readFile(new URL(".github/workflows/native-builds.yml", root), "utf8"),
-    readFile(new URL("docs/native-apps.md", root), "utf8"),
-    readFile(new URL("scripts/sync-native-icons.mjs", root), "utf8"),
-    readFile(new URL("scripts/check-native-toolchain.mjs", root), "utf8"),
-    readFile(new URL("public/app-icon.svg", root), "utf8"),
-    readFile(new URL("public/favicon.svg", root), "utf8"),
-    readFile(new URL("public/logo-mark.svg", root), "utf8"),
-    readFile(new URL("public/logo-lockup.svg", root), "utf8"),
+    designDocs,
+    previewServer,
+  ] = await Promise.all([
+    read("app/page.tsx"),
+    read("app/mobile/app.tsx"),
+    read("app/mobile/components.tsx"),
+    read("app/mobile/sheets.tsx"),
+    read("app/mobile/views/profile-view.tsx"),
+    read("app/mobile/domain.ts"),
+    read("app/mobile/device.ts"),
+    read("app/mobile/api-client.ts"),
+    read("app/mobile/mobile.css"),
+    read("server/api/router.ts"),
+    read("server/api/repository.ts"),
+    read("server/api/sms.ts"),
+    read("db/schema.ts"),
+    read("app/coach-workspace/workspace-client.tsx"),
+    read("package.json"),
+    read("capacitor.config.ts"),
+    read("scripts/build-android-apk.mjs"),
+    read("android/app/build.gradle"),
+    read(".github/workflows/native-builds.yml"),
+    read("docs/native-apps.md"),
+    read("docs/design/mobile-mvp-design-system.md"),
+    read("scripts/local-preview-server.mjs"),
   ]);
 
-  assert.match(page, /type Surface = "command" \| "web" \| "mobile" \| "apps" \| "coach" \| "ops"/);
-  assert.match(page, /type DeviceClass = "phone" \| "tablet" \| "desktop"/);
-  assert.match(page, /type NavItem/);
-  assert.match(page, /hasEnteredPlatform/);
-  assert.match(page, /publicNav/);
-  assert.match(page, /enterPlatform/);
-  assert.match(page, /登录进入工作台/);
-  assert.match(page, /预约找教练/);
-  assert.match(page, /navGroups/);
-  assert.match(page, /defaultNavIdBySurface/);
   assert.match(page, /detectDeviceProfile/);
-  assert.match(page, /compactNavIds/);
-  assert.match(page, /getNavItem/);
-  assert.match(page, /chooseNavItem/);
-  assert.match(page, /产品任务导航/);
-  assert.match(page, /source === "native-mobile"/);
-  assert.match(page, /source === "native-desktop"/);
-  assert.match(page, /chooseSurface/);
-  assert.match(page, /selectedFit/);
-  assert.match(page, /savedCoachIds/);
-  assert.match(page, /phone-frame/);
-  assert.match(page, /appEditions/);
-  assert.match(page, /nativeTargets/);
-  assert.match(page, /releasePipelines/);
-  assert.match(page, /五端原生交付矩阵/);
-  assert.match(page, /构建流水线和本机诊断/);
-  assert.match(page, /Capacitor/);
-  assert.match(page, /Tauri/);
-  assert.match(page, /handleInstallApp/);
-  assert.match(page, /coachPackages/);
-  assert.match(page, /auditQueue/);
-  assert.match(page, /matchRows/);
-  assert.match(page, /queuePanels/);
-  assert.match(page, /学员匹配工作台/);
-  assert.match(page, /教练信任档案/);
-  assert.match(page, /persistent-dock/);
-  assert.match(page, /smart-handoff/);
-  assert.match(page, /logo-mark\.svg/);
-  assert.match(layout, /metadataBase: new URL/);
-  assert.match(layout, /manifest: "\/manifest\.webmanifest"/);
-  assert.match(layout, /appleWebApp/);
-  assert.match(layout, /全平台服务系统/);
-  assert.match(css, /public-shell/);
-  assert.match(css, /public-hero/);
-  assert.match(css, /public-pillar-grid/);
-  assert.match(css, /app-grid/);
-  assert.match(css, /enterprise-grid/);
-  assert.match(css, /kpi-strip/);
-  assert.match(css, /match-console/);
-  assert.match(css, /match-table/);
-  assert.match(css, /trust-inspector/);
-  assert.match(css, /queue-grid/);
-  assert.match(css, /smart-handoff/);
-  assert.match(css, /route-pill/);
-  assert.match(css, /rail-section/);
-  assert.match(css, /target-grid/);
-  assert.match(css, /pipeline-row/);
-  assert.match(css, /@keyframes surfaceIn/);
-  assert.match(css, /@keyframes tileIn/);
-  assert.match(css, /@keyframes growBar/);
-  assert.match(css, /prefers-reduced-motion:\s*reduce/);
-  assert.match(css, /@media \(max-width: 760px\)/);
-  assert.match(manifest, /"display": "standalone"/);
-  assert.match(manifest, /\/app-icon-512\.png/);
-  assert.match(sw, /CACHE_NAME = "zhuguang-coach-os-v1"/);
-  assert.match(sw, /offline\.html/);
-  assert.match(offline, /逐光 Coach OS 离线/);
+  assert.match(page, /shouldUseStudentMobileApp/);
+  assert.match(page, /zhuguang-android-private-1\.1\.1\.apk/);
+  assert.match(mobileApp, /type SheetName/);
+  assert.match(mobileApp, /<BottomNav/);
+  assert.match(mobileApp, /SupportSheet/);
+  assert.match(components, /aria-label="手机端主导航"/);
+  assert.match(components, /getMatchResult/);
+  assert.match(components, /onProfile/);
+  assert.match(sheets, /教练确认后生效/);
+  assert.match(sheets, /帮助与反馈/);
+  assert.match(sheets, /申请注销账号/);
+  assert.match(profile, /已验证用户/);
+  assert.doesNotMatch(profile, /徐泽瑞|最近上课：本周二|反手高远球稳定性提升/);
+  assert.match(domain, /score \+= 30/);
+  assert.match(domain, /score \+= 25/);
+  assert.match(domain, /score \+= 15/);
+  assert.match(domain, /score \+= 5/);
+  assert.match(device, /SecureStorage/);
+  assert.match(device, /Preferences/);
+  assert.match(device, /Network/);
+  assert.match(apiClient, /VITE_API_BASE_URL/);
+  assert.match(apiClient, /x-zhuguang-app-key/);
+  assert.match(mobileCss, /prefers-reduced-motion:\s*reduce/);
+  assert.match(mobileCss, /min-height:\s*44px/);
+
+  assert.match(router, /\/api\/v1/);
+  assert.match(router, /pending_coach/);
+  assert.match(router, /coach\/overview/);
+  assert.match(repository, /reschedule_requested/);
+  assert.match(repository, /cancelled_by_student/);
+  assert.match(repository, /idempotency/i);
+  assert.match(sms, /tencentcloud-sdk-nodejs-sms/);
+  assert.match(sms, /v20210111/);
+  for (const table of ["users", "learner_profiles", "coaches", "coach_credentials", "availability_slots", "favorites", "booking_requests", "booking_events", "conversations", "messages", "notifications", "auth_challenges", "sessions"]) {
+    assert.match(schema, new RegExp(`\\b${table}\\b`));
+  }
+  assert.match(coachWorkspace, /待确认预约/);
+  assert.match(coachWorkspace, /线下收款/);
+
+  assert.match(packageJson, /mobile:android:release/);
   assert.match(capacitorConfig, /com\.zhuguang\.coachos/);
-  assert.match(capacitorConfig, /native\/mobile\/www/);
-  assert.match(tauriConfig, /com\.zhuguang\.coachos\.desktop/);
-  assert.match(tauriConfig, /native\/desktop\/www/);
-  assert.match(mobileShell, /iOS \/ Android 原生应用启动壳/);
-  assert.match(desktopShell, /Windows \/ Linux \/ macOS/);
-  assert.match(workflow, /android-debug/);
-  assert.match(workflow, /ios-simulator/);
-  assert.match(workflow, /desktop/);
-  assert.match(nativeDocs, /native:toolchain/);
-  assert.match(nativeDocs, /native-builds\.yml/);
-  assert.match(iconSync, /ios-app-icon-1024\.png/);
-  assert.match(toolchainCheck, /BLOCKED/);
-  assert.match(appIcon, /#06130F/);
-  assert.match(appIcon, /#FF835C/);
-  assert.match(favicon, /#BFF3D2/);
-  assert.match(logoMark, /viewBox="0 0 80 80"/);
-  assert.match(logoLockup, /COACH OS/);
-  assert.doesNotMatch(packageJson, /react-loading-skeleton/);
+  assert.match(androidBuild, /assembleRelease/);
+  assert.match(androidBuild, /apksigner/);
+  assert.match(androidBuild, /signature:\s*"release"/);
+  assert.doesNotMatch(androidBuild, /assembleDebug|signature:\s*"debug"/);
+  assert.match(androidGradle, /ZHUGUANG_ANDROID_KEYSTORE/);
+  assert.match(androidGradle, /signingConfig signingConfigs\.release/);
+  assert.match(workflow, /android-private-release/);
+  assert.match(workflow, /ANDROID_RELEASE_KEYSTORE_BASE64/);
+  assert.doesNotMatch(workflow, /name:\s*android-debug-apk/);
+  assert.match(nativeDocs, /android-private-release\.json/);
+  assert.match(designDocs, /AW1eZlwYWJTs34Iql1c32O/);
+  assert.match(designDocs, /160ms/);
+  assert.match(previewServer, /Local preview ready/);
+  assert.match(previewServer, /native-mobile-preview/);
+});
+
+test("ships a verified private Android release artifact", async () => {
+  const metadata = JSON.parse(await read("public/downloads/android-private-release.json"));
+  const apk = await readFile(new URL(`public/downloads/${metadata.file}`, root));
+  const sha256 = createHash("sha256").update(apk).digest("hex");
+
+  assert.equal(metadata.file, "zhuguang-android-private-1.1.1.apk");
+  assert.equal(metadata.packageId, "com.zhuguang.coachos");
+  assert.equal(metadata.versionName, "1.1.1");
+  assert.equal(metadata.versionCode, 4);
+  assert.equal(metadata.minAndroid, "7.0");
+  assert.equal(metadata.channel, "private-pilot");
+  assert.equal(metadata.signature, "release");
+  assert.equal(metadata.apiMode, "bundled-private-qa");
+  assert.equal(metadata.pushProvider, "jpush-unconfigured-simulated-only");
+  assert.equal(metadata.appChannelKeyConfigured, true);
+  assert.match(metadata.certificateSha256, /^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$/);
+  assert.equal(metadata.sizeBytes, apk.byteLength);
+  assert.equal(metadata.sha256, sha256);
+  assert.ok(apk.byteLength > 1_000_000);
+  assert.ok(apk.byteLength < 15_000_000);
 });

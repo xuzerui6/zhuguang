@@ -1,5 +1,27 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1785582886393,
+      "tag": "0000_late_hawkeye",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785582996758,
+      "tag": "0001_gifted_glorian",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785591117704,
+      "tag": "0002_brave_raza",
+      "breakpoints": true
+    }
+  ]
 }

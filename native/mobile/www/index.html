@@ -1,176 +1,18 @@
 <!doctype html>
 <html lang="zh-CN">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-    <meta name="theme-color" content="#07120e" />
-    <title>逐光 Coach OS</title>
-    <style>
-      :root {
-        --canvas: #f6f8f5;
-        --ink: #07120e;
-        --muted: #65746b;
-        --line: #dde6de;
-        --brand: #0b7a53;
-        --mint: #c7f2d7;
-        --risk: #ef7f5a;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        background:
-          linear-gradient(rgba(7, 18, 14, 0.035) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(7, 18, 14, 0.035) 1px, transparent 1px),
-          var(--canvas);
-        background-size: 34px 34px, 34px 34px, auto;
-        color: var(--ink);
-        font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
-        margin: 0;
-        min-height: 100vh;
-        padding: max(20px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom));
-      }
-
-      main {
-        display: grid;
-        gap: 18px;
-        margin: 0 auto;
-        max-width: 520px;
-        min-height: calc(100vh - 44px);
-      }
-
-      .brand {
-        align-items: center;
-        display: flex;
-        gap: 12px;
-      }
-
-      .mark {
-        align-items: center;
-        border-radius: 12px;
-        display: inline-flex;
-        height: 52px;
-        justify-content: center;
-        width: 52px;
-      }
-
-      .mark svg {
-        height: 52px;
-        width: 52px;
-      }
-
-      .brand strong,
-      .brand small {
-        display: block;
-      }
-
-      .brand small,
-      p,
-      li {
-        color: var(--muted);
-        line-height: 1.6;
-      }
-
-      section {
-        background: #fff;
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        box-shadow: 0 24px 60px rgba(7, 18, 14, 0.12);
-        display: grid;
-        gap: 14px;
-        padding: 22px;
-      }
-
-      h1 {
-        font-size: 34px;
-        line-height: 1.08;
-        margin: 0;
-      }
-
-      p {
-        margin: 0;
-      }
-
-      ul {
-        display: grid;
-        gap: 8px;
-        margin: 0;
-        padding-left: 20px;
-      }
-
-      a,
-      button {
-        align-items: center;
-        border-radius: 8px;
-        display: inline-flex;
-        font: inherit;
-        font-weight: 900;
-        justify-content: center;
-        min-height: 48px;
-        padding: 12px 16px;
-        text-decoration: none;
-      }
-
-      a {
-        background: var(--brand);
-        color: #fff;
-      }
-
-      button {
-        background: #fff;
-        border: 1px solid var(--line);
-        color: var(--ink);
-      }
-
-      .actions {
-        display: grid;
-        gap: 10px;
-      }
-
-      .status {
-        background: #fff7ee;
-        border: 1px solid #edcfb5;
-        border-radius: 8px;
-        color: #8d4b33;
-        font-size: 13px;
-        font-weight: 800;
-        padding: 12px;
-      }
-    </style>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#ffffff" />
+    <title>逐光</title>
+    <script type="module" crossorigin src="./assets/index-CHHuqLpF.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CAJmciyx.css">
   </head>
   <body>
-    <main>
-      <div class="brand">
-        <span class="mark" aria-hidden="true">
-            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect width="80" height="80" rx="18" fill="#06130F" />
-              <path d="M20 26h35L24.5 54h35" stroke="#ECFFF2" stroke-width="8.4" stroke-linecap="round" stroke-linejoin="round" />
-              <path d="M20 26h23M24.5 54h20" stroke="#BFF3D2" stroke-width="8.4" stroke-linecap="round" />
-              <circle cx="61.5" cy="22" r="8.8" fill="#FF835C" />
-            </svg>
-        </span>
-        <div>
-          <strong>逐光 Coach OS</strong>
-          <small>Native Mobile Shell</small>
-        </div>
-      </div>
-
-      <section>
-        <h1>连接退役运动员教练与真正需要训练结果的学员</h1>
-        <p>这是 iOS / Android 原生应用启动壳。它会进入逐光私有服务平台，并保留离线兜底、平台权限和后续原生能力扩展空间。</p>
-        <ul>
-          <li>学员移动预约流程</li>
-          <li>教练入驻与线索跟进</li>
-          <li>PC 服务中台同源数据</li>
-        </ul>
-        <div class="actions">
-          <a href="https://zhuguang-coach-platform.xuzerui6.chatgpt.site/?source=native-mobile">进入逐光平台</a>
-          <button type="button" onclick="location.reload()">重新连接</button>
-        </div>
-        <div class="status">如果你未登录，会先进入私有访问认证。</div>
-      </section>
-    </main>
+    <div id="root"></div>
   </body>
 </html>

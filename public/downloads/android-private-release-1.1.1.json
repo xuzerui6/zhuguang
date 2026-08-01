@@ -1,0 +1,16 @@
+{
+  "appChannelKeyConfigured": true,
+  "apiMode": "bundled-private-qa",
+  "builtAt": "2026-08-01T14:30:21.357Z",
+  "certificateSha256": "E1:5C:DA:AB:AC:CF:B2:1E:52:1A:02:AD:14:70:AF:8D:07:9F:6D:81:6A:15:0F:11:33:92:C0:B3:C4:1E:57:9A",
+  "channel": "private-pilot",
+  "file": "zhuguang-android-private-1.1.1.apk",
+  "minAndroid": "7.0",
+  "packageId": "com.zhuguang.coachos",
+  "pushProvider": "jpush-unconfigured-simulated-only",
+  "sha256": "722e7336c349c1aa814ddc9b8b3b279a349934c2c55e9110af75486a5c31f06c",
+  "signature": "release",
+  "sizeBytes": 5702575,
+  "versionCode": 4,
+  "versionName": "1.1.1"
+}

@@ -14,6 +14,7 @@
 
 ## 设计参考方向
 
+- 公开官网首页：白底产品感、清晰首屏、真实产品预览和下探式信息架构，参考 Apple Fitness+ 的产品清晰度、Strava 的运动社区和跨端叙事、BetterUp 的企业级导航与信任背书。
 - 企业级工作台：高密度、低装饰、强表格扫描能力，参考飞书多维表格、钉钉宜搭、Linear、Stripe Dashboard 的信息层级。
 - 移动端服务流：少入口、强任务路径、卡片化决策，参考 Apple / Airbnb / 大众点评的移动预约体验。
 - 设计系统：8px 内圆角、清晰分割线、克制阴影、绿色品牌主色配合中性色和状态色。
@@ -32,6 +33,15 @@
 - Font Stack: `Inter, PingFang SC, Microsoft YaHei, Noto Sans SC, Arial, sans-serif`
 
 ## 关键界面
+
+### 公开官网首页
+
+- 顶部多级菜单：平台产品、解决方案、教练资源、客户案例、关于我们、帮助中心。
+- 首屏 H1：`让专业运动员，成为每个学员的长期教练`。
+- 首屏产品信号：左侧价值表达和转化入口，右侧组合展示手机找教练流与 PC 运营工作台。
+- 信任条：真实身份认证、运动员履历校验、教学成果验证、服务合同与保险。
+- 三角色服务入口：学员找教练、教练入驻经营、机构运营治理。
+- 流程区：核验教练供给、解释匹配原因、完成试课履约、沉淀长期成长。
 
 ### PC 工作台
 
@@ -52,15 +62,16 @@
 
 ## Figma
 
-- 文件：逐光 Coach OS Enterprise Platform UI
-- URL: https://www.figma.com/design/I44Ym6uIEaURXw22s7m9CS
-- 状态：文件已创建；当前 Figma MCP 写入接口对该 fileKey 返回 `INVALID_ARGUMENT`，需要账号/seat 或 Figma 连接恢复后继续写入画板。
+- 文件：逐光 Coach OS - Enterprise Homepage V18
+- URL: https://www.figma.com/design/J9CGnw7hUc9gTDljq6aWOC
+- 状态：文件可创建；当前 Figma MCP 的 metadata/library/use_figma 写入接口对该 fileKey 返回 `INVALID_ARGUMENT`，需要账号 seat 或 Figma 连接恢复后继续写入画板。
 
 ## QA 截图
 
 - 桌面截图：`outputs/qa-enterprise-desktop.png`
 - 手机截图：`outputs/qa-enterprise-mobile.png`
 - 官网入口概念图：`docs/design/zhuguang-public-landing-concept.png`
+- 企业级官网首页概念图：`docs/design/zhuguang-enterprise-homepage-v18-concept.png`
 - 设计概念图：`docs/design/zhuguang-enterprise-dashboard-concept.png`
 
 ## 验证结论

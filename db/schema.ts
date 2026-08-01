@@ -1,4 +1,311 @@
-// Intentionally empty by default.
-// Add Drizzle tables here when the site actually needs a database.
-// See examples/d1/db/schema.ts for an opt-in example.
-export {};
+import { sql } from "drizzle-orm";
+import {
+  check,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
+
+const nowMs = sql`(unixepoch() * 1000)`;
+
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  phoneHash: text("phone_hash").notNull().unique(),
+  phoneEncrypted: text("phone_encrypted").notNull(),
+  phoneLast4: text("phone_last4").notNull(),
+  role: text("role", { enum: ["student", "coach", "operator"] }).notNull().default("student"),
+  status: text("status", { enum: ["active", "locked", "deleted"] }).notNull().default("active"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
+}, (table) => [index("users_status_idx").on(table.status)]);
+
+export const userRoles = sqliteTable("user_roles", {
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: text("role", { enum: ["student", "coach", "operator"] }).notNull(),
+  status: text("status", { enum: ["active", "suspended", "revoked"] }).notNull().default("active"),
+  grantedAt: integer("granted_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  primaryKey({ columns: [table.userId, table.role] }),
+  index("user_roles_authorization_idx").on(table.userId, table.status, table.role),
+]);
+
+export const learnerProfiles = sqliteTable("learner_profiles", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  relation: text("relation", { enum: ["self", "child"] }).notNull(),
+  gender: text("gender", { enum: ["male", "female", "unspecified"] }).notNull().default("unspecified"),
+  birthYear: integer("birth_year"),
+  sport: text("sport").notNull(),
+  level: text("level").notNull(),
+  goal: text("goal").notNull(),
+  guardianName: text("guardian_name"),
+  guardianPhoneEncrypted: text("guardian_phone_encrypted"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [index("learner_profiles_user_idx").on(table.userId)]);
+
+export const coaches = sqliteTable("coaches", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").references(() => users.id),
+  siwcEmail: text("siwc_email").unique(),
+  name: text("name").notNull(),
+  sport: text("sport").notNull(),
+  city: text("city").notNull().default("北京"),
+  district: text("district").notNull(),
+  level: text("level").notNull(),
+  title: text("title").notNull(),
+  bio: text("bio").notNull(),
+  priceFen: integer("price_fen").notNull(),
+  trialPriceFen: integer("trial_price_fen").notNull().default(9900),
+  ratingBasisPoints: integer("rating_basis_points").notNull().default(0),
+  lessons: integer("lessons").notNull().default(0),
+  reviewCount: integer("review_count").notNull().default(0),
+  experienceYears: integer("experience_years").notNull().default(0),
+  responseMinutes: integer("response_minutes").notNull().default(0),
+  audienceJson: text("audience_json").notNull().default("[]"),
+  goalsJson: text("goals_json").notNull().default("[]"),
+  strengthsJson: text("strengths_json").notNull().default("[]"),
+  availabilitySummaryJson: text("availability_summary_json").notNull().default("[]"),
+  auditStatus: text("audit_status", { enum: ["draft", "pending", "approved", "rejected", "suspended"] }).notNull().default("draft"),
+  avatarObjectKey: text("avatar_object_key"),
+  heroObjectKey: text("hero_object_key"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  index("coaches_discovery_idx").on(table.city, table.sport, table.auditStatus),
+  index("coaches_district_idx").on(table.city, table.district),
+  uniqueIndex("coaches_user_unique").on(table.userId).where(sql`${table.userId} is not null`),
+]);
+
+export const coachCredentials = sqliteTable("coach_credentials", {
+  id: text("id").primaryKey(),
+  coachId: integer("coach_id").notNull().references(() => coaches.id, { onDelete: "cascade" }),
+  credentialType: text("credential_type").notNull(),
+  label: text("label").notNull(),
+  issuer: text("issuer"),
+  objectKey: text("object_key").notNull(),
+  status: text("status", { enum: ["pending", "approved", "rejected", "expired"] }).notNull().default("pending"),
+  verifiedAt: integer("verified_at", { mode: "timestamp_ms" }),
+  reviewedBy: text("reviewed_by"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [index("coach_credentials_coach_idx").on(table.coachId, table.status)]);
+
+export const venues = sqliteTable("venues", {
+  id: text("id").primaryKey(),
+  coachId: integer("coach_id").notNull().references(() => coaches.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  address: text("address").notNull(),
+  city: text("city").notNull().default("北京"),
+  district: text("district").notNull(),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [index("venues_coach_idx").on(table.coachId, table.active)]);
+
+export const availabilitySlots = sqliteTable("availability_slots", {
+  id: text("id").primaryKey(),
+  coachId: integer("coach_id").notNull().references(() => coaches.id, { onDelete: "cascade" }),
+  venueId: text("venue_id").notNull().references(() => venues.id),
+  startsAt: integer("starts_at", { mode: "timestamp_ms" }).notNull(),
+  endsAt: integer("ends_at", { mode: "timestamp_ms" }).notNull(),
+  status: text("status", { enum: ["open", "held", "booked", "blocked"] }).notNull().default("open"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  uniqueIndex("availability_slots_coach_time_unique").on(table.coachId, table.startsAt, table.endsAt),
+  index("availability_slots_query_idx").on(table.coachId, table.status, table.startsAt),
+  check("availability_slots_time_check", sql`${table.endsAt} > ${table.startsAt}`),
+]);
+
+export const favorites = sqliteTable("favorites", {
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  coachId: integer("coach_id").notNull().references(() => coaches.id, { onDelete: "cascade" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [primaryKey({ columns: [table.userId, table.coachId] })]);
+
+export const bookingRequests = sqliteTable("booking_requests", {
+  id: text("id").primaryKey(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  userId: text("user_id").notNull().references(() => users.id),
+  learnerProfileId: text("learner_profile_id").notNull().references(() => learnerProfiles.id),
+  coachId: integer("coach_id").notNull().references(() => coaches.id),
+  venueId: text("venue_id").notNull().references(() => venues.id),
+  slotId: text("slot_id").notNull().references(() => availabilitySlots.id),
+  status: text("status", {
+    enum: ["pending_coach", "confirmed", "reschedule_requested", "completed", "rejected", "cancelled_by_student", "cancelled_by_coach"],
+  }).notNull().default("pending_coach"),
+  feeFen: integer("fee_fen").notNull(),
+  paymentStatus: text("payment_status", { enum: ["offline_unpaid", "offline_paid"] }).notNull().default("offline_unpaid"),
+  note: text("note").notNull().default(""),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+}, (table) => [
+  uniqueIndex("booking_requests_user_idempotency_unique").on(table.userId, table.idempotencyKey),
+  uniqueIndex("booking_requests_active_slot_unique").on(table.slotId).where(
+    sql`${table.status} in ('pending_coach', 'confirmed', 'reschedule_requested')`,
+  ),
+  index("booking_requests_student_idx").on(table.userId, table.status, table.createdAt),
+  index("booking_requests_coach_idx").on(table.coachId, table.status, table.createdAt),
+]);
+
+export const bookingEvents = sqliteTable("booking_events", {
+  id: text("id").primaryKey(),
+  bookingId: text("booking_id").notNull().references(() => bookingRequests.id, { onDelete: "cascade" }),
+  actorType: text("actor_type", { enum: ["student", "coach", "operator", "system"] }).notNull(),
+  actorId: text("actor_id"),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  detailJson: text("detail_json").notNull().default("{}"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [index("booking_events_booking_idx").on(table.bookingId, table.createdAt)]);
+
+export const conversations = sqliteTable("conversations", {
+  id: text("id").primaryKey(),
+  studentUserId: text("student_user_id").notNull().references(() => users.id),
+  coachId: integer("coach_id").references(() => coaches.id),
+  kind: text("kind", { enum: ["coach", "system", "venue"] }).notNull(),
+  title: text("title").notNull(),
+  lastMessageAt: integer("last_message_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  uniqueIndex("conversations_student_coach_unique").on(table.studentUserId, table.coachId),
+  index("conversations_student_idx").on(table.studentUserId, table.lastMessageAt),
+]);
+
+export const messages = sqliteTable("messages", {
+  id: text("id").primaryKey(),
+  conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  senderType: text("sender_type", { enum: ["student", "coach", "system", "venue"] }).notNull(),
+  senderId: text("sender_id"),
+  body: text("body").notNull(),
+  readAt: integer("read_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [index("messages_conversation_idx").on(table.conversationId, table.createdAt)]);
+
+export const notifications = sqliteTable("notifications", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  entityType: text("entity_type"),
+  entityId: text("entity_id"),
+  targetMode: text("target_mode", { enum: ["student", "coach"] }).notNull().default("student"),
+  deepLink: text("deep_link"),
+  readAt: integer("read_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [index("notifications_user_idx").on(table.userId, table.readAt, table.createdAt)]);
+
+export const appInstallations = sqliteTable("app_installations", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  platform: text("platform", { enum: ["android", "ios"] }).notNull().default("android"),
+  appVersionCode: integer("app_version_code").notNull(),
+  appVersionName: text("app_version_name").notNull(),
+  pushProvider: text("push_provider").notNull().default("jpush"),
+  pushRegistrationId: text("push_registration_id"),
+  pushEnabled: integer("push_enabled", { mode: "boolean" }).notNull().default(false),
+  status: text("status", { enum: ["active", "unbound", "revoked"] }).notNull().default("active"),
+  lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  index("app_installations_user_idx").on(table.userId, table.status),
+  index("app_installations_push_idx").on(table.pushProvider, table.pushRegistrationId, table.pushEnabled),
+]);
+
+export const appReleases = sqliteTable("app_releases", {
+  versionCode: integer("version_code").primaryKey(),
+  versionName: text("version_name").notNull().unique(),
+  minimumSupportedVersionCode: integer("minimum_supported_version_code").notNull(),
+  forced: integer("forced", { mode: "boolean" }).notNull().default(false),
+  rolloutPercentage: integer("rollout_percentage").notNull().default(100),
+  notesJson: text("notes_json").notNull().default("[]"),
+  sizeBytes: integer("size_bytes").notNull(),
+  sha256: text("sha256").notNull(),
+  certificateSha256: text("certificate_sha256").notNull(),
+  packageId: text("package_id").notNull().default("com.zhuguang.coachos"),
+  objectKey: text("object_key").notNull(),
+  status: text("status", { enum: ["draft", "published", "paused"] }).notNull().default("draft"),
+  publishedAt: integer("published_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  index("app_releases_latest_idx").on(table.status, table.versionCode),
+  check("app_releases_rollout_check", sql`${table.rolloutPercentage} between 0 and 100`),
+]);
+
+export const appUpdateEvents = sqliteTable("app_update_events", {
+  id: text("id").primaryKey(),
+  installationId: text("installation_id").notNull().references(() => appInstallations.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  versionCode: integer("version_code").notNull(),
+  eventType: text("event_type", { enum: ["discovered", "deferred", "download_started", "download_verified", "install_launched", "installed", "failed"] }).notNull(),
+  detailJson: text("detail_json").notNull().default("{}"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [index("app_update_events_installation_idx").on(table.installationId, table.createdAt)]);
+
+export const notificationPreferences = sqliteTable("notification_preferences", {
+  userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  bookingEnabled: integer("booking_enabled", { mode: "boolean" }).notNull().default(true),
+  messageEnabled: integer("message_enabled", { mode: "boolean" }).notNull().default(true),
+  updateEnabled: integer("update_enabled", { mode: "boolean" }).notNull().default(true),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+});
+
+export const pushDeliveries = sqliteTable("push_deliveries", {
+  id: text("id").primaryKey(),
+  notificationId: text("notification_id").notNull().references(() => notifications.id, { onDelete: "cascade" }),
+  installationId: text("installation_id").notNull().references(() => appInstallations.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull().default("jpush"),
+  status: text("status", { enum: ["pending", "sent", "failed", "dead"] }).notNull().default("pending"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  providerMessageId: text("provider_message_id"),
+  lastError: text("last_error"),
+  nextAttemptAt: integer("next_attempt_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  uniqueIndex("push_deliveries_notification_installation_unique").on(table.notificationId, table.installationId),
+  index("push_deliveries_retry_idx").on(table.status, table.nextAttemptAt),
+]);
+
+export const authChallenges = sqliteTable("auth_challenges", {
+  id: text("id").primaryKey(),
+  phoneHash: text("phone_hash").notNull(),
+  phoneEncrypted: text("phone_encrypted").notNull(),
+  phoneLast4: text("phone_last4").notNull(),
+  codeHash: text("code_hash").notNull(),
+  ipHash: text("ip_hash").notNull(),
+  deviceHash: text("device_hash").notNull().default(""),
+  attempts: integer("attempts").notNull().default(0),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  resendAfter: integer("resend_after", { mode: "timestamp_ms" }).notNull(),
+  lockedUntil: integer("locked_until", { mode: "timestamp_ms" }),
+  consumedAt: integer("consumed_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  index("auth_challenges_phone_idx").on(table.phoneHash, table.createdAt),
+  index("auth_challenges_ip_idx").on(table.ipHash, table.createdAt),
+  index("auth_challenges_device_idx").on(table.deviceHash, table.createdAt),
+]);
+
+export const sessions = sqliteTable("sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  deviceId: text("device_id").notNull(),
+  accessTokenHash: text("access_token_hash").notNull().unique(),
+  refreshTokenHash: text("refresh_token_hash").notNull().unique(),
+  accessExpiresAt: integer("access_expires_at", { mode: "timestamp_ms" }).notNull(),
+  refreshExpiresAt: integer("refresh_expires_at", { mode: "timestamp_ms" }).notNull(),
+  rotatedFromId: text("rotated_from_id"),
+  lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [index("sessions_user_device_idx").on(table.userId, table.deviceId, table.revokedAt)]);

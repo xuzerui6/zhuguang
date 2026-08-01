@@ -1,10 +1,12 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { handleApiRequest } from "../server/api/router";
+import type { ApiEnv } from "../server/api/contracts";
+import { dispatchPushDeliveriesD1 } from "../server/api/push";
 
-interface Env {
+interface Env extends ApiEnv {
   ASSETS: Fetcher;
-  DB: D1Database;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -19,6 +21,11 @@ interface ExecutionContext {
   passThroughOnException(): void;
 }
 
+interface ScheduledController {
+  cron: string;
+  scheduledTime: number;
+}
+
 // Image security config. SVG sources with .svg extension auto-skip the
 // optimization endpoint on the client side (served directly, no proxy).
 // To route SVGs through the optimizer (with security headers), set
@@ -28,6 +35,9 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    const apiResponse = await handleApiRequest(request, env, ctx);
+    if (apiResponse) return apiResponse;
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
@@ -41,6 +51,9 @@ const worker = {
     }
 
     return handler.fetch(request, env, ctx);
+  },
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(dispatchPushDeliveriesD1(env));
   },
 };
 

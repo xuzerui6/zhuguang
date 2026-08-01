@@ -16,6 +16,11 @@ function number(value: unknown) {
   return typeof value === "number" ? value : Number(value ?? 0);
 }
 
+export function pushLockScreenBody(type: string, body: string) {
+  if (type.includes("message")) return "你有一条新的服务消息，请进入逐光查看。";
+  return body;
+}
+
 export async function enqueuePendingPushDeliveriesD1(env: ApiEnv) {
   const now = Date.now();
   await db(env).prepare(`
@@ -41,7 +46,7 @@ async function sendJPush(row: Row, env: ApiEnv) {
       audience: { registration_id: [text(row.push_registration_id)] },
       notification: {
         android: {
-          alert: text(row.body),
+          alert: pushLockScreenBody(text(row.type), text(row.body)),
           extras: {
             deepLink: text(row.deep_link),
             notificationId: text(row.notification_id),
@@ -107,4 +112,3 @@ export async function queueVersionNotificationsD1(versionName: string, env: ApiE
   await enqueuePendingPushDeliveriesD1(env);
   return { queuedUsers: statements.length, versionName };
 }
-

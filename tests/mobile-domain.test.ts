@@ -13,6 +13,7 @@ import type { MatchPreferences } from "../app/mobile/types";
 import type { AppRelease, CoachAccountSummary } from "../app/mobile/types";
 import { getUpdateDecision, parseZhuguangDeepLink, resolveAccountMode } from "../app/mobile/unified-domain";
 import { stableRolloutBucket } from "../server/api/releases";
+import { pushLockScreenBody } from "../server/api/push";
 
 const preferences: MatchPreferences = {
   audience: "青少年",
@@ -97,4 +98,11 @@ test("coach demo bookings always end after they start", () => {
   for (const booking of overview.bookings) {
     assert.ok(booking.endTime > booking.time, `${booking.id} has an invalid time range`);
   }
+});
+
+test("lock-screen message copy never exposes conversation content", () => {
+  const privateMessage = "小宇明天 18:00 可以训练吗？";
+  assert.equal(pushLockScreenBody("student_message", privateMessage), "你有一条新的服务消息，请进入逐光查看。");
+  assert.equal(pushLockScreenBody("coach_message", privateMessage), "你有一条新的服务消息，请进入逐光查看。");
+  assert.equal(pushLockScreenBody("booking_status", "预约已确认"), "预约已确认");
 });

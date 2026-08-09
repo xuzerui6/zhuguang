@@ -1,0 +1,89 @@
+.page {
+  background: var(--zg-canvas);
+  min-height: 100vh;
+  padding: 0 max(24px, calc((100vw - 1280px) / 2));
+}
+
+.page > header {
+  align-items: center;
+  display: flex;
+  height: 72px;
+}
+
+.page > section {
+  background: #fff;
+  border: 1px solid var(--zg-line);
+  border-radius: 8px;
+  margin: 11vh auto 0;
+  max-width: 620px;
+  padding: 48px;
+}
+
+.icon {
+  align-items: center;
+  background: var(--zg-blue-soft);
+  border-radius: 8px;
+  color: var(--zg-blue);
+  display: flex;
+  height: 52px;
+  justify-content: center;
+  width: 52px;
+}
+
+.page section > p:first-of-type {
+  color: var(--zg-brand);
+  font-size: 13px;
+  font-weight: 700;
+  margin: 24px 0 8px;
+}
+
+.page h1 {
+  font-size: 30px;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.page h1 + p {
+  color: var(--zg-muted);
+  line-height: 1.8;
+  margin: 16px 0 28px;
+}
+
+.page section > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.page section a {
+  align-items: center;
+  border: 1px solid var(--zg-line);
+  border-radius: 6px;
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 700;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 18px;
+}
+
+.page section .primary {
+  background: var(--zg-brand);
+  border-color: var(--zg-brand);
+  color: #fff;
+}
+
+@media (max-width: 620px) {
+  .page {
+    padding: 0 16px;
+  }
+
+  .page > section {
+    margin-top: 7vh;
+    padding: 30px 24px;
+  }
+
+  .page h1 {
+    font-size: 26px;
+  }
+}

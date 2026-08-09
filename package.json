@@ -12,7 +12,7 @@
     "preview": "node scripts/local-preview-server.mjs",
     "preview:background": "node scripts/start-preview-background.mjs",
     "test": "npm run test:unit && npm run build && node --test tests/rendered-html.test.mjs",
-    "test:unit": "tsx --test tests/mobile-domain.test.ts tests/api-integration.test.ts",
+    "test:unit": "tsx --test tests/mobile-domain.test.ts tests/api-integration.test.ts tests/web-platform.test.ts",
     "lint": "eslint app tests scripts --ignore-pattern dist --ignore-pattern .next --ignore-pattern outputs",
     "db:generate": "drizzle-kit generate",
     "native:check": "node scripts/check-native-readiness.mjs",

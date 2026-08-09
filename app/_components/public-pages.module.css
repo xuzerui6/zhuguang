@@ -1,0 +1,889 @@
+.publicPage {
+  background: #fff;
+  min-height: calc(100vh - 72px);
+}
+
+.breadcrumb {
+  align-items: center;
+  color: var(--zg-muted);
+  display: flex;
+  font-size: 12px;
+  justify-content: space-between;
+  margin: 0 auto;
+  min-height: 62px;
+  width: var(--zg-page);
+}
+
+.breadcrumb a {
+  align-items: center;
+  display: flex;
+  font-weight: 700;
+  gap: 7px;
+}
+
+.breadcrumb a:hover {
+  color: var(--zg-brand);
+}
+
+.coachHero {
+  background: var(--zg-canvas);
+  border: 1px solid var(--zg-line);
+  border-radius: 8px;
+  display: grid;
+  gap: 34px;
+  grid-template-columns: 270px minmax(0, 1fr) 260px;
+  margin: 0 auto;
+  min-height: 330px;
+  padding: 28px;
+  width: var(--zg-page);
+}
+
+.coachPortrait {
+  border-radius: 6px;
+  min-height: 272px;
+  overflow: hidden;
+  position: relative;
+}
+
+.coachPortrait img {
+  object-fit: cover;
+}
+
+.coachHeroCopy {
+  align-self: center;
+}
+
+.verified {
+  align-items: center;
+  color: var(--zg-brand);
+  display: flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 5px;
+}
+
+.coachHeroCopy h1 {
+  font-size: 42px;
+  letter-spacing: 0;
+  margin: 10px 0 4px;
+}
+
+.coachTitle {
+  color: #46534d;
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.coachBio {
+  color: var(--zg-muted);
+  font-size: 14px;
+  line-height: 1.75;
+  margin: 20px 0;
+  max-width: 620px;
+}
+
+.coachQuickFacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+
+.coachQuickFacts span {
+  align-items: center;
+  color: var(--zg-muted);
+  display: flex;
+  font-size: 11px;
+  gap: 5px;
+}
+
+.coachQuickFacts span:first-child svg {
+  color: var(--zg-amber);
+}
+
+.coachQuickFacts svg {
+  color: var(--zg-brand);
+}
+
+.coachQuickFacts strong {
+  color: var(--zg-ink);
+  font-size: 12px;
+}
+
+.bookingSummary {
+  align-self: center;
+  background: #fff;
+  border: 1px solid var(--zg-line);
+  border-radius: 7px;
+  box-shadow: var(--zg-shadow-sm);
+  display: flex;
+  flex-direction: column;
+  padding: 22px;
+}
+
+.bookingSummary p {
+  color: var(--zg-muted);
+  font-size: 11px;
+  margin: 0;
+}
+
+.bookingSummary > strong {
+  font-size: 32px;
+  margin-top: 7px;
+}
+
+.bookingSummary > strong small {
+  color: var(--zg-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.bookingSummary > span {
+  color: var(--zg-muted);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.bookingSummary > a,
+.availabilityPanel > a,
+.pageCta > a,
+.primaryLogin {
+  align-items: center;
+  background: var(--zg-brand);
+  border-radius: 5px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 46px;
+  padding: 0 18px;
+  transition: background 170ms ease;
+}
+
+.bookingSummary > a:hover,
+.availabilityPanel > a:hover,
+.pageCta > a:hover,
+.primaryLogin:hover {
+  background: var(--zg-brand-strong);
+}
+
+.bookingSummary > a {
+  margin-top: 20px;
+}
+
+.bookingSummary > small {
+  color: var(--zg-muted);
+  font-size: 9px;
+  line-height: 1.5;
+  margin-top: 9px;
+  text-align: center;
+}
+
+.coachDetailGrid {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  margin: 24px auto 84px;
+  width: var(--zg-page);
+}
+
+.coachDetailGrid > div {
+  border: 1px solid var(--zg-line);
+  border-radius: 8px;
+}
+
+.detailSection {
+  padding: 30px;
+}
+
+.detailSection + .detailSection {
+  border-top: 1px solid var(--zg-line);
+}
+
+.detailSection > header,
+.availabilityPanel > header {
+  align-items: flex-start;
+  display: grid;
+  gap: 13px;
+  grid-template-columns: 24px 1fr;
+}
+
+.detailSection > header svg,
+.availabilityPanel > header svg {
+  color: var(--zg-brand);
+}
+
+.detailSection h2,
+.availabilityPanel h2 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.detailSection header p,
+.availabilityPanel header p {
+  color: var(--zg-muted);
+  font-size: 11px;
+  margin: 5px 0 0;
+}
+
+.credentialGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 22px;
+}
+
+.credentialGrid article {
+  align-items: center;
+  background: var(--zg-canvas);
+  border-radius: 6px;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 20px 1fr;
+  min-height: 78px;
+  padding: 14px;
+}
+
+.credentialGrid svg {
+  color: var(--zg-brand);
+  grid-row: 1 / 3;
+}
+
+.credentialGrid strong {
+  font-size: 12px;
+}
+
+.credentialGrid span {
+  color: var(--zg-brand);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.tagGroups {
+  display: grid;
+  gap: 15px;
+  margin-top: 22px;
+}
+
+.tagGroups > div {
+  align-items: flex-start;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 72px 1fr;
+}
+
+.tagGroups strong {
+  font-size: 11px;
+  padding-top: 7px;
+}
+
+.tagGroups p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0;
+}
+
+.tagGroups span {
+  background: var(--zg-brand-soft);
+  border-radius: 4px;
+  color: var(--zg-brand-strong);
+  font-size: 10px;
+  padding: 7px 10px;
+}
+
+.serviceTimeline {
+  display: grid;
+  list-style: none;
+  margin: 22px 0 0;
+  padding: 0;
+}
+
+.serviceTimeline li {
+  border-top: 1px solid var(--zg-line);
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 34px 1fr;
+  padding: 17px 0;
+}
+
+.serviceTimeline li:last-child {
+  border-bottom: 1px solid var(--zg-line);
+}
+
+.serviceTimeline > li > span {
+  color: var(--zg-brand);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.serviceTimeline strong {
+  font-size: 13px;
+}
+
+.serviceTimeline p {
+  color: var(--zg-muted);
+  font-size: 11px;
+  margin: 5px 0 0;
+}
+
+.availabilityPanel {
+  align-self: start;
+  border: 1px solid var(--zg-line);
+  border-radius: 8px;
+  padding: 24px;
+  position: sticky;
+  top: 92px;
+}
+
+.availabilityPanel > div {
+  display: grid;
+  gap: 8px;
+  margin: 22px 0;
+}
+
+.availabilityPanel section {
+  align-items: center;
+  border-top: 1px solid var(--zg-line);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 46px 1fr;
+  min-height: 54px;
+}
+
+.availabilityPanel section:last-child {
+  border-bottom: 1px solid var(--zg-line);
+}
+
+.availabilityPanel section > strong {
+  font-size: 11px;
+}
+
+.availabilityPanel section p {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin: 0;
+}
+
+.availabilityPanel section span {
+  background: var(--zg-brand-soft);
+  border-radius: 4px;
+  color: var(--zg-brand-strong);
+  font-size: 10px;
+  padding: 7px 9px;
+}
+
+.availabilityPanel > a {
+  width: 100%;
+}
+
+.pageIntro,
+.partnerIntro {
+  background: var(--zg-canvas);
+  border-bottom: 1px solid var(--zg-line);
+  padding: 86px max(24px, calc((100vw - 1280px) / 2)) 92px;
+}
+
+.pageIntro > p,
+.partnerIntro > div:first-child > p,
+.materialSection > div > p {
+  color: var(--zg-brand);
+  font-size: 13px;
+  font-weight: 800;
+  margin: 0 0 14px;
+}
+
+.pageIntro h1,
+.partnerIntro h1 {
+  font-size: clamp(44px, 6vw, 70px);
+  letter-spacing: 0;
+  line-height: 1.12;
+  margin: 0;
+}
+
+.pageIntro > span,
+.partnerIntro > div:first-child > span {
+  color: var(--zg-muted);
+  display: block;
+  font-size: 15px;
+  line-height: 1.8;
+  margin-top: 24px;
+  max-width: 690px;
+}
+
+.principles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin: 0 auto;
+  padding: 70px 0 82px;
+  width: var(--zg-page);
+}
+
+.principles article {
+  border-left: 1px solid var(--zg-line);
+  min-height: 190px;
+  padding: 12px 32px;
+}
+
+.principles article:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.principles svg {
+  color: var(--zg-brand);
+}
+
+.principles strong {
+  display: block;
+  font-size: 17px;
+  margin-top: 25px;
+}
+
+.principles p {
+  color: var(--zg-muted);
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 11px 0 0;
+}
+
+.guaranteeBand {
+  border-top: 1px solid var(--zg-line);
+  display: grid;
+  gap: 80px;
+  grid-template-columns: 0.9fr 1.1fr;
+  margin: 0 auto;
+  padding: 70px 0;
+  width: var(--zg-page);
+}
+
+.guaranteeBand > div:first-child p {
+  color: var(--zg-brand);
+  font-size: 11px;
+  font-weight: 800;
+  margin: 0 0 15px;
+}
+
+.guaranteeBand h2 {
+  font-size: 31px;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.guaranteeCopy p {
+  color: var(--zg-muted);
+  font-size: 14px;
+  line-height: 1.9;
+  margin: 0 0 18px;
+}
+
+.pageCta {
+  align-items: center;
+  background: #eaf4ef;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: 34px 1fr auto;
+  margin-top: 20px;
+  padding: 48px max(24px, calc((100vw - 1280px) / 2));
+}
+
+.pageCta > svg {
+  color: var(--zg-brand);
+}
+
+.pageCta h2 {
+  font-size: 23px;
+  margin: 0;
+}
+
+.pageCta p {
+  color: var(--zg-muted);
+  font-size: 12px;
+  margin: 7px 0 0;
+}
+
+.pageCta > a {
+  gap: 8px;
+}
+
+.partnerIntro {
+  align-items: flex-end;
+  display: grid;
+  gap: 70px;
+  grid-template-columns: 1fr 330px;
+}
+
+.partnerStatus {
+  background: #fff;
+  border: 1px solid var(--zg-line);
+  border-radius: 8px;
+  box-shadow: var(--zg-shadow-sm);
+  padding: 26px;
+}
+
+.partnerStatus svg {
+  color: var(--zg-brand);
+}
+
+.partnerStatus strong {
+  display: block;
+  font-size: 18px;
+  margin-top: 18px;
+}
+
+.partnerStatus p {
+  color: var(--zg-muted);
+  font-size: 12px;
+  line-height: 1.75;
+  margin: 10px 0 0;
+}
+
+.partnerSteps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 0 auto;
+  padding: 78px 0;
+  width: var(--zg-page);
+}
+
+.partnerSteps article {
+  border-left: 1px solid var(--zg-line);
+  padding: 0 42px;
+  position: relative;
+}
+
+.partnerSteps article:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.partnerSteps article > span {
+  color: var(--zg-muted);
+  font-size: 10px;
+  font-weight: 800;
+  position: absolute;
+  right: 26px;
+  top: 5px;
+}
+
+.partnerSteps svg {
+  color: var(--zg-brand);
+}
+
+.partnerSteps h2 {
+  font-size: 20px;
+  margin: 26px 0 10px;
+}
+
+.partnerSteps p {
+  color: var(--zg-muted);
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 0;
+}
+
+.materialSection {
+  background: #111916;
+  color: #fff;
+  display: grid;
+  gap: 80px;
+  grid-template-columns: 0.9fr 1.1fr;
+  padding: 76px max(24px, calc((100vw - 1280px) / 2));
+}
+
+.materialSection > div > p {
+  color: #70c99c;
+}
+
+.materialSection h2 {
+  font-size: 34px;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.materialSection ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.materialSection li {
+  align-items: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  color: #c2cec8;
+  display: flex;
+  font-size: 13px;
+  gap: 12px;
+  min-height: 54px;
+}
+
+.materialSection li:last-child {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.materialSection li svg {
+  color: #70c99c;
+}
+
+.loginPage {
+  background: var(--zg-canvas);
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.loginHeader {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin: 0 auto;
+  max-width: 1120px;
+}
+
+.loginHeader > a:last-child {
+  align-items: center;
+  display: flex;
+  font-size: 12px;
+  font-weight: 700;
+  min-height: 44px;
+}
+
+.loginPanel {
+  background: #fff;
+  border: 1px solid var(--zg-line);
+  border-radius: 8px;
+  box-shadow: var(--zg-shadow-lg);
+  margin: 8vh auto 0;
+  max-width: 560px;
+  padding: 42px;
+}
+
+.loginIntro > svg {
+  color: var(--zg-brand);
+}
+
+.loginIntro h1 {
+  font-size: 30px;
+  margin: 20px 0 10px;
+}
+
+.loginIntro p {
+  color: var(--zg-muted);
+  font-size: 13px;
+  line-height: 1.75;
+  margin: 0;
+}
+
+.loginIntro > span {
+  background: var(--zg-canvas);
+  border-radius: 5px;
+  color: var(--zg-muted);
+  display: block;
+  font-size: 10px;
+  margin-top: 15px;
+  overflow: hidden;
+  padding: 10px;
+  text-overflow: ellipsis;
+}
+
+.modeChoices {
+  border-top: 1px solid var(--zg-line);
+  display: grid;
+  gap: 8px;
+  margin-top: 26px;
+  padding-top: 22px;
+}
+
+.modeChoices a {
+  align-items: center;
+  border: 1px solid var(--zg-line);
+  border-radius: 6px;
+  display: grid;
+  gap: 13px;
+  grid-template-columns: 26px 1fr 18px;
+  min-height: 72px;
+  padding: 12px 15px;
+  transition: border-color 170ms ease, background 170ms ease;
+}
+
+.modeChoices a:hover {
+  background: var(--zg-brand-soft);
+  border-color: #89b89f;
+}
+
+.modeChoices a > svg:first-child {
+  color: var(--zg-brand);
+}
+
+.modeChoices span {
+  display: grid;
+  gap: 4px;
+}
+
+.modeChoices strong {
+  font-size: 14px;
+}
+
+.modeChoices small {
+  color: var(--zg-muted);
+  font-size: 10px;
+}
+
+.primaryLogin {
+  gap: 8px;
+  margin-top: 28px;
+  width: 100%;
+}
+
+.loginNote {
+  color: var(--zg-muted);
+  font-size: 9px;
+  line-height: 1.6;
+  margin: 16px 0 0;
+  text-align: center;
+}
+
+@media (max-width: 960px) {
+  .coachHero {
+    grid-template-columns: 210px 1fr;
+  }
+
+  .bookingSummary {
+    grid-column: 1 / 3;
+  }
+
+  .coachDetailGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .availabilityPanel {
+    position: static;
+  }
+
+  .principles {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .principles article:nth-child(3) {
+    border-left: 0;
+  }
+
+  .partnerIntro,
+  .materialSection {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .breadcrumb span {
+    display: none;
+  }
+
+  .coachHero {
+    gap: 20px;
+    grid-template-columns: 112px 1fr;
+    padding: 14px;
+  }
+
+  .coachPortrait {
+    min-height: 146px;
+  }
+
+  .coachHeroCopy h1 {
+    font-size: 29px;
+  }
+
+  .coachTitle {
+    font-size: 12px;
+  }
+
+  .coachBio,
+  .coachQuickFacts span:nth-child(2) {
+    display: none;
+  }
+
+  .bookingSummary {
+    grid-column: 1 / 3;
+  }
+
+  .coachDetailGrid {
+    margin-top: 14px;
+  }
+
+  .detailSection {
+    padding: 22px 18px;
+  }
+
+  .credentialGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .tagGroups > div {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .pageIntro,
+  .partnerIntro {
+    padding-block: 58px;
+  }
+
+  .pageIntro h1,
+  .partnerIntro h1 {
+    font-size: 40px;
+  }
+
+  .principles,
+  .partnerSteps {
+    grid-template-columns: 1fr;
+    padding-block: 48px;
+  }
+
+  .principles article,
+  .principles article:first-child,
+  .partnerSteps article,
+  .partnerSteps article:first-child {
+    border-left: 0;
+    border-top: 1px solid var(--zg-line);
+    min-height: auto;
+    padding: 26px 0;
+  }
+
+  .guaranteeBand {
+    gap: 26px;
+    grid-template-columns: 1fr;
+    padding-block: 48px;
+  }
+
+  .pageCta {
+    grid-template-columns: 28px 1fr;
+  }
+
+  .pageCta > a {
+    grid-column: 1 / 3;
+  }
+
+  .partnerIntro {
+    gap: 34px;
+  }
+
+  .partnerStatus {
+    padding: 20px;
+  }
+
+  .materialSection {
+    gap: 34px;
+    padding-block: 54px;
+  }
+
+  .loginPage {
+    padding: 16px;
+  }
+
+  .loginPanel {
+    margin-top: 7vh;
+    padding: 26px 20px;
+  }
+}
+

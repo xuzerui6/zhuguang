@@ -1,0 +1,390 @@
+.coachPage {
+  margin: 0 auto;
+  max-width: 1420px;
+}
+
+.pageHeading {
+  align-items: flex-end;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+
+.pageHeading h1 {
+  font-size: 27px;
+  letter-spacing: 0;
+  margin: 0;
+}
+
+.pageHeading p {
+  color: var(--zg-muted);
+  font-size: 13px;
+  margin: 8px 0 0;
+}
+
+.pageHeading > a,
+.primaryAction {
+  align-items: center;
+  background: var(--zg-brand);
+  border: 0;
+  border-radius: 5px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 7px;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 15px;
+}
+
+.metrics {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.metrics article {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--zg-line);
+  border-radius: 7px;
+  display: grid;
+  gap: 13px;
+  grid-template-columns: 42px 1fr;
+  min-height: 112px;
+  padding: 17px;
+}
+
+.metrics article > span {
+  align-items: center;
+  border-radius: 50%;
+  display: flex;
+  height: 42px;
+  justify-content: center;
+  width: 42px;
+}
+
+.greenIcon { background: var(--zg-brand-soft); color: var(--zg-brand); }
+.blueIcon { background: var(--zg-blue-soft); color: var(--zg-blue); }
+.coralIcon { background: var(--zg-coral-soft); color: var(--zg-coral); }
+.amberIcon { background: var(--zg-amber-soft); color: var(--zg-amber); }
+
+.metrics article > div { display: grid; grid-template-columns: 1fr auto; }
+.metrics p { color: var(--zg-muted); font-size: 13px; margin: 0; }
+.metrics strong { font-size: 26px; grid-column: 2; grid-row: 1 / 3; }
+.metrics small { color: var(--zg-muted); font-size: 12px; margin-top: 5px; }
+
+.homeColumns {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.5fr) minmax(270px, 0.55fr);
+  margin-top: 16px;
+}
+
+.workQueue,
+.todaySchedule,
+.tablePanel,
+.schedulePanel,
+.coachMessages,
+.courseList,
+.paymentSummary,
+.paymentTable,
+.credentialProfile,
+.credentialList,
+.credentialNotice {
+  background: #fff;
+  border: 1px solid var(--zg-line);
+  border-radius: 7px;
+}
+
+.workQueue,
+.todaySchedule { padding: 21px; }
+.workQueue > header,
+.todaySchedule > header { align-items: flex-start; display: flex; justify-content: space-between; }
+.workQueue h2,
+.todaySchedule h2 { font-size: 16px; margin: 0; }
+.workQueue header p { color: var(--zg-muted); font-size: 12px; margin: 5px 0 0; }
+.workQueue header a,
+.todaySchedule > a { align-items: center; color: var(--zg-brand); display: flex; font-size: 12px; font-weight: 700; gap: 4px; }
+
+.workQueue > article {
+  align-items: center;
+  border-top: 1px solid var(--zg-line);
+  display: grid;
+  gap: 13px;
+  grid-template-columns: 64px 1fr auto;
+  min-height: 78px;
+}
+
+.workQueue > article:first-of-type { margin-top: 15px; }
+.workQueue article > span,
+.bookingRows article > div:nth-child(4) > span,
+.courseList article > span:nth-of-type(2),
+.paymentTable article > span:nth-of-type(3) { border-radius: 4px; display: inline-flex; font-size: 12px; font-weight: 700; justify-content: center; padding: 5px 7px; }
+.statusAmber { background: var(--zg-amber-soft); color: var(--zg-amber); }
+.statusBlue { background: var(--zg-blue-soft); color: var(--zg-blue); }
+.statusGreen { background: var(--zg-brand-soft); color: var(--zg-brand); }
+.statusCoral { background: var(--zg-coral-soft); color: var(--zg-coral); }
+.statusGray { background: #eef1ef; color: var(--zg-muted); }
+.workQueue article strong { font-size: 13px; }
+.workQueue article p { color: var(--zg-muted); font-size: 12px; margin: 5px 0 0; }
+.workQueue article a { align-items: center; color: var(--zg-brand); display: flex; font-size: 12px; font-weight: 700; gap: 4px; }
+
+.todaySchedule > header span { color: var(--zg-muted); font-size: 12px; }
+.todaySchedule > div { display: grid; gap: 10px; grid-template-columns: 42px 10px 1fr; min-height: 110px; padding-top: 20px; }
+.todaySchedule time { color: var(--zg-muted); font-size: 12px; padding-top: 2px; }
+.todaySchedule > div > span { background: var(--zg-brand); border: 3px solid #d8eee2; border-radius: 50%; height: 10px; position: relative; width: 10px; }
+.todaySchedule > div > span::after { background: var(--zg-line); content: ""; height: 100px; left: 3px; position: absolute; top: 7px; width: 1px; }
+.todaySchedule > div:nth-last-of-type(1) > span::after { display: none; }
+.todaySchedule article strong { font-size: 13px; }
+.todaySchedule article p { color: var(--zg-muted); font-size: 12px; margin: 5px 0 8px; }
+.todaySchedule article b { color: var(--zg-muted); font-size: 12px; }
+.todaySchedule article .upcoming { color: var(--zg-blue); }
+
+.operationBand {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 16px;
+}
+
+.operationBand > div {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--zg-line);
+  border-left: 0;
+  display: grid;
+  gap: 11px;
+  grid-template-columns: 24px 1fr auto;
+  min-height: 82px;
+  padding: 14px 17px;
+}
+
+.operationBand > div:first-child { border-left: 1px solid var(--zg-line); border-radius: 7px 0 0 7px; }
+.operationBand > div:last-child { border-radius: 0 7px 7px 0; }
+.operationBand svg { color: var(--zg-brand); }
+.operationBand span { display: grid; gap: 4px; }
+.operationBand strong { font-size: 13px; }
+.operationBand small { color: var(--zg-muted); font-size: 12px; }
+.operationBand a { color: var(--zg-brand); font-size: 12px; font-weight: 700; }
+
+.tablePanel { overflow: hidden; }
+.tableTools { align-items: center; display: flex; justify-content: space-between; min-height: 62px; padding: 10px 16px; }
+.tabs { display: flex; gap: 4px; }
+.tabs button { background: transparent; border: 0; border-radius: 4px; color: var(--zg-muted); font-size: 13px; min-height: 36px; padding: 0 13px; }
+.tabs button[aria-pressed="true"] { background: var(--zg-brand-soft); color: var(--zg-brand); font-weight: 700; }
+.tabs button span { margin-left: 4px; }
+.tableSelects { display: flex; gap: 8px; }
+.tableSelects select { background: #fff; border: 1px solid var(--zg-line); border-radius: 5px; font-size: 12px; min-height: 36px; padding: 0 9px; }
+
+.bookingTableHeader,
+.bookingRows article {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1.2fr 1.25fr 0.55fr 0.65fr 1.2fr;
+}
+
+.bookingTableHeader { background: var(--zg-canvas); border-bottom: 1px solid var(--zg-line); border-top: 1px solid var(--zg-line); color: var(--zg-muted); font-size: 12px; padding: 10px 16px; }
+.bookingRows article { align-items: center; border-bottom: 1px solid var(--zg-line); min-height: 84px; padding: 12px 16px; }
+.bookingRows article:last-child { border-bottom: 0; }
+.bookingRows article > div:first-child { align-items: center; display: flex; gap: 10px; }
+.learnerAvatar { align-items: center; background: #e1efe8; border-radius: 50%; color: var(--zg-brand); display: inline-flex; flex: 0 0 auto; font-size: 13px; font-weight: 800; height: 34px; justify-content: center; width: 34px; }
+.bookingRows article > div > span:not(.learnerAvatar) { display: inline-flex; }
+.bookingRows article div > strong,
+.bookingRows article div > span > strong { font-size: 13px; }
+.bookingRows article div > small,
+.bookingRows article div > span > small { color: var(--zg-muted); display: block; font-size: 12px; margin-top: 5px; }
+
+.rowActions { display: flex; gap: 5px; }
+.rowActions button,
+.courseList article > button,
+.paymentTable article > button,
+.credentialProfile > button,
+.credentialList article > button,
+.schedulePanel footer button { align-items: center; background: #fff; border: 1px solid var(--zg-line-strong); border-radius: 4px; display: inline-flex; font-size: 12px; font-weight: 700; gap: 4px; justify-content: center; min-height: 34px; padding: 0 9px; }
+.rowActions button:first-child { background: var(--zg-brand); border-color: var(--zg-brand); color: #fff; }
+.rowActions button:last-child:not(:first-child) { padding: 0; width: 34px; }
+.empty { align-items: center; color: var(--zg-muted); display: flex; flex-direction: column; min-height: 260px; padding: 50px; }
+.empty strong { color: var(--zg-ink); font-size: 14px; margin-top: 12px; }
+.empty p { font-size: 12px; }
+
+.schedulePanel { overflow: hidden; }
+.schedulePanel > header { align-items: center; border-bottom: 1px solid var(--zg-line); display: flex; justify-content: space-between; min-height: 64px; padding: 10px 18px; }
+.schedulePanel > header > div { align-items: center; display: flex; gap: 14px; }
+.schedulePanel > header button { background: #fff; border: 1px solid var(--zg-line); border-radius: 4px; height: 34px; width: 34px; }
+.schedulePanel > header strong { font-size: 14px; }
+.schedulePanel > header p { align-items: center; color: var(--zg-muted); display: flex; font-size: 12px; gap: 5px; }
+.schedulePanel > header p span { background: var(--zg-brand); border-radius: 50%; height: 8px; margin-left: 9px; width: 8px; }
+.schedulePanel > header p span:nth-child(2) { background: var(--zg-blue); }
+.schedulePanel > header p span:nth-child(3) { background: #d5dcd8; }
+
+.scheduleGrid { display: grid; grid-template-columns: 70px repeat(7, 1fr); min-width: 830px; overflow-x: auto; }
+.timeColumn,
+.dayColumn { display: grid; grid-template-rows: 58px repeat(6, 60px); }
+.timeColumn { background: var(--zg-canvas); }
+.timeColumn > *,
+.dayColumn > * { align-items: center; border-bottom: 1px solid var(--zg-line); border-right: 1px solid var(--zg-line); display: flex; justify-content: center; }
+.timeColumn strong,
+.dayColumn > strong { font-size: 12px; }
+.timeColumn span { color: var(--zg-muted); font-size: 12px; }
+.dayColumn > strong { flex-direction: column; gap: 4px; }
+.dayColumn > strong small { color: var(--zg-muted); font-size: 12px; }
+.dayColumn > button { background: #fff; border: 0; border-bottom: 1px solid var(--zg-line); border-right: 1px solid var(--zg-line); color: #b0b9b4; font-size: 12px; min-height: 60px; }
+.dayColumn .availableSlot { background: var(--zg-brand-soft); color: var(--zg-brand); font-weight: 700; }
+.dayColumn .bookedSlot { background: var(--zg-blue-soft); color: var(--zg-blue); cursor: not-allowed; font-weight: 700; }
+.schedulePanel footer { align-items: center; display: grid; gap: 12px; grid-template-columns: 20px 1fr auto; min-height: 78px; padding: 12px 18px; }
+.schedulePanel footer > svg { color: var(--zg-brand); }
+.schedulePanel footer strong { font-size: 13px; }
+.schedulePanel footer p { color: var(--zg-muted); font-size: 12px; margin: 4px 0 0; }
+
+.coachMessages { display: grid; grid-template-columns: 280px minmax(0, 1fr); height: calc(100vh - 152px); min-height: 590px; overflow: hidden; }
+.coachMessages > aside { border-right: 1px solid var(--zg-line); }
+.coachMessages > aside label { display: block; padding: 14px; }
+.coachMessages > aside input { background: var(--zg-canvas); border: 1px solid transparent; border-radius: 5px; min-height: 40px; padding: 0 11px; width: 100%; }
+.coachMessages > aside > button { align-items: center; background: #fff; border: 0; border-top: 1px solid var(--zg-line); display: grid; gap: 10px; grid-template-columns: 34px 1fr auto; min-height: 74px; padding: 10px 13px; text-align: left; width: 100%; }
+.coachMessages > aside > button:hover,
+.coachMessages > aside .activeChat { background: var(--zg-brand-soft); }
+.coachMessages > aside > button > span:nth-child(2) { display: grid; gap: 5px; min-width: 0; }
+.coachMessages > aside strong { display: flex; font-size: 13px; justify-content: space-between; }
+.coachMessages > aside small { color: var(--zg-muted); font-size: 11px; }
+.coachMessages > aside p { color: var(--zg-muted); font-size: 12px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.coachMessages > aside b { align-items: center; background: var(--zg-coral); border-radius: 50%; color: #fff; display: flex; font-size: 11px; height: 17px; justify-content: center; width: 17px; }
+.coachMessages > div { display: grid; grid-template-rows: auto 1fr auto; min-width: 0; }
+.coachMessages > div > header { align-items: center; border-bottom: 1px solid var(--zg-line); display: grid; gap: 10px; grid-template-columns: 34px 1fr auto; min-height: 66px; padding: 10px 16px; }
+.coachMessages > div > header h2 { font-size: 13px; margin: 0; }
+.coachMessages > div > header p { color: var(--zg-muted); font-size: 12px; margin: 4px 0 0; }
+.coachMessages > div > header a { color: var(--zg-brand); font-size: 12px; font-weight: 700; }
+.messageHistory { background: #f7f9f8; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; padding: 20px; }
+.messageHistory > time { color: var(--zg-muted); font-size: 12px; text-align: center; }
+.learnerBubble,
+.coachBubble { align-self: flex-start; max-width: 66%; }
+.coachBubble { align-self: flex-end; }
+.learnerBubble p,
+.coachBubble p { background: #fff; border: 1px solid var(--zg-line); border-radius: 6px; font-size: 13px; line-height: 1.6; margin: 0; padding: 9px 11px; }
+.coachBubble p { background: var(--zg-brand); border-color: var(--zg-brand); color: #fff; }
+.learnerBubble small,
+.coachBubble small { color: var(--zg-muted); display: block; font-size: 11px; margin-top: 4px; }
+.coachBubble small { text-align: right; }
+.coachMessages > div > form { align-items: center; border-top: 1px solid var(--zg-line); display: grid; gap: 8px; grid-template-columns: 1fr 42px; padding: 12px 14px; }
+.coachMessages > div > form input { background: var(--zg-canvas); border: 1px solid var(--zg-line); border-radius: 5px; min-height: 42px; padding: 0 12px; }
+.coachMessages > div > form button { align-items: center; background: var(--zg-brand); border: 0; border-radius: 5px; color: #fff; display: flex; height: 42px; justify-content: center; width: 42px; }
+
+.courseList { overflow: hidden; }
+.courseList > header,
+.credentialList > header { align-items: center; border-bottom: 1px solid var(--zg-line); display: flex; justify-content: space-between; min-height: 58px; padding: 0 18px; }
+.courseList > header strong,
+.credentialList > header h2 { font-size: 13px; margin: 0; }
+.courseList > header span,
+.credentialList > header span { color: var(--zg-muted); font-size: 12px; }
+.courseList article { align-items: center; border-bottom: 1px solid var(--zg-line); display: grid; gap: 13px; grid-template-columns: 52px 34px 1fr 76px 90px; min-height: 88px; padding: 12px 18px; }
+.courseList article:last-child { border-bottom: 0; }
+.courseList time { color: var(--zg-muted); font-size: 12px; }
+.courseList h2 { font-size: 13px; margin: 0; }
+.courseList p { color: var(--zg-muted); font-size: 12px; margin: 5px 0; }
+.courseList small { color: var(--zg-brand); font-size: 12px; }
+.courseList article > button { min-width: 80px; }
+
+.paymentSummary { display: grid; grid-template-columns: 1fr 1fr 1.4fr; margin-bottom: 16px; overflow: hidden; }
+.paymentSummary > div { border-left: 1px solid var(--zg-line); min-height: 132px; padding: 20px; }
+.paymentSummary > div:first-child { border-left: 0; }
+.paymentSummary > div > p { color: var(--zg-muted); font-size: 12px; margin: 0; }
+.paymentSummary > div > strong { display: block; font-size: 25px; margin-top: 10px; }
+.paymentSummary > div > span { color: var(--zg-muted); display: block; font-size: 12px; margin-top: 6px; }
+.paymentSummary > div:last-child { align-items: center; background: var(--zg-brand-soft); display: grid; gap: 11px; grid-template-columns: 24px 1fr; }
+.paymentSummary > div:last-child > svg { color: var(--zg-brand); }
+.paymentSummary > div:last-child p { display: grid; gap: 5px; }
+.paymentSummary > div:last-child strong { color: var(--zg-ink); font-size: 13px; }
+
+.paymentTable { overflow: hidden; }
+.paymentTable > header,
+.paymentTable > article { align-items: center; display: grid; gap: 16px; grid-template-columns: 1fr 1.4fr 0.5fr 0.65fr 0.8fr; }
+.paymentTable > header { background: var(--zg-canvas); border-bottom: 1px solid var(--zg-line); color: var(--zg-muted); font-size: 12px; min-height: 40px; padding: 0 16px; }
+.paymentTable > article { border-bottom: 1px solid var(--zg-line); min-height: 78px; padding: 10px 16px; }
+.paymentTable > article:last-child { border-bottom: 0; }
+.paymentTable article > span { display: grid; gap: 4px; }
+.paymentTable article strong { font-size: 13px; }
+.paymentTable article small { color: var(--zg-muted); font-size: 12px; }
+
+.credentialProfile { align-items: center; display: grid; gap: 18px; grid-template-columns: 112px 1fr auto; margin-bottom: 16px; padding: 20px; }
+.credentialProfile img { border-radius: 6px; height: 112px; object-fit: cover; }
+.credentialProfile > div > span { align-items: center; color: var(--zg-brand); display: flex; font-size: 12px; font-weight: 700; gap: 4px; }
+.credentialProfile h2 { font-size: 21px; margin: 7px 0 4px; }
+.credentialProfile p { color: var(--zg-muted); font-size: 13px; margin: 0 0 8px; }
+.credentialProfile small { color: var(--zg-muted); font-size: 12px; }
+.credentialProfile > button { min-height: 40px; padding-inline: 14px; }
+
+.credentialList { overflow: hidden; }
+.credentialList > article { align-items: center; border-bottom: 1px solid var(--zg-line); display: grid; gap: 14px; grid-template-columns: 28px 1fr 74px 96px; min-height: 82px; padding: 12px 18px; }
+.credentialList > article:last-child { border-bottom: 0; }
+.credentialList article > svg { color: var(--zg-brand); }
+.credentialList article strong { font-size: 13px; }
+.credentialList article p { color: var(--zg-muted); font-size: 12px; margin: 5px 0 0; }
+.credentialList article > span { align-items: center; color: var(--zg-brand); display: flex; font-size: 12px; font-weight: 700; gap: 4px; }
+
+.credentialNotice { align-items: center; display: grid; gap: 12px; grid-template-columns: 24px 1fr; margin-top: 16px; padding: 18px; }
+.credentialNotice > svg { color: var(--zg-brand); }
+.credentialNotice strong { font-size: 13px; }
+.credentialNotice p { color: var(--zg-muted); font-size: 12px; line-height: 1.6; margin: 5px 0 0; }
+
+.toast { align-items: center; background: #15241d; border-radius: 6px; bottom: 24px; box-shadow: var(--zg-shadow-lg); color: #fff; display: flex; font-size: 13px; gap: 8px; left: 50%; min-height: 42px; padding: 0 16px; position: fixed; transform: translateX(-50%); z-index: 100; }
+
+@media (max-width: 1100px) {
+  .metrics { grid-template-columns: 1fr 1fr; }
+  .homeColumns { grid-template-columns: 1fr; }
+  .operationBand { grid-template-columns: 1fr; }
+  .operationBand > div,
+  .operationBand > div:first-child,
+  .operationBand > div:last-child { border: 1px solid var(--zg-line); border-radius: 0; }
+  .operationBand > div:first-child { border-radius: 7px 7px 0 0; }
+  .operationBand > div:last-child { border-radius: 0 0 7px 7px; }
+  .bookingTableHeader,
+  .bookingRows article { grid-template-columns: 1fr 1.2fr 0.55fr 0.65fr; }
+  .bookingTableHeader span:last-child { display: none; }
+  .rowActions { grid-column: 1 / 5; justify-content: flex-end; }
+}
+
+@media (max-width: 760px) {
+  .coachPage button,
+  .coachPage select {
+    min-height: 44px;
+  }
+
+  .pageHeading { align-items: flex-start; flex-direction: column; }
+  .pageHeading h1 { font-size: 23px; }
+  .metrics { grid-template-columns: 1fr 1fr; }
+  .metrics article { grid-template-columns: 34px 1fr; min-height: 100px; padding: 12px; }
+  .metrics article > span { height: 34px; width: 34px; }
+  .workQueue > article { grid-template-columns: 56px 1fr; padding-block: 10px; }
+  .workQueue article a { grid-column: 2; }
+  .tableTools { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .bookingTableHeader { display: none; }
+  .bookingRows article { gap: 10px; grid-template-columns: 1fr 1fr; padding: 14px; }
+  .bookingRows article > div:nth-child(2) { text-align: right; }
+  .bookingRows article > div:nth-child(3),
+  .bookingRows article > div:nth-child(4) { border-top: 1px solid var(--zg-line); padding-top: 10px; }
+  .rowActions { grid-column: 1 / 3; justify-content: stretch; }
+  .rowActions button { flex: 1; }
+  .schedulePanel { overflow-x: auto; }
+  .schedulePanel > header { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .schedulePanel footer { min-width: 680px; }
+  .coachMessages { display: block; height: auto; min-height: 0; }
+  .coachMessages > aside { border-right: 0; display: flex; overflow-x: auto; }
+  .coachMessages > aside label { display: none; }
+  .coachMessages > aside > button { flex: 0 0 230px; }
+  .coachMessages > div { min-height: 540px; }
+  .courseList article { grid-template-columns: 44px 34px 1fr; }
+  .courseList article > span:nth-of-type(2),
+  .courseList article > button { grid-column: 3; }
+  .paymentSummary { grid-template-columns: 1fr 1fr; }
+  .paymentSummary > div:last-child { grid-column: 1 / 3; }
+  .paymentTable > header { display: none; }
+  .paymentTable > article { grid-template-columns: 1fr auto; }
+  .paymentTable article > span:nth-of-type(2) { display: none; }
+  .credentialProfile { grid-template-columns: 84px 1fr; }
+  .credentialProfile img { height: 84px; width: 84px; }
+  .credentialProfile > button { grid-column: 2; }
+  .credentialList > article { grid-template-columns: 24px 1fr auto; }
+  .credentialList article > button { grid-column: 2 / 4; justify-self: start; }
+}

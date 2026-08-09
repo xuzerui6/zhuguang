@@ -6,6 +6,7 @@ import { mobileApi, usesBundledDemoData } from "../api-client";
 import { deferUpdateFor24Hours } from "../device";
 import { appUpdater, type InstalledAppInfo, type UpdateDownloadProgress } from "../native-bridge";
 import type { AppRelease } from "../types";
+import { isNoNewReleaseError, updateCheckErrorMessage } from "./update-domain";
 
 type UpdateCenterProps = {
   forcedRelease?: AppRelease | null;
@@ -42,15 +43,18 @@ export function UpdateCenter({ forcedRelease, onBack }: UpdateCenterProps) {
     setChecking(true);
     setError("");
     try {
-      const [info, latest] = await Promise.all([
-        appUpdater.getInstalledInfo(),
-        demoMode ? Promise.resolve(previewRelease) : mobileApi.latestRelease(),
-      ]);
+      const info = await appUpdater.getInstalledInfo();
       setInstalled(info);
+
+      void appUpdater.canInstallPackages()
+        .then(({ allowed }) => setInstallPermission(allowed))
+        .catch(() => setInstallPermission(null));
+
+      const latest = demoMode ? previewRelease : await mobileApi.latestRelease();
       setRelease(latest.versionCode > info.versionCode ? latest : null);
-      setInstallPermission((await appUpdater.canInstallPackages()).allowed);
     } catch (checkError) {
-      setError(checkError instanceof Error ? checkError.message : "检查更新失败，请稍后重试");
+      if (isNoNewReleaseError(checkError)) setRelease(null);
+      else setError(updateCheckErrorMessage(checkError));
     } finally {
       setChecking(false);
     }
@@ -116,7 +120,7 @@ export function UpdateCenter({ forcedRelease, onBack }: UpdateCenterProps) {
         <>
           <section className="zg-update-product">
             <span className="zg-update-logo">逐</span>
-            <div><h2>逐光 <small>{installed?.versionName ?? "1.1.0"}</small></h2><p>{release ? `发现新版本 ${release.versionName}` : checking ? "正在检查新版本" : "当前已是最新版本"}</p></div>
+            <div><h2>逐光 <small>{installed?.versionName ?? "读取中"}</small></h2><p>{release ? `发现新版本 ${release.versionName}` : checking ? "正在检查新版本" : error ? "更新服务暂时不可用" : "当前已是最新版本"}</p></div>
           </section>
 
           {release ? (

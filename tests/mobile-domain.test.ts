@@ -12,6 +12,7 @@ import {
 import type { MatchPreferences } from "../app/mobile/types";
 import type { AppRelease, CoachAccountSummary } from "../app/mobile/types";
 import { getUpdateDecision, parsePrivateQaNotification, parseZhuguangDeepLink, resolveAccountMode } from "../app/mobile/unified-domain";
+import { isNoNewReleaseError, updateCheckErrorMessage } from "../app/mobile/update/update-domain";
 import { stableRolloutBucket } from "../server/api/releases";
 import { pushLockScreenBody } from "../server/api/push";
 
@@ -85,6 +86,13 @@ test("role deep links and update policy are deterministic", () => {
   assert.equal(getUpdateDecision(2, release, 0, 100), "forced");
   assert.equal(getUpdateDecision(3, release, 200, 100), "deferred");
   assert.equal(getUpdateDecision(4, release, 0, 100), "current");
+});
+
+test("version center distinguishes no update from an offline failure", () => {
+  assert.equal(isNoNewReleaseError({ code: "release_not_available" }), true);
+  assert.equal(isNoNewReleaseError({ code: "not_found" }), false);
+  assert.equal(updateCheckErrorMessage(new DOMException("signal is aborted without reason", "AbortError")), "暂时无法连接更新服务，请检查网络后重试");
+  assert.equal(updateCheckErrorMessage({ message: "版本服务维护中" }), "版本服务维护中");
 });
 
 test("private QA notification routes cover all native channels without private names", () => {

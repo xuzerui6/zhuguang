@@ -191,6 +191,7 @@ function ReleaseRecords() {
   const [formOpen, setFormOpen] = useState(false);
   const [artifact, setArtifact] = useState<File | null>(null);
   const [rollouts, setRollouts] = useState<Record<number, number>>({});
+  const nextVersionCode = Math.max(0, ...releases.map((release) => release.versionCode)) + 1;
 
   const load = useCallback(async () => {
     try {
@@ -303,12 +304,12 @@ function ReleaseRecords() {
 
       {formOpen ? <form className={styles.releaseForm} onSubmit={createRelease}>
         <header><div><h2>创建 Android 版本</h2><p>上传后先进入草稿，确认清单无误再发布。</p></div><ShieldCheck aria-hidden size={22} /></header>
-        <label><span>版本号</span><input defaultValue="1.2.1" name="versionName" pattern="\d+\.\d+\.\d+" required /></label>
-        <label><span>versionCode</span><input defaultValue="6" min="1" name="versionCode" required type="number" /></label>
+        <label><span>版本号</span><input name="versionName" pattern="\d+\.\d+\.\d+" placeholder="例如 1.2.4" required /></label>
+        <label><span>versionCode</span><input defaultValue={nextVersionCode} key={nextVersionCode} min="1" name="versionCode" required type="number" /></label>
         <label><span>最低支持 code</span><input defaultValue="5" min="1" name="minimumSupportedVersionCode" required type="number" /></label>
         <label><span>灰度比例</span><select defaultValue="100" name="rolloutPercentage"><option value="10">10%</option><option value="50">50%</option><option value="100">100%</option></select></label>
         <label className={styles.releaseArtifact}><span>正式 APK</span><input accept=".apk,application/vnd.android.package-archive" onChange={(event) => setArtifact(event.target.files?.[0] ?? null)} required type="file" /><small>{artifact ? `${artifact.name} · ${formatReleaseSize(artifact.size)}` : "仅接受不超过 50 MB 的 .apk"}</small></label>
-        <label className={styles.releaseNotes}><span>更新说明</span><textarea defaultValue={"新增田径教练徐泽瑞\n优化启动动画与离线体验\n启用安全更新分发"} name="notes" rows={3} /></label>
+        <label className={styles.releaseNotes}><span>更新说明</span><textarea name="notes" placeholder={"每行一项，例如：\n优化版本中心状态\n提升启动稳定性"} required rows={3} /></label>
         <label className={styles.releaseForced}><input name="forced" type="checkbox" /><span>设为强制更新</span></label>
         <footer><button disabled={busy === "create"} type="submit">{busy === "create" ? "正在校验并上传" : "创建版本草稿"}</button><button onClick={() => setFormOpen(false)} type="button">取消</button></footer>
       </form> : null}

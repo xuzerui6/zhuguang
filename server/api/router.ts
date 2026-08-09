@@ -50,10 +50,13 @@ import {
   createReleaseD1,
   downloadReleaseD1,
   latestReleaseD1,
+  listReleasesD1,
   recordUpdateEventD1,
   registerInstallationD1,
   saveNotificationPreferencesD1,
   setReleaseStatusD1,
+  updateReleasePolicyD1,
+  uploadReleaseArtifactD1,
 } from "./releases";
 import { dispatchPushDeliveriesD1, queueVersionNotificationsD1 } from "./push";
 import { assertPilotApp, normalizePhone, randomId } from "./security";
@@ -75,7 +78,8 @@ export async function handleApiRequest(request: Request, env: ApiEnv, ctx: ApiEx
   if (request.method === "OPTIONS") return withCors(new Response(null, { status: 204 }), request, env, requestId);
 
   try {
-    if (url.pathname !== "/api/v1/health" && url.pathname !== "/api/v1/app/releases/download") assertPilotApp(request, env);
+    const publicCoachMedia = /^\/api\/v1\/media\/coaches\/\d+\/(avatar|hero)$/u.test(url.pathname);
+    if (url.pathname !== "/api/v1/health" && url.pathname !== "/api/v1/app/releases/download" && !publicCoachMedia) assertPilotApp(request, env);
     const response = await route(request, url, env, ctx, requestId);
     return withCors(response, request, env, requestId);
   } catch (error) {
@@ -89,7 +93,35 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   const deviceId = request.headers.get("x-device-id")?.slice(0, 160) || "unknown-device";
 
   if (request.method === "GET" && path === "/api/v1/health") {
-    return success({ database: Boolean(env.DB), environment: env.APP_ENV ?? "local", ok: true, storage: Boolean(env.MEDIA) }, requestId);
+    return success({
+      database: Boolean(env.DB),
+      environment: env.APP_ENV ?? "local",
+      media: Boolean(env.MEDIA),
+      ok: true,
+      releases: Boolean(env.RELEASES),
+    }, requestId);
+  }
+
+  const publicCoachMediaMatch = path.match(/^\/api\/v1\/media\/coaches\/(\d+)\/(avatar|hero)$/u);
+  if (request.method === "GET" && publicCoachMediaMatch) {
+    if (!env.DB || !env.MEDIA) throw new ApiError(503, "media_unavailable", "教练图片服务暂时不可用");
+    const coachId = Number(publicCoachMediaMatch[1]);
+    const column = publicCoachMediaMatch[2] === "avatar" ? "avatar_object_key" : "hero_object_key";
+    const coach = await env.DB.prepare(`SELECT ${column} AS object_key FROM coaches WHERE id = ? AND audit_status = 'approved'`).bind(coachId).first<{ object_key: string | null }>();
+    if (!coach?.object_key) throw new ApiError(404, "coach_media_not_found", "未找到该教练图片");
+    const object = await env.MEDIA.get(coach.object_key);
+    if (!object) throw new ApiError(404, "coach_media_not_found", "未找到该教练图片");
+    if (request.headers.get("if-none-match") === object.httpEtag) {
+      return new Response(null, { headers: { etag: object.httpEtag }, status: 304 });
+    }
+    const headers = new Headers({
+      "cache-control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=2592000",
+      etag: object.httpEtag,
+      "x-content-type-options": "nosniff",
+    });
+    object.writeHttpMetadata(headers);
+    if (!headers.get("content-type")?.startsWith("image/")) headers.set("content-type", "image/webp");
+    return new Response(object.body, { headers });
   }
 
   if (request.method === "GET" && path === "/api/v1/app/releases/latest") {
@@ -158,6 +190,28 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     assertOperator(request, env);
     const body = await readJson<Parameters<typeof createReleaseD1>[0]>(request);
     return success(await createReleaseD1(body, env), requestId, undefined, 201);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/operator/releases") {
+    assertOperator(request, env);
+    return success(await listReleasesD1(env), requestId);
+  }
+
+  const operatorReleaseArtifactMatch = path.match(/^\/api\/v1\/operator\/releases\/(\d+)\/artifact$/u);
+  if (request.method === "PUT" && operatorReleaseArtifactMatch) {
+    assertOperator(request, env);
+    return success(await uploadReleaseArtifactD1(request, Number(operatorReleaseArtifactMatch[1]), env), requestId, undefined, 201);
+  }
+
+  const operatorReleasePolicyMatch = path.match(/^\/api\/v1\/operator\/releases\/(\d+)\/policy$/u);
+  if (request.method === "PATCH" && operatorReleasePolicyMatch) {
+    assertOperator(request, env);
+    const body = await readJson<{ forced?: unknown; minimumSupportedVersionCode?: unknown; rolloutPercentage?: unknown }>(request);
+    return success(await updateReleasePolicyD1(Number(operatorReleasePolicyMatch[1]), {
+      forced: body.forced === true,
+      minimumSupportedVersionCode: positiveInteger(body.minimumSupportedVersionCode, "minimumSupportedVersionCode"),
+      rolloutPercentage: nonNegativeInteger(body.rolloutPercentage, "rolloutPercentage"),
+    }, env), requestId);
   }
 
   const operatorReleaseStatusMatch = path.match(/^\/api\/v1\/operator\/releases\/(\d+)\/(publish|pause)$/u);
@@ -449,6 +503,12 @@ function positiveInteger(value: unknown, field: string) {
   return parsed;
 }
 
+function nonNegativeInteger(value: unknown, field: string) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) throw new ApiError(422, "validation_failed", "请检查提交内容", { [field]: "必须为非负整数" });
+  return parsed;
+}
+
 function timestamp(value: unknown, field: string) {
   const parsed = typeof value === "number" ? value : Date.parse(String(value ?? ""));
   if (!Number.isFinite(parsed)) throw new ApiError(422, "validation_failed", "请检查时间", { [field]: "时间格式无效" });
@@ -478,8 +538,8 @@ function withCors(response: Response, request: Request, env: ApiEnv, requestId: 
     headers.set("access-control-allow-origin", origin);
     headers.append("vary", "origin");
   }
-  headers.set("access-control-allow-headers", "authorization, content-type, idempotency-key, x-device-id, x-request-id, x-zhuguang-app-key");
-  headers.set("access-control-allow-methods", "GET, POST, PUT, DELETE, OPTIONS");
+  headers.set("access-control-allow-headers", "authorization, content-type, idempotency-key, x-app-platform, x-app-version, x-app-version-code, x-device-id, x-operator-secret, x-release-version-name, x-request-id, x-zhuguang-app-key");
+  headers.set("access-control-allow-methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
   headers.set("access-control-expose-headers", "x-request-id");
   headers.set("referrer-policy", "no-referrer");
   headers.set("x-frame-options", "DENY");

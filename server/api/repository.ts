@@ -64,28 +64,44 @@ function jsonArray(value: unknown) {
   }
 }
 
-function mapCoach(row: Row): MobileCoach {
+function publicCoachMediaUrl(row: Row, kind: "avatar" | "hero", env?: ApiEnv) {
+  const objectKey = kind === "avatar" ? row.avatar_object_key : row.hero_object_key;
+  const origin = env?.MOBILE_API_ORIGIN?.replace(/\/$/u, "");
+  if (!objectKey || !origin) return undefined;
+  return `${origin}/api/v1/media/coaches/${numberValue(row.id)}/${kind}`;
+}
+
+function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
+  const reviewCount = numberValue(row.review_count);
+  const availability = jsonArray(row.availability_summary_json);
+  const isNew = reviewCount === 0 && numberValue(row.lessons) === 0;
   return {
     accent: "#087A50",
     audience: jsonArray(row.audience_json),
-    availability: jsonArray(row.availability_summary_json),
+    availability,
+    avatarUrl: publicCoachMediaUrl(row, "avatar", env),
+    bookable: availability.length > 0,
     city: stringValue(row.city),
     district: stringValue(row.district),
     experienceYears: numberValue(row.experience_years),
     goals: jsonArray(row.goals_json),
     id: numberValue(row.id),
+    heroUrl: publicCoachMediaUrl(row, "hero", env),
+    isNew,
     lessons: numberValue(row.lessons),
     level: stringValue(row.level),
     name: stringValue(row.name),
     note: stringValue(row.bio),
     price: Math.round(numberValue(row.price_fen) / 100),
-    proof: [`${stringValue(row.level)}认证`, "身份与履历已核验", "服务保障已开通"],
+    proof: isNew ? ["平台试点教练", "服务区域已确认"] : [`${stringValue(row.level)}认证`, "身份与履历已核验", "服务保障已开通"],
     rating: numberValue(row.rating_basis_points) / 100,
     responseMinutes: numberValue(row.response_minutes),
-    reviewCount: numberValue(row.review_count),
+    reviewCount,
     sport: stringValue(row.sport),
     strengths: jsonArray(row.strengths_json),
     title: stringValue(row.title),
+    trialPrice: Math.round(numberValue(row.trial_price_fen) / 100),
+    verificationLabel: isNew ? "平台试点教练" : "资料已核验",
     verified: row.audit_status === "approved",
   };
 }
@@ -416,13 +432,13 @@ export async function listCoachesD1(env: ApiEnv, filters: URLSearchParams) {
   }
   const query = `SELECT * FROM coaches WHERE ${clauses.join(" AND ")} ORDER BY rating_basis_points DESC, lessons DESC LIMIT 50`;
   const result = await db(env).prepare(query).bind(...values).all<Row>();
-  return (result.results ?? []).map(mapCoach);
+  return (result.results ?? []).map((row) => mapCoach(row, env));
 }
 
 export async function getCoachD1(coachId: number, env: ApiEnv) {
   const row = await db(env).prepare("SELECT * FROM coaches WHERE id = ? AND audit_status = 'approved'").bind(coachId).first<Row>();
   if (!row) throw new ApiError(404, "coach_not_found", "未找到该教练");
-  return mapCoach(row);
+  return mapCoach(row, env);
 }
 
 export async function listSlotsD1(coachId: number, env: ApiEnv) {

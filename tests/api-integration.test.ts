@@ -44,6 +44,51 @@ class D1Adapter implements D1Database {
   async exec(query: string) { this.sqlite.exec(query); return { count: 1, duration: 0 }; }
 }
 
+class MemoryR2 implements R2Bucket {
+  readonly objects = new Map<string, { bytes: Uint8Array; customMetadata?: Record<string, string> }>();
+
+  async delete(key: string) { this.objects.delete(key); }
+
+  async get(key: string) {
+    const stored = this.objects.get(key);
+    return stored ? this.object(stored) : null;
+  }
+
+  async head(key: string) {
+    const stored = this.objects.get(key);
+    return stored ? this.object(stored) : null;
+  }
+
+  async put(key: string, value: ReadableStream | ArrayBuffer | string, options?: Record<string, unknown>) {
+    const bytes = typeof value === "string"
+      ? new TextEncoder().encode(value)
+      : value instanceof ArrayBuffer
+        ? new Uint8Array(value)
+        : new Uint8Array(await new Response(value).arrayBuffer());
+    this.objects.set(key, {
+      bytes,
+      customMetadata: options?.customMetadata as Record<string, string> | undefined,
+    });
+    return null;
+  }
+
+  private object(stored: { bytes: Uint8Array; customMetadata?: Record<string, string> }): R2ObjectBody {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(stored.bytes);
+        controller.close();
+      },
+    });
+    return {
+      body,
+      customMetadata: stored.customMetadata,
+      httpEtag: '"test-etag"',
+      size: stored.bytes.byteLength,
+      writeHttpMetadata() {},
+    };
+  }
+}
+
 const context = { waitUntil(promise: Promise<unknown>) { void promise.catch(() => undefined); } };
 
 async function request(env: ApiEnv, path: string, init: RequestInit = {}) {
@@ -193,5 +238,95 @@ test("OTP policy enforces five attempts, hourly limits and production SMS config
   const productionFailure = await request({ ...env, APP_ENV: "production" }, "/api/v1/auth/otp/request", json({ phone: "13800000005" }));
   assert.equal(productionFailure.response.status, 503);
   assert.equal((productionFailure.payload?.error as Record<string, unknown>).code, "sms_not_configured");
+  database.sqlite.close();
+});
+
+test("operator release flow validates artifacts, publishes and serves a ticketed APK", async () => {
+  const database = new D1Adapter();
+  const releases = new MemoryR2();
+  const operatorSecret = "operator-test-secret";
+  await migrate(database);
+  const env: ApiEnv = {
+    APP_ENV: "test",
+    DB: database,
+    OPERATOR_API_SECRET: operatorSecret,
+    RELEASES: releases,
+    UPDATE_DOWNLOAD_SECRET: "download-test-secret",
+  };
+  const operatorHeaders: Record<string, string> = { "x-operator-secret": operatorSecret };
+  const apk = new TextEncoder().encode("signed-test-apk");
+
+  const rejectedPath = await request(env, "/api/v1/operator/releases/6/artifact", {
+    body: apk,
+    headers: { ...operatorHeaders, "content-type": "application/vnd.android.package-archive", "x-release-version-name": "../../1.2.1" },
+    method: "PUT",
+  });
+  assert.equal(rejectedPath.response.status, 422);
+  assert.equal(releases.objects.size, 0);
+
+  const uploaded = await request(env, "/api/v1/operator/releases/6/artifact", {
+    body: apk,
+    headers: { ...operatorHeaders, "content-type": "application/vnd.android.package-archive", "x-release-version-name": "1.2.1" },
+    method: "PUT",
+  });
+  assert.equal(uploaded.response.status, 201);
+  const artifact = uploaded.payload?.data as { objectKey: string; sha256: string; sizeBytes: number };
+  assert.equal(artifact.objectKey, "android/1.2.1/zhuguang-android-private-1.2.1.apk");
+
+  const mismatch = await request(env, "/api/v1/operator/releases", json({
+    certificateSha256: "AA:BB",
+    forced: false,
+    minimumSupportedVersionCode: 5,
+    notes: ["真机更新验证"],
+    objectKey: artifact.objectKey,
+    packageId: "com.zhuguang.coachos",
+    rolloutPercentage: 100,
+    sha256: "wrong-sha",
+    sizeBytes: artifact.sizeBytes,
+    versionCode: 6,
+    versionName: "1.2.1",
+  }, operatorHeaders));
+  assert.equal(mismatch.response.status, 422);
+
+  const created = await request(env, "/api/v1/operator/releases", json({
+    certificateSha256: "AA:BB",
+    forced: false,
+    minimumSupportedVersionCode: 5,
+    notes: ["真机更新验证"],
+    objectKey: artifact.objectKey,
+    packageId: "com.zhuguang.coachos",
+    rolloutPercentage: 50,
+    sha256: artifact.sha256,
+    sizeBytes: artifact.sizeBytes,
+    versionCode: 6,
+    versionName: "1.2.1",
+  }, operatorHeaders));
+  assert.equal(created.response.status, 201);
+
+  const policy = await request(env, "/api/v1/operator/releases/6/policy", {
+    body: JSON.stringify({ forced: false, minimumSupportedVersionCode: 5, rolloutPercentage: 100 }),
+    headers: { ...operatorHeaders, "content-type": "application/json" },
+    method: "PATCH",
+  });
+  assert.equal((policy.payload?.data as { rolloutPercentage: number }).rolloutPercentage, 100);
+  const published = await request(env, "/api/v1/operator/releases/6/publish", json({}, operatorHeaders));
+  assert.equal((published.payload?.data as { status: string }).status, "published");
+
+  const listed = await request(env, "/api/v1/operator/releases", { headers: operatorHeaders });
+  const releaseList = listed.payload?.data as Array<{ artifactPresent: boolean; versionCode: number }>;
+  assert.deepEqual(releaseList.map((release) => [release.versionCode, release.artifactPresent]), [[6, true]]);
+
+  const latest = await request(env, "/api/v1/app/releases/latest", { headers: { "x-app-version-code": "5", "x-device-id": "device-release-test" } });
+  assert.equal((latest.payload?.data as { versionCode: number }).versionCode, 6);
+  const alreadyCurrent = await request(env, "/api/v1/app/releases/latest", { headers: { "x-app-version-code": "6", "x-device-id": "device-release-test" } });
+  assert.equal(alreadyCurrent.response.status, 404);
+  assert.equal((alreadyCurrent.payload?.error as { code: string }).code, "release_not_available");
+  const ticket = await request(env, "/api/v1/app/releases/6/download-ticket", { headers: { "x-device-id": "device-release-test" }, method: "POST" });
+  const downloadUrl = new URL((ticket.payload?.data as { url: string }).url);
+  const download = await handleApiRequest(new Request(downloadUrl), env, context);
+  assert.ok(download);
+  assert.equal(download.status, 200);
+  assert.equal(download.headers.get("x-content-sha256"), artifact.sha256);
+  assert.equal(await download.text(), "signed-test-apk");
   database.sqlite.close();
 });

@@ -47,6 +47,23 @@ export function usesBundledDemoData() {
   return !getBuildValue("VITE_API_BASE_URL");
 }
 
+const API_TIMEOUT_MS = 4_000;
+
+async function fetchWithTimeout(input: string, init: RequestInit = {}) {
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  const timer = globalThis.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  init.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  if (init.signal?.aborted) controller.abort();
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    globalThis.clearTimeout(timer);
+    init.signal?.removeEventListener("abort", abortFromCaller);
+  }
+}
+
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
   const session = await readSession();
   const headers = new Headers(init.headers);
@@ -62,7 +79,7 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   if (init.body) headers.set("content-type", "application/json");
   if (session?.accessToken) headers.set("authorization", `Bearer ${session.accessToken}`);
 
-  const response = await fetch(`${getApiBaseUrl()}${path}`, { ...init, headers });
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}${path}`, { ...init, headers });
   if (response.status === 401 && retry && session?.refreshToken) {
     const refreshed = await refreshSession(session.refreshToken);
     if (refreshed) return request<T>(path, init, false);
@@ -85,7 +102,7 @@ async function refreshSession(refreshToken: string) {
     headers.set("x-device-id", await getOrCreateDeviceId());
     const appKey = getBuildValue("VITE_PILOT_APP_KEY");
     if (appKey) headers.set("x-zhuguang-app-key", appKey);
-    const response = await fetch(`${getApiBaseUrl()}/api/v1/auth/refresh`, {
+    const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/v1/auth/refresh`, {
       body: JSON.stringify({ refreshToken }),
       headers,
       method: "POST",

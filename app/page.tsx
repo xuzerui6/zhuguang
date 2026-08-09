@@ -50,6 +50,7 @@ export default function HomePage() {
                     <option>游泳</option>
                     <option>篮球</option>
                     <option>体能</option>
+                    <option>田径</option>
                   </select>
                 </label>
                 <label>
@@ -86,7 +87,7 @@ export default function HomePage() {
             <Link href="/coaches">查看全部教练 <ArrowRight aria-hidden size={17} /></Link>
           </div>
           <div className={styles.coachGrid}>
-            {coaches.slice(0, 3).map((coach) => (
+            {coaches.filter((coach) => [1, 2, 5].includes(coach.id)).map((coach) => (
               <Link className={styles.coachCard} href={`/coaches/${coach.id}`} key={coach.id}>
                 <div className={styles.coachImage}>
                   <Image alt={`${coach.name}教练`} fill sizes="(max-width: 767px) 42vw, 300px" src={coach.image} unoptimized />
@@ -94,13 +95,13 @@ export default function HomePage() {
                 <div className={styles.coachInfo}>
                   <div className={styles.coachNameRow}>
                     <h3>{coach.name}</h3>
-                    <span><BadgeCheck aria-hidden size={15} />资料已核验</span>
+                    <span><BadgeCheck aria-hidden size={15} />{coach.verificationLabel}</span>
                   </div>
                   <p>{coach.sport} · {coach.title}</p>
                   <p><MapPin aria-hidden size={14} />{coach.district} · {coach.venue}</p>
                   <div className={styles.coachMeta}>
-                    <span><Star aria-hidden fill="currentColor" size={14} />{coach.rating}</span>
-                    <span>最近可约 {coach.nextSlot}</span>
+                    <span>{coach.isNew ? "新教练" : <><Star aria-hidden fill="currentColor" size={14} />{coach.rating}</>}</span>
+                    <span>{coach.bookable ? `最近可约 ${coach.nextSlot}` : coach.nextSlot}</span>
                   </div>
                 </div>
                 <ChevronRight aria-hidden className={styles.cardArrow} size={20} />

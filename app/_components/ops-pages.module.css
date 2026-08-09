@@ -98,6 +98,7 @@
 .entityTable,
 .contentList,
 .storageNotice,
+.releaseForm,
 .releaseTable,
 .releaseNext {
   background: #fff;
@@ -302,10 +303,38 @@
 .storageNotice h2 { font-size: 14px; margin: 0; }
 .storageNotice p { color: var(--zg-muted); font-size: 12px; line-height: 1.7; margin: 6px 0 0; max-width: 760px; }
 .storageNotice > span { background: var(--zg-amber-soft); border-radius: 4px; color: var(--zg-amber); font-size: 12px; font-weight: 700; padding: 7px 9px; }
+.storageNotice > button { align-items: center; background: #fff; border: 1px solid var(--zg-line-strong); border-radius: 4px; display: inline-flex; font-size: 12px; font-weight: 700; gap: 6px; min-height: 36px; padding: 0 11px; }
+.storageReady > svg { color: var(--zg-brand); }
+.storageReady > span { background: var(--zg-brand-soft); color: var(--zg-brand); }
+.storageError > svg { color: var(--zg-coral); }
+.storageError > span { background: var(--zg-coral-soft); color: var(--zg-coral); }
+
+.releaseCreateButton { align-items: center; background: var(--zg-brand); border: 1px solid var(--zg-brand); border-radius: 5px; color: #fff; display: inline-flex; font-size: 13px; font-weight: 700; gap: 7px; min-height: 40px; padding: 0 14px; }
+.releaseCreateButton:disabled { cursor: not-allowed; opacity: .5; }
+.releaseForm { display: grid; gap: 14px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 16px; padding: 20px; }
+.releaseForm > header { align-items: center; display: flex; grid-column: 1 / -1; justify-content: space-between; }
+.releaseForm > header h2 { font-size: 15px; margin: 0; }
+.releaseForm > header p { color: var(--zg-muted); font-size: 12px; margin: 5px 0 0; }
+.releaseForm > header svg { color: var(--zg-brand); }
+.releaseForm > label { display: grid; gap: 7px; min-width: 0; }
+.releaseForm > label > span { color: var(--zg-muted); font-size: 11px; font-weight: 700; }
+.releaseForm input,
+.releaseForm select,
+.releaseForm textarea { background: #fff; border: 1px solid var(--zg-line-strong); border-radius: 4px; color: var(--zg-ink); font-size: 13px; min-height: 40px; padding: 8px 10px; width: 100%; }
+.releaseForm textarea { line-height: 1.6; resize: vertical; }
+.releaseForm .releaseArtifact,
+.releaseForm .releaseNotes { grid-column: span 2; }
+.releaseArtifact small { color: var(--zg-muted); font-size: 11px; }
+.releaseForm .releaseForced { align-items: center; display: flex; gap: 8px; }
+.releaseForm .releaseForced input { accent-color: var(--zg-brand); height: 18px; min-height: 18px; width: 18px; }
+.releaseForm .releaseForced span { color: var(--zg-ink); }
+.releaseForm > footer { align-items: center; display: flex; gap: 8px; grid-column: 1 / -1; justify-content: flex-end; }
+.releaseForm > footer button { background: #fff; border: 1px solid var(--zg-line-strong); border-radius: 4px; font-size: 12px; font-weight: 700; min-height: 40px; padding: 0 14px; }
+.releaseForm > footer button:first-child { background: var(--zg-brand); border-color: var(--zg-brand); color: #fff; }
 
 .releaseTable { overflow: hidden; }
 .releaseTable > header,
-.releaseTable > article { align-items: center; display: grid; gap: 16px; grid-template-columns: 0.7fr 1.4fr 1fr 0.8fr 1.3fr; }
+.releaseTable > article { align-items: center; display: grid; gap: 16px; grid-template-columns: 0.7fr 1.15fr 1fr 0.8fr 0.65fr 1fr; }
 .releaseTable > header { background: var(--zg-canvas); color: var(--zg-muted); font-size: 11px; min-height: 40px; padding: 0 16px; }
 .releaseTable > article { border-top: 1px solid var(--zg-line); min-height: 82px; padding: 12px 16px; }
 .releaseTable article > span { display: grid; gap: 4px; }
@@ -313,6 +342,17 @@
 .releaseTable article small { color: var(--zg-muted); font-size: 11px; }
 .releaseTable article > span:nth-child(3) { align-items: center; color: var(--zg-brand); display: flex; flex-direction: row; font-size: 12px; gap: 5px; }
 .releaseTable article p { color: var(--zg-muted); font-size: 12px; line-height: 1.5; margin: 0; }
+.releaseRollout { align-items: center; display: flex !important; gap: 5px !important; }
+.releaseRollout select { background: #fff; border: 1px solid var(--zg-line); border-radius: 4px; font-size: 11px; min-height: 32px; padding: 0 5px; }
+.releaseRollout button,
+.releaseActions button { align-items: center; background: #fff; border: 1px solid var(--zg-line-strong); border-radius: 4px; display: inline-flex; font-size: 11px; gap: 4px; justify-content: center; min-height: 32px; padding: 0 8px; }
+.releaseActions { display: flex !important; flex-direction: row; flex-wrap: wrap; gap: 5px !important; }
+.releaseActions button:first-child { border-color: var(--zg-brand); color: var(--zg-brand); font-weight: 700; }
+.releaseActions button:disabled,
+.releaseRollout button:disabled { cursor: not-allowed; opacity: .5; }
+.releaseEmpty { align-items: center; color: var(--zg-muted); display: flex; flex-direction: column; min-height: 210px; justify-content: center; padding: 28px; text-align: center; }
+.releaseEmpty strong { color: var(--zg-ink); font-size: 14px; margin-top: 10px; }
+.releaseEmpty p { font-size: 12px; margin: 5px 0 0; }
 .releaseNext { align-items: center; display: grid; gap: 12px; grid-template-columns: 28px 1fr; margin-top: 16px; padding: 18px; }
 .releaseNext svg { color: var(--zg-brand); }
 .releaseNext strong { font-size: 13px; }
@@ -377,10 +417,15 @@
   .contentList article { grid-template-columns: 24px 1fr auto; }
   .contentList article > button { grid-column: 2 / 4; justify-self: start; }
   .storageNotice { grid-template-columns: 28px 1fr; }
-  .storageNotice > span { grid-column: 2; justify-self: start; }
+  .storageNotice > span,
+  .storageNotice > button { grid-column: 2; justify-self: start; }
+  .releaseForm { grid-template-columns: 1fr 1fr; }
+  .releaseForm .releaseArtifact,
+  .releaseForm .releaseNotes { grid-column: 1 / -1; }
   .releaseTable > header { display: none; }
   .releaseTable > article { grid-template-columns: 1fr auto; }
   .releaseTable article > span:nth-child(2),
   .releaseTable article > span:nth-child(3),
-  .releaseTable article > p { display: none; }
+  .releaseTable article > span:nth-child(4) { display: none !important; }
+  .releaseActions { justify-self: end; }
 }

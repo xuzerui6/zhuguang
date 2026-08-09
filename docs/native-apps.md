@@ -114,8 +114,8 @@ npm run mobile:android:release
 
 输出目标：
 
-- `public/downloads/zhuguang-android-private-1.1.0.apk`：统一双身份私有试点 release APK
-- `public/downloads/android-private-release.json`：版本、大小、SHA-256 与签名指纹
+- `outputs/releases/zhuguang-android-private-{version}.apk`：统一双身份私有试点 release APK（不进入网站静态目录）
+- `outputs/releases/android-private-release.json`：版本、大小、SHA-256 与签名指纹
 - `.aab`：Google Play / 国内安卓商店更常用的发布格式
 
 `mobile:android:apk` 与 `mobile:android:release` 都只生成 release 签名包。构建前必须在当前终端提供：

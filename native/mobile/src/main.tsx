@@ -4,6 +4,7 @@ import MobileStudentApp from "../../../app/mobile-student-app";
 import { demoCoaches } from "../../../app/mobile/demo-data";
 import { usesBundledDemoData } from "../../../app/mobile/api-client";
 import "../../../app/globals.css";
+import "../../../app/mobile/mobile.css";
 import "./native.css";
 
 function NativeMobileApp() {
@@ -19,7 +20,7 @@ function NativeMobileApp() {
     <MobileStudentApp
       audience={audience}
       city={city}
-      coaches={demoMode ? demoCoaches : []}
+      coaches={demoCoaches}
       goal={goal}
       onBook={() => {}}
       onChangeAudience={setAudience}

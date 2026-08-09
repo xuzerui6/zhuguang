@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="80"
+    android:viewportHeight="80">
+    <path
+        android:fillColor="#06130F"
+        android:pathData="M18,0 H62 A18,18 0,0 1,80 18 V62 A18,18 0,0 1,62 80 H18 A18,18 0,0 1,0 62 V18 A18,18 0,0 1,18 0 Z" />
+    <path
+        android:name="zStroke"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M20,26 H55 L24.5,54 H59.5"
+        android:strokeColor="#ECFFF2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="8.4"
+        android:trimPathEnd="0" />
+    <group
+        android:name="lightDot"
+        android:translateX="20"
+        android:translateY="26">
+        <path
+            android:fillColor="#FF835C"
+            android:pathData="M5.8,0 A5.8,5.8 0,1 1,-5.8 0 A5.8,5.8 0,1 1,5.8 0" />
+    </group>
+</vector>

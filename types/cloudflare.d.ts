@@ -23,6 +23,7 @@ interface D1Database {
 
 interface R2ObjectBody {
   body: ReadableStream;
+  customMetadata?: Record<string, string>;
   httpEtag: string;
   size: number;
   writeHttpMetadata(headers: Headers): void;
@@ -30,7 +31,7 @@ interface R2ObjectBody {
 
 interface R2Bucket {
   get(key: string): Promise<R2ObjectBody | null>;
+  head(key: string): Promise<R2ObjectBody | null>;
   put(key: string, value: ReadableStream | ArrayBuffer | string, options?: Record<string, unknown>): Promise<unknown>;
   delete(key: string): Promise<void>;
 }
-

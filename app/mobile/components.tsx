@@ -176,10 +176,12 @@ export function CoachAvatar({ coach, size = "medium" }: { coach: MobileCoach; si
   return (
     <span
       aria-label={`${coach.name}教练头像`}
-      className={`zg-coach-avatar is-${size}`}
+      className={`zg-coach-avatar is-${size}${coach.avatarUrl ? " has-image" : ""}`}
       role="img"
       style={{ "--zg-coach-position": portraitPositions[coach.id] ?? portraitPositions[1] } as CSSProperties}
-    />
+    >
+      {coach.avatarUrl ? <Image alt="" fill sizes="96px" src={coach.avatarUrl} unoptimized /> : null}
+    </span>
   );
 }
 
@@ -213,13 +215,13 @@ export function CoachCard({
         <span className="zg-coach-card-copy">
           <span className="zg-coach-card-title">
             <strong>{coach.name}</strong>
-            {coach.verified !== false ? <em><ShieldCheck aria-hidden size={14} />{coach.level}</em> : null}
+            {coach.verified !== false ? <em><ShieldCheck aria-hidden size={14} />{coach.verificationLabel ?? coach.level}</em> : null}
           </span>
-          <small>{coach.sport} · {coach.experienceYears ?? 8}年教学经验</small>
+          <small>{coach.isNew ? `${coach.sport} · 新教练` : `${coach.sport} · ${coach.experienceYears ?? 8}年教学经验`}</small>
           <span className="zg-coach-card-meta">
-            <b><Star aria-hidden fill="currentColor" size={14} />{coach.rating}</b>
-            <i>{coach.distanceKm ?? 3.2}km</i>
-            <i>{coach.availability[0]}可约</i>
+            {coach.isNew ? <b className="is-new">新教练</b> : <b><Star aria-hidden fill="currentColor" size={14} />{coach.rating}</b>}
+            {coach.distanceKm ? <i>{coach.distanceKm.toFixed(1)}km</i> : <i>{coach.district}</i>}
+            <i>{coach.bookable === false ? "时段待发布" : `${coach.availability[0]}可约`}</i>
           </span>
         </span>
         <MatchScore score={match.score} />

@@ -32,6 +32,7 @@ export type MobileCoach = {
   level: string;
   title: string;
   price: number;
+  trialPrice: number;
   rating: number;
   lessons: number;
   reviewCount: number;
@@ -48,6 +49,11 @@ export type MobileCoach = {
   experienceYears?: number;
   verified?: boolean;
   responseMinutes?: number;
+  avatarUrl?: string;
+  heroUrl?: string;
+  verificationLabel?: "平台试点教练" | "资料已核验";
+  isNew?: boolean;
+  bookable?: boolean;
 };
 
 export type CoachVenue = {

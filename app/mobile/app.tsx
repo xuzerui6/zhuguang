@@ -75,7 +75,7 @@ function getInitialPreferences(props: MobileStudentAppProps): MatchPreferences {
 export default function MobileStudentApp(props: MobileStudentAppProps) {
   const { onOpenUpdates, onSessionChange, onTabChange } = props;
   const demoMode = useMemo(() => usesBundledDemoData(), []);
-  const [coaches, setCoaches] = useState<MobileCoach[]>(() => demoMode ? (props.coaches.length ? props.coaches : demoCoaches) : []);
+  const [coaches, setCoaches] = useState<MobileCoach[]>(() => props.coaches.length ? props.coaches : demoCoaches);
   const [activeTab, setActiveTab] = useState<MobileTab>(props.initialTab ?? "home");
   const [view, setView] = useState<MobileView>(props.initialTab ?? "home");
   const [preferences, setPreferences] = useState<MatchPreferences>(() => getInitialPreferences(props));
@@ -262,6 +262,10 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
   const openBooking = useCallback((coach = selectedCoach) => {
     const slots = createDemoSlots(coach.id);
     const firstAvailable = slots.find((slot) => slot.available) ?? slots[0];
+    if (coach.bookable === false || !firstAvailable) {
+      showFeedback("真实场地与时段发布后即可预约，可先收藏或咨询教练");
+      return;
+    }
     setSelectedCoachId(coach.id);
     setBookingSlots(slots);
     setSelectedSlot(firstAvailable);
@@ -269,7 +273,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     detailScrollPosition.current = window.scrollY;
     setView("booking");
     queueScroll(0);
-  }, [queueScroll, selectedCoach]);
+  }, [queueScroll, selectedCoach, showFeedback]);
 
   const performBooking = useCallback(async () => {
     setSubmitting(true);
@@ -309,7 +313,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
           endTime: selectedSlot.endTime,
           status: "pending_coach",
           submittedAt: "刚刚",
-          feeFen: 9900,
+          feeFen: selectedCoach.trialPrice * 100,
           paymentStatus: "offline_unpaid",
           note: bookingNote,
         };
@@ -476,6 +480,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
   return (
     <main className={online ? "zg-mobile-app" : "zg-mobile-app is-offline"}>
       {!online ? <div className="zg-offline-banner"><WifiOff aria-hidden size={15} />当前离线，可继续浏览已缓存内容</div> : null}
+      {online && bootstrapped && !apiConnected && !demoMode ? <div className="zg-offline-banner is-service-fallback"><WifiOff aria-hidden size={15} />服务连接不稳定，已显示审核教练缓存</div> : null}
       {view === "home" ? <AppHeader city={preferences.district === "全北京" ? "北京" : preferences.district} notificationCount={unreadNotifications} onCity={() => setSheet("city")} onNotifications={() => setSheet("notifications")} onProfile={() => navigateTab("profile")} /> : null}
 
       {view === "home" ? <HomeView activeBooking={activeBooking} coaches={coaches} onDiscover={() => navigateTab("discover")} onOpenBooking={() => navigateTab("bookings")} onOpenCoach={openCoach} onSearch={(value) => { setQuery(value); if (value) navigateTab("discover"); }} onSelectSport={(sport) => updatePreferences({ ...preferences, sport })} onToggleSaved={toggleSaved} preferences={preferences} query={query} savedCoachIds={savedCoachIds} /> : null}

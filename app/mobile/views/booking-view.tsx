@@ -58,7 +58,7 @@ export function BookingView({
 
       <section className="zg-booking-coach">
         <CoachAvatar coach={coach} size="medium" />
-        <div><h2>{coach.name}</h2><p>{coach.sport} · {coach.level}</p><small>★ {coach.rating} · {coach.distanceKm ?? 3.2}km</small></div>
+        <div><h2>{coach.name}</h2><p>{coach.sport} · {coach.level}</p><small>{coach.isNew ? "新教练" : `★ ${coach.rating}`} · {coach.distanceKm ? `${coach.distanceKm.toFixed(1)}km` : coach.district}</small></div>
         <MatchScore score={match.score} />
       </section>
 
@@ -121,16 +121,16 @@ export function BookingView({
       <section className="zg-form-section">
         <h2>服务保障与取消政策</h2>
         <div className="zg-trust-list">
-          <TrustRow detail="身份、退役履历和教学资质已完成复核" title="教练资质严格审核" />
+          <TrustRow detail={coach.isNew ? "平台仅展示已经确认的基础资料" : "身份、退役履历和教学资质已完成复核"} title={coach.verificationLabel ?? "教练资质严格审核"} />
           <TrustRow detail="试课前 24 小时可免费取消，逾期不退" title="预约取消政策" />
         </div>
       </section>
 
       <section className="zg-fee-section">
         <h2>费用明细</h2>
-        <p><span>试课价</span><strong>{formatYuan(9900)}</strong></p>
+        <p><span>试课价</span><strong>{formatYuan(coach.trialPrice * 100)}</strong></p>
         <p><span>支付方式</span><strong>教练确认后线下支付</strong></p>
-        <p className="is-total"><span>本次应付</span><strong>{formatYuan(9900)} <em>待支付</em></strong></p>
+        <p className="is-total"><span>本次应付</span><strong>{formatYuan(coach.trialPrice * 100)} <em>待支付</em></strong></p>
       </section>
 
       <label className="zg-agreement-row">

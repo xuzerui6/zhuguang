@@ -11,6 +11,14 @@ const nativeAssets = [
   "logo-mark.svg",
   "mobile-coach-hero-v23.webp",
   "mobile-coach-portraits-v23.webp",
+  "images/coach-zhouming.webp",
+  "images/coach-linyue.webp",
+  "images/coach-zhaolei.webp",
+  "images/coach-chenwei.webp",
+  "images/coach-xu-zerui-avatar.webp",
+  "images/coach-xu-zerui-portrait.webp",
+  "images/coach-xu-zerui-portrait.avif",
+  "images/coach-xu-zerui-hero.webp",
 ];
 
 export default defineConfig({
@@ -27,9 +35,11 @@ export default defineConfig({
       closeBundle() {
         mkdirSync(mobileOutput, { recursive: true });
         for (const filename of nativeAssets) {
+          const destination = path.join(mobileOutput, filename);
+          mkdirSync(path.dirname(destination), { recursive: true });
           copyFileSync(
             path.join(repoRoot, "public", filename),
-            path.join(mobileOutput, filename),
+            destination,
           );
         }
       },

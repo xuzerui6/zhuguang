@@ -9,8 +9,9 @@ import type { MatchPreferences, MobileBooking, MobileCoach } from "../types";
 const sports = [
   { symbol: "羽", label: "羽毛球" },
   { symbol: "泳", label: "游泳" },
-  { symbol: "网", label: "网球" },
   { symbol: "篮", label: "篮球" },
+  { symbol: "体", label: "体能" },
+  { symbol: "径", label: "田径" },
 ];
 
 export function HomeView({
@@ -76,12 +77,12 @@ export function HomeView({
       ) : null}
 
       <button className="zg-featured-coach" onClick={() => onOpenCoach(featured)} type="button">
-        <Image alt={`${featured.name}教练指导学员训练`} fill priority sizes="(max-width: 760px) 100vw, 430px" src="/mobile-coach-hero-v23.webp" unoptimized />
+        <Image alt={`${featured.name}教练`} fill priority sizes="(max-width: 760px) 100vw, 430px" src={featured.heroUrl ?? "/mobile-coach-hero-v23.webp"} unoptimized />
         <span className="zg-featured-gradient" />
         <span className="zg-featured-copy">
           <strong>{featured.name}</strong>
           <small>{featured.sport} · {featured.level}</small>
-          <em><ShieldCheck aria-hidden size={14} />履历已核验</em>
+          <em><ShieldCheck aria-hidden size={14} />{featured.verificationLabel ?? "履历已核验"}</em>
         </span>
         <MatchScore score={featuredMatch.score} />
       </button>
@@ -107,7 +108,7 @@ export function HomeView({
 
       <section className="zg-service-note">
         <MapPin aria-hidden size={20} />
-        <div><strong>北京试点服务</strong><p>优先展示朝阳、海淀、东城已完成履历核验的教练。</p></div>
+        <div><strong>北京试点服务</strong><p>现已覆盖朝阳、海淀、东城、丰台与通州的试点教练。</p></div>
         <ArrowRight aria-hidden size={18} />
       </section>
     </div>

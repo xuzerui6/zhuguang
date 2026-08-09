@@ -5,6 +5,7 @@ export interface ApiEnv {
   CORS_ORIGINS?: string;
   DB?: D1Database;
   MEDIA?: R2Bucket;
+  RELEASES?: R2Bucket;
   MOBILE_API_ORIGIN?: string;
   PHONE_ENCRYPTION_KEY?: string;
   PILOT_APP_KEY?: string;

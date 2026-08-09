@@ -89,10 +89,10 @@ export function CoachDirectory({ embedded = false, initialDistrict = "全部区�
 
       <div className={`${styles.filters} ${filtersExpanded ? styles.filtersExpanded : ""}`} aria-label="教练筛选条件">
         <button aria-expanded={filtersExpanded} className={styles.filterTitle} onClick={() => setFiltersExpanded((current) => !current)} type="button"><SlidersHorizontal aria-hidden size={18} />筛选<ChevronDown aria-hidden className={styles.filterToggleIcon} size={15} /></button>
-        <FilterSelect label="运动项目" onChange={setSport} options={["全部项目", "羽毛球", "游泳", "篮球", "体能"]} value={sport} />
-        <FilterSelect label="区域" onChange={setDistrict} options={["全部区域", "朝阳区", "海淀区", "东城区", "丰台区"]} value={district} />
-        <FilterSelect label="训练目标" onChange={setGoal} options={["全部目标", "专项提升", "兴趣培养", "体能强化", "比赛备战"]} value={goal} />
-        <FilterSelect label="服务对象" onChange={setAudience} options={["全部对象", "青少年", "成人进阶", "亲子"]} value={audience} />
+        <FilterSelect label="运动项目" onChange={setSport} options={["全部项目", "羽毛球", "游泳", "篮球", "体能", "田径"]} value={sport} />
+        <FilterSelect label="区域" onChange={setDistrict} options={["全部区域", "朝阳区", "海淀区", "东城区", "丰台区", "通州区"]} value={district} />
+        <FilterSelect label="训练目标" onChange={setGoal} options={["全部目标", "专项提升", "兴趣培养", "体能强化", "比赛备战", "中考体育", "短跑专项", "跑姿纠正"]} value={goal} />
+        <FilterSelect label="服务对象" onChange={setAudience} options={["全部对象", "青少年", "成人", "成人进阶", "亲子"]} value={audience} />
         <label className={styles.dateControl}><span>日期</span><input aria-label="选择训练日期" onChange={(event) => setDate(event.target.value)} type="date" value={date} /><CalendarDays aria-hidden size={17} /></label>
         <FilterSelect label="价格" onChange={setPrice} options={["不限价格", "300元以内", "250元以内"]} value={price} />
         <button className={styles.resetButton} onClick={resetFilters} type="button"><RefreshCw aria-hidden size={15} />清空</button>
@@ -160,15 +160,15 @@ function CoachResult({ active, coach, favorite, onFavorite, onSelect }: { active
       <div className={styles.resultInfo}>
         <div className={styles.resultName}>
           <h2>{coach.name}</h2>
-          <span><BadgeCheck aria-hidden size={15} />已认证</span>
+          <span><BadgeCheck aria-hidden size={15} />{coach.verificationLabel}</span>
         </div>
         <p className={styles.resultTitle}>{coach.title}</p>
-        <p><ShieldCheck aria-hidden size={15} />{coach.credentials.slice(0, 2).join(" · ")}</p>
+        <p><ShieldCheck aria-hidden size={15} />{coach.credentials.length ? coach.credentials.slice(0, 2).join(" · ") : "专项资料待补充核验"}</p>
         <p><MapPin aria-hidden size={15} />{coach.venue} <span>· {coach.district}</span></p>
-        <p className={styles.nextSlot}><Clock3 aria-hidden size={15} />最早可约 {coach.nextSlot}</p>
+        <p className={styles.nextSlot}><Clock3 aria-hidden size={15} />{coach.bookable ? `最早可约 ${coach.nextSlot}` : coach.nextSlot}</p>
       </div>
       <div className={styles.resultCommercial}>
-        <span className={styles.rating}><Star aria-hidden fill="currentColor" size={16} />{coach.rating}<small>（{coach.reviewCount}条评价）</small></span>
+        {coach.isNew ? <span className={`${styles.rating} ${styles.newCoachRating}`}><Star aria-hidden size={16} />新教练<small>暂无评价</small></span> : <span className={styles.rating}><Star aria-hidden fill="currentColor" size={16} />{coach.rating}<small>（{coach.reviewCount}条评价）</small></span>}
         <strong>¥{coach.price}<small>/课时</small></strong>
         <span>60–90分钟</span>
         <button aria-label={favorite ? `取消收藏${coach.name}` : `收藏${coach.name}`} className={styles.heartButton} onClick={onFavorite} type="button">
@@ -181,20 +181,22 @@ function CoachResult({ active, coach, favorite, onFavorite, onSelect }: { active
 
 function CoachInspector({ coach, embedded }: { coach: CoachProfile; embedded: boolean }) {
   const bookingHref = embedded ? `/student/bookings?coach=${coach.id}` : `/login?next=${encodeURIComponent(`/student/bookings?coach=${coach.id}`)}`;
+  const contactHref = embedded ? `/student/messages?coach=${coach.id}` : `/login?next=${encodeURIComponent(`/student/messages?coach=${coach.id}`)}`;
   return (
     <aside className={styles.inspector} aria-label={`${coach.name}教练摘要`}>
       <div className={styles.inspectorProfile}>
         <Image alt={`${coach.name}教练`} height={120} src={coach.image} unoptimized width={120} />
-        <div><span><BadgeCheck aria-hidden size={14} />已认证</span><h2>{coach.name}</h2><p>{coach.title}</p></div>
+        <div><span><BadgeCheck aria-hidden size={14} />{coach.verificationLabel}</span><h2>{coach.name}</h2><p>{coach.title}</p></div>
       </div>
       <div className={styles.inspectorFacts}>
-        <p><Star aria-hidden fill="currentColor" size={16} /><strong>{coach.rating}</strong><span>{coach.reviewCount} 条评价</span></p>
+        <p><Star aria-hidden fill={coach.isNew ? "none" : "currentColor"} size={16} /><strong>{coach.isNew ? "新教练" : coach.rating}</strong><span>{coach.isNew ? "暂无评价" : `${coach.reviewCount} 条评价`}</span></p>
         <p><MapPin aria-hidden size={16} /><strong>{coach.district}</strong><span>{coach.venue}</span></p>
       </div>
       <section>
         <header><h3>认证与资质</h3><Link href={`/coaches/${coach.id}`}>查看全部</Link></header>
         <ul className={styles.credentials}>
           {coach.credentials.map((item) => <li key={item}><ShieldCheck aria-hidden size={17} /><span>{item}</span><BadgeCheck aria-hidden size={16} /></li>)}
+          {!coach.credentials.length ? <li className={styles.inspectorEmpty}><ShieldCheck aria-hidden size={17} /><span>专项资料待补充核验</span></li> : null}
         </ul>
       </section>
       <section>
@@ -203,11 +205,12 @@ function CoachInspector({ coach, embedded }: { coach: CoachProfile; embedded: bo
           {coach.availability.map((item) => (
             <div key={item.day}><strong>{item.day}</strong>{item.periods.map((period) => <span key={period}>{period}</span>)}</div>
           ))}
+          {!coach.availability.length ? <div className={styles.inspectorAvailabilityEmpty}><Clock3 aria-hidden size={17} /><span>真实场馆与时段待发布</span></div> : null}
         </div>
       </section>
       <div className={styles.inspectorActions}>
         <Link href={`/coaches/${coach.id}`}>查看详情</Link>
-        <Link href={bookingHref}>预约试课</Link>
+        <Link href={coach.bookable ? bookingHref : contactHref}>{coach.bookable ? "预约试课" : "先咨询"}</Link>
       </div>
     </aside>
   );

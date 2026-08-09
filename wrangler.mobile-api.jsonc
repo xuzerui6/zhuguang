@@ -1,0 +1,39 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "zhuguang-mobile-api",
+  "main": "worker/mobile-api.ts",
+  "account_id": "1f2504fb31c1cf2e43cbbc9948b689f7",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "zhuguang-mobile-api",
+      "database_id": "bc2defbb-fbfb-4c81-963a-6bee6083378b",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "zhuguang-coach-media"
+    },
+    {
+      "binding": "RELEASES",
+      "bucket_name": "zhuguang-mobile-releases"
+    }
+  ],
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "APP_ENV": "production",
+    "CORS_ORIGINS": "https://zhuguang-coach-platform.xuzerui6.chatgpt.site",
+    "MOBILE_API_ORIGIN": "https://zhuguang-mobile-api.xuzerui6.workers.dev",
+    "SMS_DAILY_BUDGET": "500"
+  }
+}

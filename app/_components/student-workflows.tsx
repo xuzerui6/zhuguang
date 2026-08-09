@@ -61,6 +61,15 @@ export function StudentBookings({ initialCoachId }: { initialCoachId?: number })
           })}
           {!visibleBookings.length ? <div className={styles.bookingEmpty}><CheckCircle2 aria-hidden size={28} /><strong>当前分类暂无预约</strong><p>新的预约状态会在这里同步更新。</p></div> : null}
         </section>
+      ) : !selectedCoach.bookable ? (
+        <section className={styles.bookingUnavailable}>
+          <Image alt={`${selectedCoach.name}教练`} height={96} src={selectedCoach.image} unoptimized width={96} />
+          <span><BadgeCheck aria-hidden size={15} />{selectedCoach.verificationLabel}</span>
+          <h2>{selectedCoach.name}教练的时段正在准备中</h2>
+          <p>当前可以收藏或咨询训练方向。运营人员发布真实场馆和可约时段后，这里会自动开放预约。</p>
+          <div><strong>{selectedCoach.sport} · {selectedCoach.district}</strong><small>{selectedCoach.venue}</small><b>试课 ¥{selectedCoach.trialPrice} · 线下支付</b></div>
+          <Link href={`/student/messages?coach=${selectedCoach.id}`}><MessageCircle aria-hidden size={17} />先咨询训练安排</Link>
+        </section>
       ) : submitted ? (
         <section className={styles.bookingSuccess}>
           <CheckCircle2 aria-hidden size={34} />

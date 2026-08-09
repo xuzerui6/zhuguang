@@ -37,22 +37,22 @@ export default async function CoachDetailPage({ params }: { params: Promise<{ id
         <section className={styles.coachHero}>
           <div className={styles.coachPortrait}><Image alt={`${coach.name}教练`} fill priority sizes="360px" src={coach.image} unoptimized /></div>
           <div className={styles.coachHeroCopy}>
-            <div className={styles.verified}><BadgeCheck aria-hidden size={16} />资料已核验</div>
+            <div className={styles.verified}><BadgeCheck aria-hidden size={16} />{coach.verificationLabel}</div>
             <h1>{coach.name}</h1>
             <p className={styles.coachTitle}>{coach.sport} · {coach.title}</p>
             <p className={styles.coachBio}>{coach.bio}</p>
             <div className={styles.coachQuickFacts}>
-              <span><Star aria-hidden fill="currentColor" size={17} /><strong>{coach.rating}</strong>{coach.reviewCount}条评价</span>
+              {coach.isNew ? <span><Star aria-hidden size={17} /><strong>新教练</strong>暂无学员评价</span> : <span><Star aria-hidden fill="currentColor" size={17} /><strong>{coach.rating}</strong>{coach.reviewCount}条评价</span>}
               <span><MapPin aria-hidden size={17} /><strong>{coach.district}</strong>{coach.venue}</span>
-              <span><Clock3 aria-hidden size={17} /><strong>最近可约</strong>{coach.nextSlot}</span>
+              <span><Clock3 aria-hidden size={17} /><strong>{coach.bookable ? "最近可约" : "开放状态"}</strong>{coach.nextSlot}</span>
             </div>
           </div>
           <aside className={styles.bookingSummary}>
             <p>标准课时</p>
             <strong>¥{coach.price}<small>/次</small></strong>
             <span>试课 ¥{coach.trialPrice} · 线下支付</span>
-            <Link href={`/login?next=${encodeURIComponent(`/student/bookings?coach=${coach.id}`)}`}>预约试课</Link>
-            <small>提交后由教练确认，确认后预约生效</small>
+            <Link href={coach.bookable ? `/login?next=${encodeURIComponent(`/student/bookings?coach=${coach.id}`)}` : `/login?next=${encodeURIComponent(`/student/messages?coach=${coach.id}`)}`}>{coach.bookable ? "预约试课" : "先咨询教练"}</Link>
+            <small>{coach.bookable ? "提交后由教练确认，确认后预约生效" : "真实场馆与时段发布后开放预约"}</small>
           </aside>
         </section>
 
@@ -62,6 +62,7 @@ export default async function CoachDetailPage({ params }: { params: Promise<{ id
               <header><ShieldCheck aria-hidden size={22} /><div><h2>认证与资质</h2><p>平台人工查看原始资料后展示核验结果</p></div></header>
               <div className={styles.credentialGrid}>
                 {coach.credentials.map((item) => <article key={item}><CheckCircle2 aria-hidden size={19} /><strong>{item}</strong><span>已核验</span></article>)}
+                {!coach.credentials.length ? <div className={styles.credentialEmpty}><ShieldCheck aria-hidden size={20} /><div><strong>暂未展示专项资质</strong><p>平台仅展示已提交并完成核验的材料，不以运动经历替代资质证明。</p></div></div> : null}
               </div>
             </section>
             <section className={styles.detailSection}>
@@ -85,8 +86,9 @@ export default async function CoachDetailPage({ params }: { params: Promise<{ id
             <header><CalendarDays aria-hidden size={20} /><div><h2>本周可约时间</h2><p>以下时间仅供选择，以提交时实时状态为准</p></div></header>
             <div>
               {coach.availability.map((item) => <section key={item.day}><strong>{item.day}</strong><p>{item.periods.map((period) => <span key={period}>{period}</span>)}</p></section>)}
+              {!coach.availability.length ? <div className={styles.availabilityEmpty}><Clock3 aria-hidden size={22} /><strong>可约时段待发布</strong><p>可以先咨询训练方向，运营人员发布真实场馆和时段后再提交预约。</p></div> : null}
             </div>
-            <Link href={`/login?next=${encodeURIComponent(`/student/bookings?coach=${coach.id}`)}`}>选择时间并预约</Link>
+            <Link href={coach.bookable ? `/login?next=${encodeURIComponent(`/student/bookings?coach=${coach.id}`)}` : `/login?next=${encodeURIComponent(`/student/messages?coach=${coach.id}`)}`}>{coach.bookable ? "选择时间并预约" : "先咨询训练安排"}</Link>
           </aside>
         </div>
       </main>

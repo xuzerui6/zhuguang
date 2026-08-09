@@ -1,6 +1,7 @@
 "use client";
 
 import { BadgeCheck, Bell, BriefcaseBusiness, ChevronRight, ShieldCheck, UserRound, X } from "lucide-react";
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import MobileStudentApp from "./app";
 import { mobileApi, usesBundledDemoData } from "./api-client";
@@ -55,6 +56,7 @@ function timeout<T>(promise: Promise<T>, durationMs: number) {
 export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   const demoMode = useMemo(() => usesBundledDemoData(), []);
   const [booting, setBooting] = useState(true);
+  const [showBootBrand, setShowBootBrand] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState<boolean | null>(null);
   const [mode, setMode] = useState<AccountMode>("student");
   const [studentTab, setStudentTab] = useState<MobileTab>("home");
@@ -145,6 +147,12 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   }, [demoMode]);
 
   useEffect(() => {
+    if (!booting) return;
+    const timer = window.setTimeout(() => setShowBootBrand(true), 250);
+    return () => window.clearTimeout(timer);
+  }, [booting]);
+
+  useEffect(() => {
     let cancelled = false;
     void Promise.all([
       readSession(),
@@ -219,9 +227,8 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
 
   if (booting) {
     return (
-      <main className="zg-mobile-app zg-brand-launch" aria-live="polite">
-        <div className="zg-brand-launch-lockup"><span>逐</span><strong>逐光</strong></div>
-        <div className="zg-brand-launch-status"><i><b /></i><p>正在同步服务</p></div>
+      <main aria-hidden={!showBootBrand} className={`zg-mobile-app zg-brand-launch ${showBootBrand ? "is-visible" : ""}`}>
+        <div className="zg-brand-launch-lockup"><Image alt="" height={56} priority src="./logo-mark.svg" unoptimized width={56} /><strong>逐光</strong></div>
       </main>
     );
   }

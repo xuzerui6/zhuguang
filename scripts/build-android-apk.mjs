@@ -199,7 +199,7 @@ const certificateSha256 = certificateMatch[1]
   .toUpperCase()
   .match(/.{1,2}/g)
   .join(":");
-const downloadsDirectory = path.join(root, "public", "downloads");
+const downloadsDirectory = path.join(root, "outputs", "releases");
 const apkFilename = `zhuguang-android-private-${versionName}.apk`;
 const targetApk = path.join(downloadsDirectory, apkFilename);
 mkdirSync(downloadsDirectory, { recursive: true });

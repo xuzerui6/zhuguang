@@ -54,8 +54,27 @@ test("workspace access requires both an available area and its permission", () =
   assert.equal(canAccessArea(session, "ops"), false);
 });
 
-test("R2 update controls stay disabled while coach data remains internally consistent", () => {
-  assert.equal(featureFlags.r2Updates, false);
+test("R2 update controls are enabled and coach data remains internally consistent", () => {
+  assert.equal(featureFlags.r2Updates, true);
   assert.equal(new Set(coaches.map((coach) => coach.id)).size, coaches.length);
-  assert.ok(coaches.every((coach) => coach.image.startsWith("/images/") && coach.credentials.length > 0));
+  assert.ok(coaches.every((coach) => coach.image.startsWith("/images/")));
+  assert.ok(coaches.filter((coach) => !coach.isNew).every((coach) => coach.credentials.length > 0 && coach.rating > 0));
+  const trackCoach = coaches.find((coach) => coach.id === 5);
+  assert.deepEqual(trackCoach && {
+    bookable: trackCoach.bookable,
+    credentials: trackCoach.credentials,
+    district: trackCoach.district,
+    isNew: trackCoach.isNew,
+    name: trackCoach.name,
+    rating: trackCoach.rating,
+    sport: trackCoach.sport,
+  }, {
+    bookable: false,
+    credentials: [],
+    district: "通州区",
+    isNew: true,
+    name: "徐泽瑞",
+    rating: 0,
+    sport: "田径",
+  });
 });

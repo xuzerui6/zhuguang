@@ -79,8 +79,8 @@ jobs:
         with:
           name: zhuguang-android-private-release
           path: |
-            public/downloads/zhuguang-android-private-*.apk
-            public/downloads/android-private-release.json
+            outputs/releases/zhuguang-android-private-*.apk
+            outputs/releases/android-private-release.json
           retention-days: 3
 
   ios-simulator:

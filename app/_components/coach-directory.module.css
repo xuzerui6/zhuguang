@@ -349,6 +349,10 @@
   font-weight: 400;
 }
 
+.newCoachRating {
+  color: var(--zg-brand);
+}
+
 .resultCommercial > strong {
   font-size: 25px;
   margin-top: 22px;
@@ -513,6 +517,34 @@
 
 .credentials svg:last-child {
   color: var(--zg-brand);
+}
+
+.credentials .inspectorEmpty {
+  grid-template-columns: 18px 1fr;
+}
+
+.inspectorAvailabilityEmpty {
+  align-items: center;
+  background: var(--zg-canvas);
+  border-radius: 5px;
+  color: var(--zg-muted);
+  display: flex;
+  font-size: 10px;
+  gap: 8px;
+  min-height: 58px;
+  padding: 0 12px;
+}
+
+.inspectorAvailabilityEmpty svg {
+  color: var(--zg-brand);
+  flex: 0 0 auto;
+}
+
+.inspectorAvailabilityEmpty span {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
 }
 
 .availability {

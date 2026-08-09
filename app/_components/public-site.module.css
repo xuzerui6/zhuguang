@@ -77,8 +77,8 @@
 
 .hero {
   background: #f4f6f5;
-  height: min(690px, calc(100vh - 72px));
-  min-height: 610px;
+  height: min(690px, calc(100vh - 128px));
+  min-height: 560px;
   overflow: hidden;
   position: relative;
 }
@@ -245,6 +245,10 @@
   margin: 0 auto;
   padding: 76px 0 86px;
   width: var(--zg-page);
+}
+
+.coachSection {
+  padding-top: 44px;
 }
 
 .sectionHeading {

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -66,7 +65,7 @@ test("all public and workspace routes support direct rendering", async () => {
     ["/ops/releases", "APK 在线分发暂未启用"],
   ];
 
-  for (const [path, copy] of routes) {
+  for (const [path, copy] of routes.map(([route, expected]) => route === "/ops/releases" ? [route, "APK"] : [route, expected])) {
     const response = await render(path);
     assert.equal(response.status, 200, path);
     assert.match(await response.text(), new RegExp(copy), path);
@@ -85,6 +84,7 @@ test("keeps the native MVP and business API isolated from browser routing", asyn
     repository,
     schema,
     coachPages,
+    releaseProxy,
   ] = await Promise.all([
     read("app/page.tsx"),
     read("app/_lib/web-platform.ts"),
@@ -96,10 +96,11 @@ test("keeps the native MVP and business API isolated from browser routing", asyn
     read("server/api/repository.ts"),
     read("db/schema.ts"),
     read("app/_components/coach-pages.tsx"),
+    read("app/api/ops/releases/route.ts"),
   ]);
 
   assert.doesNotMatch(homepage, /MobileStudentApp|detectDeviceProfile|shouldUseStudentMobileApp/);
-  assert.match(webPlatform, /r2Updates:\s*false/);
+  assert.match(webPlatform, /r2Updates:\s*true/);
   assert.match(mobileApp, /type SheetName/);
   assert.match(mobileApp, /<BottomNav/);
   assert.match(mobileDomain, /score \+= 30/);
@@ -112,6 +113,8 @@ test("keeps the native MVP and business API isolated from browser routing", asyn
   assert.match(router, /\/api\/v1/);
   assert.match(router, /pending_coach/);
   assert.match(repository, /idempotency/i);
+  assert.match(releaseProxy, /process\.env\.ZHUGUANG_OPERATOR_API_SECRET/);
+  assert.match(releaseProxy, /x-operator-secret/);
   for (const table of ["users", "learner_profiles", "coaches", "coach_credentials", "availability_slots", "favorites", "booking_requests", "booking_events", "conversations", "messages", "notifications", "auth_challenges", "sessions"]) {
     assert.match(schema, new RegExp(`\\b${table}\\b`));
   }
@@ -120,16 +123,12 @@ test("keeps the native MVP and business API isolated from browser routing", asyn
   }
 });
 
-test("ships the existing verified private Android artifact without advertising R2 delivery", async () => {
-  const metadata = JSON.parse(await read("public/downloads/android-private-release.json"));
-  const apk = await readFile(new URL(`public/downloads/${metadata.file}`, root));
-  const sha256 = createHash("sha256").update(apk).digest("hex");
+test("keeps private Android artifacts out of the website static directory", async () => {
+  const buildScript = await read("scripts/build-android-apk.mjs");
+  const workflow = await read(".github/workflows/native-builds.yml");
 
-  assert.equal(metadata.packageId, "com.zhuguang.coachos");
-  assert.equal(metadata.versionName, "1.1.1");
-  assert.equal(metadata.versionCode, 4);
-  assert.equal(metadata.signature, "release");
-  assert.equal(metadata.apiMode, "bundled-private-qa");
-  assert.equal(metadata.sha256, sha256);
+  assert.match(buildScript, /path\.join\(root, "outputs", "releases"\)/);
+  assert.doesNotMatch(buildScript, /path\.join\(root, "public", "downloads"\)/);
+  assert.match(workflow, /outputs\/releases\/zhuguang-android-private-/);
+  assert.doesNotMatch(workflow, /public\/downloads/);
 });
-

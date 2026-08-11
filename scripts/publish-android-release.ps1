@@ -17,7 +17,7 @@ param(
 
   [int]$PauseVersionCode = 0,
 
-  [string]$ApiBaseUrl = 'https://zhuguang-mobile-api.xuzerui6.workers.dev'
+  [string]$ApiBaseUrl = 'https://api.beijingzhuguang.top'
 )
 
 $ErrorActionPreference = 'Stop'

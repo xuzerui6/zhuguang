@@ -78,6 +78,7 @@ export function WorkspaceShell({
   const active = navigation.find((item) => item.href === pathname)
     ?? [...navigation].sort((a, b) => b.href.length - a.href.length).find((item) => pathname.startsWith(`${item.href}/`))
     ?? navigation[0];
+  const usesPilotData = pathname !== "/ops/releases";
 
   useEffect(() => {
     localStorage.setItem(`zhuguang:last-route:${area}`, pathname);
@@ -93,7 +94,10 @@ export function WorkspaceShell({
           </nav>
           <AccountMenu area={area} session={session} />
         </header>
-        <main className={styles.studentMain} key={pathname}>{children}</main>
+        <main className={styles.studentMain} key={pathname}>
+          {usesPilotData ? <DataScopeNotice /> : null}
+          {children}
+        </main>
         <nav className={styles.studentMobileNav} aria-label="学员平台移动导航">
           {navigation.filter((item) => item.id !== "student-training").slice(0, 5).map((item) => <NavLink active={active?.id === item.id} item={item} key={item.id} />)}
         </nav>
@@ -123,7 +127,7 @@ export function WorkspaceShell({
         </nav>
         <div className={styles.sidebarTrust}>
           <ShieldCheck aria-hidden size={18} />
-          <span><strong>北京私有试点</strong><small>身份与关键操作留痕</small></span>
+          <span><strong>北京试点工作区</strong><small>身份与关键操作留痕</small></span>
         </div>
       </aside>
       {menuOpen ? <button aria-label="关闭菜单遮罩" className={styles.scrim} onClick={() => setMenuOpen(false)} type="button" /> : null}
@@ -138,10 +142,17 @@ export function WorkspaceShell({
           </div>
           <AccountMenu area={area} session={session} />
         </header>
-        <main className={styles.workspaceMain} key={pathname}>{children}</main>
+        <main className={styles.workspaceMain} key={pathname}>
+          {usesPilotData ? <DataScopeNotice /> : null}
+          {children}
+        </main>
       </div>
     </div>
   );
+}
+
+function DataScopeNotice() {
+  return <div className={styles.dataScopeNotice} role="note"><span>试点演示数据</span><p>当前页面操作仅保留在本次浏览会话，不会写入正式业务记录。</p></div>;
 }
 
 function NavLink({ active, item, onNavigate }: { active: boolean; item: NavItem; onNavigate?: () => void }) {

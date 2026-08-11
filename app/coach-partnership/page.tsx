@@ -6,7 +6,7 @@ import { PublicHeader } from "../_components/public-header";
 import styles from "../_components/public-pages.module.css";
 
 export const metadata: Metadata = {
-  description: "了解逐光北京私有试点的教练合作方式、审核材料和工作台能力。",
+  description: "了解逐光北京试点服务的教练合作方式、审核材料和工作台能力。",
   title: "教练合作 | 逐光",
 };
 
@@ -17,7 +17,7 @@ export default function CoachPartnershipPage() {
       <main className={styles.publicPage}>
         <section className={styles.partnerIntro}>
           <div><p>教练合作</p><h1>让专业经历成为<br />长期可信的服务</h1><span>逐光当前采用定向邀请和人工审核，不开放线上自助注册。</span></div>
-          <div className={styles.partnerStatus}><BadgeCheck aria-hidden size={28} /><strong>北京私有试点</strong><p>首批合作优先面向退役运动员、专业队经历教练和具备可核验资质的专项教练。</p></div>
+          <div className={styles.partnerStatus}><BadgeCheck aria-hidden size={28} /><strong>北京试点服务</strong><p>首批合作优先面向退役运动员、专业队经历教练和具备可核验资质的专项教练。</p></div>
         </section>
         <section className={styles.partnerSteps}>
           <article><span>01</span><ClipboardCheck aria-hidden size={24} /><h2>资料核验</h2><p>身份证明、运动经历、教练资质、场馆与服务范围由运营团队人工确认。</p></article>
@@ -40,4 +40,3 @@ export default function CoachPartnershipPage() {
     </>
   );
 }
-

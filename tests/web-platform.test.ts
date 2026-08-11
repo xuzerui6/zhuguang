@@ -9,8 +9,7 @@ import {
   opsNavigation,
   studentNavigation,
 } from "../app/_lib/web-platform";
-import type { WebSession } from "../app/_lib/web-platform";
-import { canAccessArea } from "../app/_lib/web-session";
+import { canAccessArea, createWebSession } from "../app/_lib/web-session";
 
 const root = new URL("../", import.meta.url);
 
@@ -40,18 +39,52 @@ test("browser pages cannot mount the native mobile shell", async () => {
   assert.match(workspaceShell, /item\.id !== "student-training"/);
 });
 
-test("workspace access requires both an available area and its permission", () => {
-  const session: WebSession = {
-    availableAreas: ["student", "coach"],
-    displayName: "测试账号",
-    email: null,
-    isPrivatePreview: true,
-    permissions: ["student:read"],
-  };
-
-  assert.equal(canAccessArea(session, "student"), true);
+test("anonymous visitors have no workspace permissions", () => {
+  const session = createWebSession(null);
+  assert.equal(session.isAuthenticated, false);
+  assert.deepEqual(session.availableAreas, []);
+  assert.equal(canAccessArea(session, "student"), false);
   assert.equal(canAccessArea(session, "coach"), false);
   assert.equal(canAccessArea(session, "ops"), false);
+});
+
+test("signed-in accounts receive student access by default", () => {
+  const session = createWebSession({
+    displayName: "测试账号",
+    email: "learner@example.com",
+    fullName: "测试账号",
+    id: "account-1",
+  });
+
+  assert.equal(session.authorizationSource, "siwc");
+  assert.deepEqual(session.availableAreas, ["student"]);
+  assert.equal(canAccessArea(session, "student"), true);
+  assert.equal(canAccessArea(session, "coach"), false);
+});
+
+test("coach and operations access only come from server allowlists", () => {
+  const session = createWebSession({
+    displayName: "徐泽瑞",
+    email: "xuzerui@example.com",
+    fullName: "徐泽瑞",
+    id: "account-2",
+  }, {
+    coachEmails: "coach@example.com, XUZERUI@example.com",
+    opsEmails: "xuzerui@example.com",
+  });
+
+  assert.equal(session.authorizationSource, "allowlist");
+  assert.deepEqual(session.availableAreas, ["student", "coach", "ops"]);
+  assert.equal(canAccessArea(session, "coach"), true);
+  assert.equal(canAccessArea(session, "ops"), true);
+});
+
+test("operations release proxy performs server-side permission and origin checks", async () => {
+  const route = await readFile(new URL("app/api/ops/releases/route.ts", root), "utf8");
+  assert.match(route, /getWebSession/);
+  assert.match(route, /ops:manage/);
+  assert.match(route, /release:read/);
+  assert.match(route, /request\.headers\.get\("origin"\)/);
 });
 
 test("R2 update controls are enabled and coach data remains internally consistent", () => {

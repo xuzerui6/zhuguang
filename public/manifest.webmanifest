@@ -1,16 +1,16 @@
 {
   "id": "/?app=zhuguang",
-  "name": "逐光 Coach OS",
+  "name": "逐光运动教练服务平台",
   "short_name": "逐光",
-  "description": "退役运动员教练服务平台，覆盖学员匹配、试课预约、教练入驻、PC 工作台和运营审核。",
+  "description": "连接经过资料核验的退役运动员教练与学员家庭，提供透明、可预约、可持续的训练服务。",
   "lang": "zh-CN",
-  "start_url": "/?source=app",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "browser"],
   "orientation": "any",
-  "background_color": "#f6f8f5",
-  "theme_color": "#07120e",
+  "background_color": "#ffffff",
+  "theme_color": "#06130f",
   "categories": ["sports", "education", "business", "productivity"],
   "icons": [
     {
@@ -39,17 +39,17 @@
   ],
   "shortcuts": [
     {
-      "name": "PC 工作台",
-      "short_name": "工作台",
-      "description": "进入教练匹配、排期和履约工作台。",
-      "url": "/?surface=command",
+      "name": "找教练",
+      "short_name": "找教练",
+      "description": "按项目、区域和训练目标比较北京教练。",
+      "url": "/coaches",
       "icons": [{ "src": "/app-icon-192.png", "sizes": "192x192" }]
     },
     {
-      "name": "手机端预约",
+      "name": "我的预约",
       "short_name": "预约",
-      "description": "进入学员移动预约流程。",
-      "url": "/?surface=mobile",
+      "description": "进入学员预约与履约记录。",
+      "url": "/student/bookings",
       "icons": [{ "src": "/app-icon-192.png", "sizes": "192x192" }]
     }
   ]

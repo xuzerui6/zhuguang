@@ -140,7 +140,7 @@ function ProfilePage() {
           return <details key={item.title}><summary><Icon aria-hidden size={20} /><span><strong>{item.title}</strong><small>{item.copy}</small></span><b>{item.status}</b><ChevronRight aria-hidden size={17} /></summary><div><p>{item.title === "学员档案" ? "当前训练目标为羽毛球专项提升，服务对象为青少年。隐私信息仅在预约确认后向对应教练开放。" : `${item.copy}。详细设置将在当前试点账号中保存。`}</p></div></details>;
         })}
       </section>
-      <section className={styles.accountSecurity}><div><ShieldCheck aria-hidden size={22} /><span><strong>账号安全</strong><small>会话受私有访问保护，敏感信息不会在公开页面展示。</small></span></div><Link href="/">退出当前模式</Link></section>
+      <section className={styles.accountSecurity}><div><ShieldCheck aria-hidden size={22} /><span><strong>账号安全</strong><small>工作区需要登录，敏感信息不会在公开页面展示。</small></span></div><Link href="/">退出当前模式</Link></section>
     </div>
   );
 }

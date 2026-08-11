@@ -10,18 +10,18 @@
     <path
         android:name="zStroke"
         android:fillColor="@android:color/transparent"
-        android:pathData="M20,26 H55 L24.5,54 H59.5"
+        android:pathData="M23,53.5 H57 L23,27 H56"
         android:strokeColor="#ECFFF2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:strokeWidth="8.4"
+        android:strokeWidth="7"
         android:trimPathEnd="0" />
     <group
         android:name="lightDot"
-        android:translateX="20"
-        android:translateY="26">
+        android:translateX="56"
+        android:translateY="27">
         <path
             android:fillColor="#FF835C"
-            android:pathData="M5.8,0 A5.8,5.8 0,1 1,-5.8 0 A5.8,5.8 0,1 1,5.8 0" />
+            android:pathData="M4.5,0 A4.5,4.5 0,1 1,-4.5 0 A4.5,4.5 0,1 1,4.5 0" />
     </group>
 </vector>

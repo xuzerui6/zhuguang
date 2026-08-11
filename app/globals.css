@@ -114,7 +114,7 @@ img {
 }
 
 .zg-section-title {
-  font-size: clamp(28px, 3vw, 42px);
+  font-size: 40px;
   letter-spacing: 0;
   line-height: 1.2;
   margin: 0;
@@ -144,6 +144,14 @@ img {
 
   html {
     scroll-behavior: auto;
+  }
+
+  .zg-section-title {
+    font-size: 30px;
+  }
+
+  .zg-section-copy {
+    font-size: 15px;
   }
 }
 

@@ -16,7 +16,8 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useMemo, useState, useTransition } from "react";
 import type { CoachProfile } from "../_lib/web-platform";
 import { coaches } from "../_lib/web-platform";
 import styles from "./coach-directory.module.css";
@@ -29,17 +30,35 @@ type DirectoryProps = {
 };
 
 export function CoachDirectory({ embedded = false, initialDistrict = "全部区域", initialGoal = "全部目标", initialSport = "全部项目" }: DirectoryProps) {
-  const [sport, setSport] = useState(initialSport);
-  const [district, setDistrict] = useState(initialDistrict);
-  const [goal, setGoal] = useState(initialGoal);
-  const [audience, setAudience] = useState("全部对象");
-  const [date, setDate] = useState("");
-  const [price, setPrice] = useState("不限价格");
-  const [sort, setSort] = useState("综合排序");
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [isNavigating, startTransition] = useTransition();
   const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [favorites, setFavorites] = useState<number[]>([1]);
-  const [selectedId, setSelectedId] = useState(1);
+  const sport = searchParams.get("sport") || initialSport;
+  const district = searchParams.get("district") || initialDistrict;
+  const goal = searchParams.get("goal") || initialGoal;
+  const audience = searchParams.get("audience") || "全部对象";
+  const date = searchParams.get("date") || "";
+  const price = searchParams.get("price") || "不限价格";
+  const sort = searchParams.get("sort") || "综合排序";
+  const favoritesOnly = searchParams.get("favorites") === "1";
+  const selectedId = Number(searchParams.get("coach")) || 1;
+
+  function updateQuery(changes: Record<string, string | null>) {
+    const next = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(changes)) {
+      if (!value) next.delete(key);
+      else next.set(key, value);
+    }
+    const query = next.toString();
+    startTransition(() => router.replace(`${pathname}${query ? `?${query}` : ""}`, { scroll: false }));
+  }
+
+  function setFilter(key: string, value: string, fallback: string) {
+    updateQuery({ [key]: value === fallback ? null : value, coach: null });
+  }
 
   const results = useMemo(() => {
     let items = coaches.filter((coach) => {
@@ -64,13 +83,7 @@ export function CoachDirectory({ embedded = false, initialDistrict = "全部区�
   const selected = results.find((coach) => coach.id === selectedId) ?? results[0] ?? coaches[0];
 
   function resetFilters() {
-    setSport("全部项目");
-    setDistrict("全部区域");
-    setGoal("全部目标");
-    setAudience("全部对象");
-    setDate("");
-    setPrice("不限价格");
-    setFavoritesOnly(false);
+    updateQuery({ audience: null, coach: null, date: null, district: null, favorites: null, goal: null, price: null, sport: null });
   }
 
   function toggleFavorite(id: number) {
@@ -78,7 +91,7 @@ export function CoachDirectory({ embedded = false, initialDistrict = "全部区�
   }
 
   return (
-    <section className={`${styles.directory} ${embedded ? styles.embedded : styles.standalone}`}>
+    <section aria-busy={isNavigating} className={`${styles.directory} ${embedded ? styles.embedded : styles.standalone}`}>
       <header className={styles.directoryHeader}>
         <div>
           <p>{embedded ? "学员服务 / 北京" : "北京教练服务"}</p>
@@ -89,12 +102,12 @@ export function CoachDirectory({ embedded = false, initialDistrict = "全部区�
 
       <div className={`${styles.filters} ${filtersExpanded ? styles.filtersExpanded : ""}`} aria-label="教练筛选条件">
         <button aria-expanded={filtersExpanded} className={styles.filterTitle} onClick={() => setFiltersExpanded((current) => !current)} type="button"><SlidersHorizontal aria-hidden size={18} />筛选<ChevronDown aria-hidden className={styles.filterToggleIcon} size={15} /></button>
-        <FilterSelect label="运动项目" onChange={setSport} options={["全部项目", "羽毛球", "游泳", "篮球", "体能", "田径"]} value={sport} />
-        <FilterSelect label="区域" onChange={setDistrict} options={["全部区域", "朝阳区", "海淀区", "东城区", "丰台区", "通州区"]} value={district} />
-        <FilterSelect label="训练目标" onChange={setGoal} options={["全部目标", "专项提升", "兴趣培养", "体能强化", "比赛备战", "中考体育", "短跑专项", "跑姿纠正"]} value={goal} />
-        <FilterSelect label="服务对象" onChange={setAudience} options={["全部对象", "青少年", "成人", "成人进阶", "亲子"]} value={audience} />
-        <label className={styles.dateControl}><span>日期</span><input aria-label="选择训练日期" onChange={(event) => setDate(event.target.value)} type="date" value={date} /><CalendarDays aria-hidden size={17} /></label>
-        <FilterSelect label="价格" onChange={setPrice} options={["不限价格", "300元以内", "250元以内"]} value={price} />
+        <FilterSelect label="运动项目" onChange={(value) => setFilter("sport", value, "全部项目")} options={["全部项目", "羽毛球", "游泳", "篮球", "体能", "田径"]} value={sport} />
+        <FilterSelect label="区域" onChange={(value) => setFilter("district", value, "全部区域")} options={["全部区域", "朝阳区", "海淀区", "东城区", "丰台区", "通州区"]} value={district} />
+        <FilterSelect label="训练目标" onChange={(value) => setFilter("goal", value, "全部目标")} options={["全部目标", "专项提升", "兴趣培养", "体能强化", "比赛备战", "中考体育", "短跑专项", "跑姿纠正"]} value={goal} />
+        <FilterSelect label="服务对象" onChange={(value) => setFilter("audience", value, "全部对象")} options={["全部对象", "青少年", "成人", "成人进阶", "亲子"]} value={audience} />
+        <label className={styles.dateControl}><span>日期</span><input aria-label="选择训练日期" onChange={(event) => updateQuery({ date: event.target.value || null, coach: null })} type="date" value={date} /><CalendarDays aria-hidden size={17} /></label>
+        <FilterSelect label="价格" onChange={(value) => setFilter("price", value, "不限价格")} options={["不限价格", "300元以内", "250元以内"]} value={price} />
         <button className={styles.resetButton} onClick={resetFilters} type="button"><RefreshCw aria-hidden size={15} />清空</button>
       </div>
 
@@ -102,10 +115,10 @@ export function CoachDirectory({ embedded = false, initialDistrict = "全部区�
         <strong>找到 {results.length} 位教练</strong>
         <div className={styles.segmented}>
           {["综合排序", "评分优先", "价格从低到高"].map((item) => (
-            <button aria-pressed={sort === item} className={sort === item ? styles.selectedSegment : ""} key={item} onClick={() => setSort(item)} type="button">{item}</button>
+            <button aria-pressed={sort === item} className={sort === item ? styles.selectedSegment : ""} key={item} onClick={() => setFilter("sort", item, "综合排序")} type="button">{item}</button>
           ))}
         </div>
-        <button aria-pressed={favoritesOnly} className={styles.favoriteFilter} onClick={() => setFavoritesOnly((current) => !current)} type="button">
+        <button aria-pressed={favoritesOnly} className={styles.favoriteFilter} onClick={() => updateQuery({ favorites: favoritesOnly ? null : "1", coach: null })} type="button">
           <Heart aria-hidden fill={favoritesOnly ? "currentColor" : "none"} size={17} />只看已收藏
         </button>
       </div>
@@ -119,7 +132,7 @@ export function CoachDirectory({ embedded = false, initialDistrict = "全部区�
               favorite={favorites.includes(coach.id)}
               key={coach.id}
               onFavorite={() => toggleFavorite(coach.id)}
-              onSelect={() => setSelectedId(coach.id)}
+              onSelect={() => updateQuery({ coach: String(coach.id) })}
             />
           ))}
           {!results.length ? (
@@ -153,6 +166,7 @@ function CoachResult({ active, coach, favorite, onFavorite, onSelect }: { active
   return (
     <article className={`${styles.coachResult} ${active ? styles.activeResult : ""}`}>
       <button aria-label={`查看${coach.name}教练`} className={styles.selectCoach} onClick={onSelect} type="button" />
+      <Link aria-label={`打开${coach.name}教练详情`} className={styles.openCoach} href={`/coaches/${coach.id}`} />
       <div className={styles.resultImage}>
         <Image alt={`${coach.name}教练`} fill sizes="180px" src={coach.image} unoptimized />
         {active ? <span><Check aria-hidden size={16} /></span> : null}

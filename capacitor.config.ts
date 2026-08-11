@@ -6,7 +6,7 @@ const config: CapacitorConfig = {
   webDir: "native/mobile/www",
   server: {
     androidScheme: "https",
-    allowNavigation: ["zhuguang-coach-platform.xuzerui6.chatgpt.site"],
+    allowNavigation: ["beijingzhuguang.top", "api.beijingzhuguang.top"],
   },
 };
 

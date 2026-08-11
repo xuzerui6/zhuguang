@@ -77,8 +77,8 @@
 
 .hero {
   background: #f4f6f5;
-  height: min(690px, calc(100vh - 128px));
-  min-height: 560px;
+  height: 600px;
+  min-height: 540px;
   overflow: hidden;
   position: relative;
 }
@@ -118,7 +118,7 @@
 }
 
 .heroCopy h1 {
-  font-size: clamp(48px, 5vw, 72px);
+  font-size: 58px;
   letter-spacing: 0;
   line-height: 1.08;
   margin: 0;
@@ -161,7 +161,7 @@
 
 .searchPanel label span {
   color: var(--zg-muted);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -231,7 +231,7 @@
   align-items: center;
   color: #344039;
   display: flex;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   gap: 8px;
 }
@@ -317,7 +317,7 @@
   align-items: center;
   color: var(--zg-brand);
   display: inline-flex;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   gap: 3px;
 }
@@ -326,7 +326,7 @@
   align-items: center;
   color: var(--zg-muted);
   display: flex;
-  font-size: 12px;
+  font-size: 13px;
   gap: 5px;
   line-height: 1.5;
   margin: 9px 0 0;
@@ -341,7 +341,7 @@
 
 .coachMeta span {
   color: var(--zg-brand);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -359,7 +359,7 @@
 
 .dataNote {
   color: #89938e;
-  font-size: 11px;
+  font-size: 12px;
   margin: 16px 0 0;
 }
 
@@ -523,7 +523,7 @@
 }
 
 .cooperationSection h2 {
-  font-size: clamp(28px, 3vw, 42px);
+  font-size: 38px;
   letter-spacing: 0;
   line-height: 1.28;
   margin: 0;
@@ -682,7 +682,7 @@
 
   .hero {
     height: auto;
-    min-height: 760px;
+    min-height: 700px;
   }
 
   .heroMedia {
@@ -704,7 +704,7 @@
   }
 
   .heroCopy h1 {
-    font-size: 50px;
+    font-size: 46px;
   }
 
   .searchPanel {
@@ -755,7 +755,7 @@
 
 @media (max-width: 620px) {
   .hero {
-    min-height: 700px;
+    min-height: 660px;
   }
 
   .heroInner {
@@ -763,7 +763,7 @@
   }
 
   .heroCopy h1 {
-    font-size: 42px;
+    font-size: 38px;
   }
 
   .heroCopy > p {
@@ -864,6 +864,10 @@
     flex-direction: column;
     gap: 28px;
     padding-block: 54px;
+  }
+
+  .cooperationSection h2 {
+    font-size: 30px;
   }
 
   .footerMain {

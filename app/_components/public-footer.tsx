@@ -9,7 +9,7 @@ export function PublicFooter() {
         <div className={styles.footerBrand}>
           <Brand />
           <p>连接经过审核的专业教练与学员家庭，让训练选择更透明，让每一次课程都有记录。</p>
-          <span>北京私有试点</span>
+          <span>北京试点服务</span>
         </div>
         <div>
           <strong>寻找服务</strong>
@@ -31,10 +31,9 @@ export function PublicFooter() {
         </div>
       </div>
       <div className={styles.footerBottom}>
-        <span>© 2026 逐光专业运动教练服务平台</span>
-        <span>当前为北京私有试点版本</span>
+        <span>© 2026 逐光运动教练服务平台</span>
+        <span>官网公开浏览 · 平台登录使用</span>
       </div>
     </footer>
   );
 }
-

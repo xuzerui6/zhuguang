@@ -80,7 +80,7 @@ export default function HomePage() {
         <section className={styles.coachSection}>
           <div className={styles.sectionHeading}>
             <div>
-              <p className="zg-eyebrow">北京私有试点</p>
+              <p className="zg-eyebrow">北京试点服务</p>
               <h2 className="zg-section-title">值得认真了解的教练</h2>
               <p className="zg-section-copy">先看清经历、专长、场馆和可约时间，再决定是否开始试课。</p>
             </div>
@@ -126,7 +126,7 @@ export default function HomePage() {
 
         <section className={styles.trustSection}>
           <div className={styles.trustMedia}>
-            <Image alt="教练在篮球场指导青少年训练" fill sizes="(max-width: 820px) 100vw, 50vw" src="/coach-visual-v23.webp" unoptimized />
+            <Image alt="教练在篮球场指导青少年训练" fill loading="eager" sizes="(max-width: 820px) 100vw, 50vw" src="/coach-visual-v23.webp" unoptimized />
           </div>
           <div className={styles.trustCopy}>
             <p className="zg-eyebrow">服务保障</p>

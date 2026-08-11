@@ -3,17 +3,24 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const root = new URL("../", import.meta.url);
+process.env.ZHUGUANG_COACH_EMAILS = "qa-owner@example.com";
+process.env.ZHUGUANG_OPS_EMAILS = "qa-owner@example.com";
 
 async function read(path) {
   return readFile(new URL(path, root), "utf8");
 }
 
-async function render(path = "/") {
+async function render(path = "/", authenticated = false) {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}-${encodeURIComponent(path)}`);
   const { default: worker } = await import(workerUrl.href);
+  const headers = { accept: "text/html" };
+  if (authenticated) {
+    headers["oai-authenticated-user-email"] = "qa-owner@example.com";
+    headers["oai-authenticated-user-id"] = "qa-owner-account";
+  }
   return worker.fetch(
-    new Request(`http://localhost${path}`, { headers: { accept: "text/html" } }),
+    new Request(`http://localhost${path}`, { headers }),
     { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
     { waitUntil() {}, passThroughOnException() {} },
   );
@@ -25,7 +32,7 @@ test("server-renders a service-first homepage without prototype claims", async (
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>逐光 \| 专业运动教练服务平台<\/title>/);
+  assert.match(html, /<title>逐光 \| 运动教练服务平台<\/title>/);
   assert.match(html, /专业运动教练/);
   assert.match(html, /查找教练/);
   assert.match(html, /身份与履历人工核验/);
@@ -42,7 +49,7 @@ test("all public and workspace routes support direct rendering", async () => {
     ["/coaches/1", "认证与资质"],
     ["/service-guarantee", "预约与履约"],
     ["/coach-partnership", "定向邀请和人工审核"],
-    ["/login", "登录逐光私有试点"],
+    ["/login", "登录逐光"],
     ["/student", "继续按计划训练"],
     ["/student/coaches", "找适合你的教练"],
     ["/student/bookings", "管理训练安排"],
@@ -66,7 +73,8 @@ test("all public and workspace routes support direct rendering", async () => {
   ];
 
   for (const [path, copy] of routes.map(([route, expected]) => route === "/ops/releases" ? [route, "APK"] : [route, expected])) {
-    const response = await render(path);
+    const authenticated = path.startsWith("/student") || path.startsWith("/coach-workspace") || path.startsWith("/ops");
+    const response = await render(path, authenticated);
     assert.equal(response.status, 200, path);
     assert.match(await response.text(), new RegExp(copy), path);
   }

@@ -44,7 +44,7 @@ export function CoachPage({ section }: { section: CoachSection }) {
 
   function updateBooking(id: string, status: string) {
     setBookings((current) => current.map((booking) => booking.id === id ? { ...booking, status, tone: status === "已确认" || status === "已完成" ? "green" : status === "已拒绝" ? "gray" : "blue" } : booking));
-    setNotice(`预约 ${id} 已更新为“${status}”`);
+    setNotice(`演示视图：预约 ${id} 已更新为“${status}”，未写入正式业务记录`);
     window.setTimeout(() => setNotice(""), 2200);
   }
 
@@ -127,12 +127,10 @@ function CoachSchedule() {
   const initial = ["mon-18", "tue-18", "thu-18", "sat-10", "sat-14", "sun-09"];
   const [available, setAvailable] = useState(initial);
   const [weekOffset, setWeekOffset] = useState(0);
-  const [notice, setNotice] = useState("");
   const days = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
   const periods = ["09:00", "10:30", "14:00", "16:00", "18:00", "19:30"];
   const dates = days.map((_, index) => new Date(2026, 7, 17 + weekOffset * 7 + index));
   const rangeLabel = `${dates[0].getMonth() + 1}月${dates[0].getDate()}日–${dates[6].getMonth() + 1}月${dates[6].getDate()}日`;
-  function announce(copy: string) { setNotice(copy); window.setTimeout(() => setNotice(""), 2200); }
   function toggle(dayIndex: number, period: string) {
     const key = `${["mon", "tue", "wed", "thu", "fri", "sat", "sun"][dayIndex]}-${period.slice(0, 2)}`;
     setAvailable((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
@@ -146,9 +144,8 @@ function CoachSchedule() {
           <div className={styles.timeColumn}><strong>时间</strong>{periods.map((period) => <span key={period}>{period}</span>)}</div>
           {days.map((day, dayIndex) => <div className={styles.dayColumn} key={day}><strong>{day}<small>{dates[dayIndex].getDate()}</small></strong>{periods.map((period) => { const key = `${["mon", "tue", "wed", "thu", "fri", "sat", "sun"][dayIndex]}-${period.slice(0, 2)}`; const booked = (dayIndex === 0 && period === "18:00") || (dayIndex === 3 && period === "18:00"); return <button aria-pressed={available.includes(key) || booked} className={booked ? styles.bookedSlot : available.includes(key) ? styles.availableSlot : ""} disabled={booked} key={period} onClick={() => toggle(dayIndex, period)} type="button">{booked ? "已预约" : available.includes(key) ? "可约" : "—"}</button>; })}</div>)}
         </div>
-        <footer><MapPin aria-hidden size={17} /><div><strong>默认场馆：朝阳体育中心羽毛球馆</strong><p>北京市朝阳区安定路 1 号 · 可提前 24 小时修改</p></div><button onClick={() => announce("场馆设置入口已打开，当前保留朝阳体育中心为默认场馆")} type="button">管理场馆</button></footer>
+        <footer><MapPin aria-hidden size={17} /><div><strong>默认场馆：朝阳体育中心羽毛球馆</strong><p>北京市朝阳区安定路 1 号 · 可提前 24 小时修改</p></div><button disabled title="正式场馆资料接入后开放" type="button">场馆资料待接入</button></footer>
       </section>
-      {notice ? <div className={styles.toast} role="status"><Check aria-hidden size={17} />{notice}</div> : null}
     </div>
   );
 }
@@ -172,7 +169,7 @@ function CoachMessages() {
 
 function CoachCourses({ bookings, onUpdate }: { bookings: Booking[]; onUpdate: (id: string, status: string) => void }) {
   const [notice, setNotice] = useState("");
-  function inspect(booking: Booking) { setNotice(`${booking.learner}的课程记录已展开，当前状态为${booking.status}`); window.setTimeout(() => setNotice(""), 2200); }
+  function inspect(booking: Booking) { setNotice(`${booking.learner}的课程详情待正式课程记录接入后开放`); window.setTimeout(() => setNotice(""), 2200); }
   return <div className={styles.coachPage}><PageHeading copy="记录课程重点、学员表现和下一步建议。" title="课程记录" /><section className={styles.courseList}><header><strong>近期课程</strong><span>共 {bookings.length} 条</span></header>{bookings.map((booking, index) => <article key={booking.id}><time>{index === 0 ? "今天" : index === 1 ? "明天" : "本周"}</time><span className={styles.learnerAvatar}>{booking.learner.slice(0, 1)}</span><div><h2>{booking.learner} · {booking.sport}</h2><p>{booking.schedule} · {booking.venue}</p><small>{booking.status === "已完成" ? "已生成训练记录" : "课程结束后补充训练反馈"}</small></div><span className={booking.status === "已完成" ? styles.statusGreen : styles.statusBlue}>{booking.status}</span>{booking.status === "已确认" ? <button onClick={() => onUpdate(booking.id, "已完成")} type="button">完成并记录</button> : <button onClick={() => inspect(booking)} type="button"><MoreHorizontal aria-hidden size={17} />查看</button>}</article>)}</section>{notice ? <div className={styles.toast} role="status"><Check aria-hidden size={17} />{notice}</div> : null}</div>;
 }
 
@@ -183,7 +180,5 @@ function CoachPayments({ bookings }: { bookings: Booking[] }) {
 
 function CoachCredentials() {
   const coach = coaches[0];
-  const [notice, setNotice] = useState("");
-  function announce(copy: string) { setNotice(copy); window.setTimeout(() => setNotice(""), 2200); }
-  return <div className={styles.coachPage}><PageHeading copy="公开页面只展示核验结论，资质原件仅限授权人员访问。" title="资质与资料" /><section className={styles.credentialProfile}><Image alt="周明教练" height={112} src={coach.image} unoptimized width={112} /><div><span><BadgeCheck aria-hidden size={15} />认证教练</span><h2>{coach.name}</h2><p>{coach.sport} · {coach.title}</p><small>资料最近复核：2026年7月28日</small></div><button onClick={() => announce("公开档案更新申请已创建，运营人员会在复核后同步结果")} type="button">申请更新公开档案</button></section><section className={styles.credentialList}><header><h2>已核验材料</h2><span>3 项有效</span></header>{coach.credentials.map((credential, index) => <article key={credential}><FileCheck2 aria-hidden size={22} /><div><strong>{credential}</strong><p>{index === 0 ? "核验机构：北京市体育主管部门" : index === 1 ? "核验机构：中国羽毛球协会" : "培训记录已留档"}</p></div><span><CheckCircle2 aria-hidden size={15} />已核验</span><button onClick={() => announce(`${credential}的核验记录已打开，资质原件仍受权限保护`)} type="button">查看核验信息</button></article>)}</section><section className={styles.credentialNotice}><ShieldCheck aria-hidden size={22} /><div><strong>资料保护说明</strong><p>身份证明和资质原件不会出现在公开页面。运营人员每次访问均记录用途与时间。</p></div></section>{notice ? <div className={styles.toast} role="status"><Check aria-hidden size={17} />{notice}</div> : null}</div>;
+  return <div className={styles.coachPage}><PageHeading copy="公开页面只展示核验结论，资质原件仅限授权人员访问。" title="资质与资料" /><section className={styles.credentialProfile}><Image alt="周明教练" height={112} src={coach.image} unoptimized width={112} /><div><span><BadgeCheck aria-hidden size={15} />认证教练</span><h2>{coach.name}</h2><p>{coach.sport} · {coach.title}</p><small>资料状态以运营复核记录为准</small></div><button disabled title="资料变更服务接入后开放" type="button">资料变更待接入</button></section><section className={styles.credentialList}><header><h2>已核验材料</h2><span>按已完成核验材料展示</span></header>{coach.credentials.map((credential) => <article key={credential}><FileCheck2 aria-hidden size={22} /><div><strong>{credential}</strong><p>平台人工复核记录</p></div><span><CheckCircle2 aria-hidden size={15} />已核验</span><button disabled title="核验记录服务接入后开放" type="button">核验记录待接入</button></article>)}</section><section className={styles.credentialNotice}><ShieldCheck aria-hidden size={22} /><div><strong>资料保护说明</strong><p>身份证明和资质原件不会出现在公开页面。运营人员每次访问均记录用途与时间。</p></div></section></div>;
 }

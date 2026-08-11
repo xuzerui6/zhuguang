@@ -7,7 +7,7 @@ import { chatGPTSignInPath } from "../chatgpt-auth";
 import { getWebSession } from "../_lib/web-session";
 
 export const metadata: Metadata = {
-  description: "登录逐光私有试点，进入学员、教练或运营工作台。",
+  description: "登录逐光运动教练服务平台，进入学员、教练或运营工作台。",
   title: "登录 | 逐光",
 };
 
@@ -15,7 +15,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const params = await searchParams;
   const requested = typeof params.next === "string" && params.next.startsWith("/") && !params.next.startsWith("//") ? params.next : "/student";
   const session = await getWebSession();
-  const signedIn = Boolean(session.email);
+  const signedIn = session.isAuthenticated;
 
   return (
     <main className={styles.loginPage}>
@@ -23,8 +23,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       <section className={styles.loginPanel}>
         <div className={styles.loginIntro}>
           <LockKeyhole aria-hidden size={30} />
-          <h1>{signedIn ? "选择工作模式" : "登录逐光私有试点"}</h1>
-          <p>{signedIn ? "同一账号可在已授权的工作模式之间切换，无需重复登录。" : "当前网页仅供私有试点访问，登录后根据账号权限进入对应工作台。"}</p>
+          <h1>{signedIn ? "选择工作模式" : "登录逐光"}</h1>
+          <p>{signedIn ? "同一账号可在已授权的工作模式之间切换，无需重复登录。" : "官网内容可直接浏览；登录后根据账号权限进入学员服务或工作台。"}</p>
           {signedIn ? <span>当前账号：{session.email}</span> : null}
         </div>
         {signedIn ? (
@@ -36,7 +36,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         ) : (
           <Link className={styles.primaryLogin} href={chatGPTSignInPath(requested)}>验证身份并登录 <ArrowRight aria-hidden size={18} /></Link>
         )}
-        <p className={styles.loginNote}>登录代表你已阅读并同意试点服务协议和隐私说明。</p>
+        <p className={styles.loginNote}>登录代表你已阅读并同意服务协议和隐私说明。</p>
       </section>
     </main>
   );

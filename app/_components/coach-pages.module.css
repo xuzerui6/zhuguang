@@ -206,6 +206,7 @@
 .schedulePanel footer button { align-items: center; background: #fff; border: 1px solid var(--zg-line-strong); border-radius: 4px; display: inline-flex; font-size: 12px; font-weight: 700; gap: 4px; justify-content: center; min-height: 34px; padding: 0 9px; }
 .rowActions button:first-child { background: var(--zg-brand); border-color: var(--zg-brand); color: #fff; }
 .rowActions button:last-child:not(:first-child) { padding: 0; width: 34px; }
+.coachPage button:disabled { background: #f4f6f5; color: var(--zg-muted); cursor: not-allowed; opacity: 0.72; }
 .empty { align-items: center; color: var(--zg-muted); display: flex; flex-direction: column; min-height: 260px; padding: 50px; }
 .empty strong { color: var(--zg-ink); font-size: 14px; margin-top: 12px; }
 .empty p { font-size: 12px; }

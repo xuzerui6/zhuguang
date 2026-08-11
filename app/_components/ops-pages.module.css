@@ -78,6 +78,7 @@
 .amber { background: var(--zg-amber-soft); color: var(--zg-amber); }
 .blue { background: var(--zg-blue-soft); color: var(--zg-blue); }
 .coral { background: var(--zg-coral-soft); color: var(--zg-coral); }
+.opsPage button:disabled { cursor: not-allowed; opacity: 0.58; }
 .kpis article div { display: grid; grid-template-columns: 1fr auto; }
 .kpis p { color: var(--zg-muted); font-size: 12px; margin: 0; }
 .kpis strong { font-size: 25px; grid-column: 2; grid-row: 1 / 3; }

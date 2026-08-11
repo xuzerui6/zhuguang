@@ -28,8 +28,8 @@
   },
   "vars": {
     "APP_ENV": "production",
-    "CORS_ORIGINS": "https://zhuguang-coach-platform.xuzerui6.chatgpt.site",
-    "MOBILE_API_ORIGIN": "https://zhuguang-mobile-api.example.workers.dev",
+    "CORS_ORIGINS": "https://beijingzhuguang.top,https://www.beijingzhuguang.top",
+    "MOBILE_API_ORIGIN": "https://api.beijingzhuguang.top",
     "SMS_DAILY_BUDGET": "500"
   }
 }

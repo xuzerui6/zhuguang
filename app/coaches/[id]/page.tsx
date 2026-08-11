@@ -33,7 +33,7 @@ export default async function CoachDetailPage({ params }: { params: Promise<{ id
     <>
       <PublicHeader />
       <main className={styles.publicPage}>
-        <div className={styles.breadcrumb}><Link href="/coaches"><ArrowLeft aria-hidden size={16} />返回教练列表</Link><span>北京私有试点展示档案</span></div>
+        <div className={styles.breadcrumb}><Link href="/coaches"><ArrowLeft aria-hidden size={16} />返回教练列表</Link><span>北京试点教练档案</span></div>
         <section className={styles.coachHero}>
           <div className={styles.coachPortrait}><Image alt={`${coach.name}教练`} fill priority sizes="360px" src={coach.image} unoptimized /></div>
           <div className={styles.coachHeroCopy}>

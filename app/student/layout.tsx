@@ -8,8 +8,10 @@ export const metadata: Metadata = {
   title: "学员服务 | 逐光",
 };
 
+export const dynamic = "force-dynamic";
+
 export default async function StudentLayout({ children }: { children: React.ReactNode }) {
   const session = await getWebSession();
-  if (!canAccessArea(session, "student")) return <AccessDenied area="student" />;
+  if (!canAccessArea(session, "student")) return <AccessDenied area="student" authenticated={session.isAuthenticated} />;
   return <WorkspaceShell area="student" session={session}>{children}</WorkspaceShell>;
 }

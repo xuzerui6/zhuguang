@@ -37,10 +37,12 @@ export type NavItem = {
 };
 
 export type WebSession = {
+  accountId: string | null;
   availableAreas: Array<Exclude<WebArea, "public">>;
+  authorizationSource: "allowlist" | "anonymous" | "siwc";
   displayName: string;
   email: string | null;
-  isPrivatePreview: boolean;
+  isAuthenticated: boolean;
   permissions: Permission[];
 };
 

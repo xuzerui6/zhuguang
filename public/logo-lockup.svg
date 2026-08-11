@@ -1,8 +1,1 @@
-<svg width="284" height="80" viewBox="0 0 284 80" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="80" height="80" rx="18" fill="#06130F"/>
-  <path d="M20 26h35L24.5 54h35" stroke="#ECFFF2" stroke-width="8.4" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M20 26h23M24.5 54h20" stroke="#BFF3D2" stroke-width="8.4" stroke-linecap="round"/>
-  <circle cx="61.5" cy="22" r="8.8" fill="#FF835C"/>
-  <text x="100" y="39" fill="#06130F" font-family="PingFang SC, Microsoft YaHei, Noto Sans SC, Arial, sans-serif" font-size="31" font-weight="900" letter-spacing="0">逐光</text>
-  <text x="100" y="62" fill="#65746B" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="800" letter-spacing="1.4">COACH OS</text>
-</svg>
+<svg width="360" height="80" viewBox="0 0 486 108" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="106" height="106" rx="23" fill="#06130F"/><path d="M31 72H77L31 36H76" fill="none" stroke="#ECFFF2" stroke-width="9.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="76" cy="36" r="6" fill="#FF835C"/><text x="137" y="52" fill="#06130F" font-family="PingFang SC, Microsoft YaHei, Noto Sans SC, Arial, sans-serif" font-size="40" font-weight="800" letter-spacing="0">逐光</text><text x="137" y="81" fill="#65746B" font-family="PingFang SC, Microsoft YaHei, Noto Sans SC, Arial, sans-serif" font-size="17" font-weight="600" letter-spacing="0">运动教练服务平台</text></svg>

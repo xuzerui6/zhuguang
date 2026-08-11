@@ -1,6 +1,21 @@
 import { NextResponse } from "next/server";
+import { getWebSession } from "../../../_lib/web-session";
 
-const fallbackApiUrl = "https://zhuguang-mobile-api.xuzerui6.workers.dev";
+const fallbackApiUrl = "https://api.beijingzhuguang.top";
+
+async function authorize(request: Request, mutation = false) {
+  const session = await getWebSession();
+  if (!session.permissions.includes("ops:manage") || !session.permissions.includes("release:read")) {
+    return NextResponse.json({ error: { code: "forbidden", message: "当前账号没有版本发布权限" } }, { status: session.isAuthenticated ? 403 : 401 });
+  }
+  if (mutation) {
+    const origin = request.headers.get("origin");
+    if (origin && origin !== new URL(request.url).origin) {
+      return NextResponse.json({ error: { code: "invalid_origin", message: "请求来源无效" } }, { status: 403 });
+    }
+  }
+  return null;
+}
 
 function configuration() {
   const appKey = process.env.ZHUGUANG_PILOT_APP_KEY;
@@ -41,7 +56,9 @@ function unavailable() {
   return NextResponse.json({ error: { code: "operator_proxy_unconfigured", message: "发布中心服务端凭据尚未配置" } }, { status: 503 });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await authorize(request);
+  if (denied) return denied;
   const upstream = upstreamHeaders();
   if (!upstream) return unavailable();
   const response = await fetch(`${upstream.config.baseUrl}/api/v1/operator/releases`, {
@@ -52,6 +69,8 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
+  const denied = await authorize(request, true);
+  if (denied) return denied;
   const upstream = upstreamHeaders("application/vnd.android.package-archive");
   if (!upstream) return unavailable();
   const form = await request.formData();
@@ -74,6 +93,8 @@ export async function PUT(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const denied = await authorize(request, true);
+  if (denied) return denied;
   const upstream = upstreamHeaders("application/json");
   if (!upstream) return unavailable();
   const body = await request.json() as { action?: string; release?: Record<string, unknown>; versionCode?: number };

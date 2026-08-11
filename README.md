@@ -1,98 +1,61 @@
-# vinext-starter
+# 逐光运动教练服务平台
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+逐光连接经过资料核验的专业运动教练与学员家庭。仓库同时包含公开官网、学员平台、教练工作台、运营后台、Cloudflare 手机 API，以及 Capacitor Android 和 Tauri 桌面客户端。
 
-## Prerequisites
+## 本地开发
 
-- Node.js `>=22.13.0`
-
-## Quick Start
+要求 Node.js `>=22.13.0`。
 
 ```bash
 npm install
 npm run dev
+npm run test:unit
+npm run lint
 npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
+常驻预览服务应在后台终端运行；健康检查完成后不要等待服务进程退出。
 
-## Included Shape
+## 正式域名
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+- 官网：`https://beijingzhuguang.top`
+- 手机 API：`https://api.beijingzhuguang.top`
+- Android 包名：`com.zhuguang.coachos`
 
-## Workspace Auth Headers
+官网允许匿名访问。`/student`、`/coach-workspace` 和 `/ops` 根据服务端会话与角色授权保护，客户端菜单不参与权限判定。
 
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
+## 网站权限
 
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
+Sites 运行环境使用以下变量：
 
-Treat the full name as optional and fall back to email when it is absent:
+- `ZHUGUANG_MOBILE_API_URL`
+- `ZHUGUANG_COACH_EMAILS`：逗号分隔的已审核教练邮箱
+- `ZHUGUANG_OPS_EMAILS`：逗号分隔的运营邮箱
+- `ZHUGUANG_OPERATOR_API_SECRET`：秘密
+- `ZHUGUANG_PILOT_APP_KEY`：秘密
 
-```tsx
-import { headers } from "next/headers";
+匿名用户没有工作区权限；登录账号默认只有学员权限；教练与运营权限只从服务端配置授予。
 
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
+## 手机 API
 
-  const displayName = fullName ?? email;
-  // ...
-}
+Worker 配置位于 `wrangler.mobile-api.jsonc`，使用 D1 `DB`、私有教练媒体 `MEDIA` 和私有安装包 `RELEASES`。短信和 JPush 参数未配置时，界面必须保持明确的不可用或模拟状态。
+
+## Android 发布
+
+签名文件与密码必须保存在仓库外。正式构建脚本从 Windows DPAPI 保护的用户配置读取凭据：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\invoke-android-release.ps1 -VersionName 1.2.4 -VersionCode 9
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish-android-release.ps1 -VersionName 1.2.5 -VersionCode 10 -PauseVersionCode 8
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+构建输出包含签名 APK、SHA-256、包名、版本和证书指纹。应用内更新仍需要 Android 的未知来源授权与系统安装确认。
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+## 关键检查
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+- `npm run brand:icons`：从“光轨 Z”母版生成多端图标
+- `npm run native:check`：校验原生资源、adaptive icon 和通知图标
+- `npm run mobile:web:build`：构建 Capacitor Web 资源
+- `scripts/run-browser-qa.mjs`：使用 Playwright 检查关键路由与视口
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+教练资料、评价、课量、时段和平台规模不得使用未核验数据冒充真实运营数据。

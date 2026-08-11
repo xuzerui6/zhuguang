@@ -1,19 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<set xmlns:android="http://schemas.android.com/apk/res/android" android:ordering="sequentially">
-    <set android:ordering="together">
-        <objectAnimator android:duration="140" android:propertyName="translateX" android:valueFrom="20" android:valueTo="55" android:valueType="floatType" />
-        <objectAnimator android:duration="140" android:propertyName="translateY" android:valueFrom="26" android:valueTo="26" android:valueType="floatType" />
-    </set>
-    <set android:ordering="together">
-        <objectAnimator android:duration="260" android:interpolator="@android:interpolator/fast_out_slow_in" android:propertyName="translateX" android:valueFrom="55" android:valueTo="24.5" android:valueType="floatType" />
-        <objectAnimator android:duration="260" android:interpolator="@android:interpolator/fast_out_slow_in" android:propertyName="translateY" android:valueFrom="26" android:valueTo="54" android:valueType="floatType" />
-    </set>
-    <set android:ordering="together">
-        <objectAnimator android:duration="140" android:propertyName="translateX" android:valueFrom="24.5" android:valueTo="59.5" android:valueType="floatType" />
-        <objectAnimator android:duration="140" android:propertyName="translateY" android:valueFrom="54" android:valueTo="54" android:valueType="floatType" />
-    </set>
-    <set android:ordering="together">
-        <objectAnimator android:duration="160" android:interpolator="@android:interpolator/fast_out_slow_in" android:propertyName="translateX" android:valueFrom="59.5" android:valueTo="61.5" android:valueType="floatType" />
-        <objectAnimator android:duration="160" android:interpolator="@android:interpolator/fast_out_slow_in" android:propertyName="translateY" android:valueFrom="54" android:valueTo="22" android:valueType="floatType" />
-    </set>
-</set>
+<objectAnimator xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="620"
+    android:interpolator="@android:interpolator/fast_out_slow_in"
+    android:pathData="M23,53.5 L57,53.5 L23,27 L56,27"
+    android:propertyXName="translateX"
+    android:propertyYName="translateY"
+    android:valueType="floatType" />

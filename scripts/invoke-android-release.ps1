@@ -7,7 +7,7 @@ param(
   [ValidateRange(1, 2147483647)]
   [int]$VersionCode,
 
-  [string]$ApiBaseUrl = 'https://zhuguang-mobile-api.xuzerui6.workers.dev'
+  [string]$ApiBaseUrl = 'https://api.beijingzhuguang.top'
 )
 
 $ErrorActionPreference = 'Stop'

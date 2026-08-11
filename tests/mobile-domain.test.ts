@@ -12,7 +12,12 @@ import {
 import type { MatchPreferences } from "../app/mobile/types";
 import type { AppRelease, CoachAccountSummary } from "../app/mobile/types";
 import { getUpdateDecision, parsePrivateQaNotification, parseZhuguangDeepLink, resolveAccountMode } from "../app/mobile/unified-domain";
-import { isNoNewReleaseError, updateCheckErrorMessage } from "../app/mobile/update/update-domain";
+import {
+  createUpdateResumeGate,
+  ensureUpdateInstallPermission,
+  isNoNewReleaseError,
+  updateCheckErrorMessage,
+} from "../app/mobile/update/update-domain";
 import { stableRolloutBucket } from "../server/api/releases";
 import { pushLockScreenBody } from "../server/api/push";
 
@@ -93,6 +98,46 @@ test("version center distinguishes no update from an offline failure", () => {
   assert.equal(isNoNewReleaseError({ code: "not_found" }), false);
   assert.equal(updateCheckErrorMessage(new DOMException("signal is aborted without reason", "AbortError")), "暂时无法连接更新服务，请检查网络后重试");
   assert.equal(updateCheckErrorMessage({ message: "版本服务维护中" }), "版本服务维护中");
+});
+
+test("update permission is read live and only opens settings when required", async () => {
+  const allowedCalls: string[] = [];
+  const allowedGate = createUpdateResumeGate();
+  assert.equal(await ensureUpdateInstallPermission({
+    async canInstallPackages() {
+      allowedCalls.push("check");
+      return { allowed: true };
+    },
+    async openInstallPermission() {
+      allowedCalls.push("settings");
+    },
+  }, allowedGate), true);
+  assert.deepEqual(allowedCalls, ["check"]);
+  assert.equal(allowedGate.isWaiting(), false);
+
+  const deniedCalls: string[] = [];
+  const deniedGate = createUpdateResumeGate();
+  assert.equal(await ensureUpdateInstallPermission({
+    async canInstallPackages() {
+      deniedCalls.push("check");
+      return { allowed: false };
+    },
+    async openInstallPermission() {
+      deniedCalls.push("settings");
+    },
+  }, deniedGate), false);
+  assert.deepEqual(deniedCalls, ["check", "settings"]);
+  assert.equal(deniedGate.isWaiting(), true);
+});
+
+test("permission resume can continue a pending update only once", () => {
+  const gate = createUpdateResumeGate();
+  gate.wait();
+  assert.equal(gate.claim(false), false);
+  assert.equal(gate.isWaiting(), true);
+  assert.equal(gate.claim(true), true);
+  assert.equal(gate.claim(true), false);
+  assert.equal(gate.isWaiting(), false);
 });
 
 test("private QA notification routes cover all native channels without private names", () => {

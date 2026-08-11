@@ -4,6 +4,47 @@ type UpdateErrorLike = {
   name?: unknown;
 };
 
+type InstallPermissionBridge = {
+  canInstallPackages(): Promise<{ allowed: boolean }>;
+  openInstallPermission(): Promise<void>;
+};
+
+export function createUpdateResumeGate() {
+  let waitingForPermission = false;
+
+  return {
+    claim(allowed: boolean) {
+      if (!allowed || !waitingForPermission) return false;
+      waitingForPermission = false;
+      return true;
+    },
+    clear() {
+      waitingForPermission = false;
+    },
+    isWaiting() {
+      return waitingForPermission;
+    },
+    wait() {
+      waitingForPermission = true;
+    },
+  };
+}
+
+export async function ensureUpdateInstallPermission(
+  updater: InstallPermissionBridge,
+  resumeGate: ReturnType<typeof createUpdateResumeGate>,
+) {
+  const { allowed } = await updater.canInstallPackages();
+  if (allowed) {
+    resumeGate.clear();
+    return true;
+  }
+
+  resumeGate.wait();
+  await updater.openInstallPermission();
+  return false;
+}
+
 function errorLike(error: unknown): UpdateErrorLike {
   return error && typeof error === "object" ? error as UpdateErrorLike : {};
 }

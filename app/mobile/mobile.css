@@ -2858,8 +2858,7 @@
 }
 
 .zg-brand-launch-lockup > img,
-.zg-brand-launch-lockup > span,
-.zg-privacy-brand > span,
+.zg-privacy-brand > img,
 .zg-update-logo {
   align-items: center;
   background: var(--zg-brand);
@@ -2894,7 +2893,7 @@
   padding: max(28px, env(safe-area-inset-top)) 22px max(26px, env(safe-area-inset-bottom));
 }
 
-.zg-privacy-brand > span { height: 34px; width: 34px; font-size: 16px; }
+.zg-privacy-brand > img { border-radius: 7px; height: 34px; width: 34px; }
 .zg-privacy-brand > strong { font-size: 24px; }
 
 .zg-privacy-gate > section {
@@ -3058,7 +3057,7 @@
   z-index: 40;
 }
 .zg-coach-brand { align-items: center; display: flex; gap: 8px; }
-.zg-coach-brand > span { align-items: center; background: var(--zg-brand); border-radius: 5px; color: #fff; display: flex; font-size: 13px; font-weight: 800; height: 28px; justify-content: center; width: 28px; }
+.zg-coach-brand > img { border-radius: 6px; height: 28px; width: 28px; }
 .zg-coach-brand > strong { font-size: 22px; }
 .zg-coach-brand > button { align-items: center; background: none; border: 0; color: #4c5954; display: flex; font-size: 12px; gap: 2px; min-height: 44px; padding: 0 2px; }
 .zg-coach-topbar > button { background: none; border: 0; height: 44px; position: relative; width: 44px; }
@@ -3152,7 +3151,8 @@
 .zg-update-header button { align-items: center; background: none; border: 0; display: flex; height: 44px; justify-content: center; width: 44px; }
 .zg-update-header button:disabled { opacity: .2; }
 .zg-update-product { align-items: center; border-bottom: 1px solid var(--zg-line); display: grid; gap: 15px; grid-template-columns: 68px minmax(0,1fr); padding: 22px 0 20px; }
-.zg-update-logo { background: #fff; border: 1px solid var(--zg-line); color: var(--zg-brand); font-size: 27px; height: 68px; width: 68px; }
+.zg-update-logo { background: #fff; border: 1px solid var(--zg-line); height: 68px; width: 68px; }
+.zg-update-logo > img { border-radius: 9px; height: 58px; width: 58px; }
 .zg-update-product h2 { font-size: 21px; margin: 0; }
 .zg-update-product h2 small { font-size: 15px; font-weight: 500; margin-left: 5px; }
 .zg-update-product p { color: var(--zg-muted); font-size: 13px; margin: 7px 0 0; }
@@ -3181,6 +3181,7 @@
 .zg-update-current svg { color: var(--zg-brand); height: 42px; width: 42px; }
 .zg-update-current h2 { font-size: 20px; margin: 15px 0 8px; }
 .zg-update-current p { color: var(--zg-muted); font-size: 13px; line-height: 1.6; }
+.zg-update-notice { background: #eef8f3; border: 1px solid #bcdccd; border-radius: 7px; color: #245e48; font-size: 12px; line-height: 1.6; margin: 12px 0; padding: 10px 12px; }
 .zg-update-error { background: #fff1ef; border: 1px solid #f1cbc6; border-radius: 7px; color: #9a332b; font-size: 12px; line-height: 1.6; margin: 12px 0; padding: 10px 12px; }
 .is-spinning { animation: zg-spin .8s linear infinite; }
 

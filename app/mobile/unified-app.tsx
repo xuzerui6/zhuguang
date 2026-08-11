@@ -236,7 +236,7 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   if (!privacyAccepted) {
     return (
       <main className="zg-mobile-app zg-privacy-gate">
-        <div className="zg-privacy-brand"><span>逐</span><strong>逐光</strong></div>
+        <div className="zg-privacy-brand"><Image alt="" height={34} priority src="./logo-mark.svg" unoptimized width={34} /><strong>逐光</strong></div>
         <section>
           <ShieldCheck aria-hidden size={29} />
           <h1>欢迎使用逐光</h1>

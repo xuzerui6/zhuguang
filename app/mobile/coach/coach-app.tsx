@@ -20,6 +20,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { mobileApi, usesBundledDemoData } from "../api-client";
 import { createDemoBooking, createDemoConversations, createDemoSlots, demoCoaches } from "../demo-data";
@@ -223,7 +224,7 @@ export function CoachApp({ initialTab, onOpenUpdates, onSwitchStudent, onTabChan
   return (
     <main className="zg-mobile-app zg-coach-app">
       <header className="zg-coach-topbar">
-        <div className="zg-coach-brand"><span aria-hidden>逐</span><strong>逐光</strong><button onClick={onSwitchStudent} type="button">教练模式<ChevronRight aria-hidden size={14} /></button></div>
+        <div className="zg-coach-brand"><Image alt="" height={28} priority src="./logo-mark.svg" unoptimized width={28} /><strong>逐光</strong><button onClick={onSwitchStudent} type="button">教练模式<ChevronRight aria-hidden size={14} /></button></div>
         <button aria-label="通知" type="button"><Bell aria-hidden size={21} />{pending.length ? <em>{pending.length}</em> : null}</button>
       </header>
 

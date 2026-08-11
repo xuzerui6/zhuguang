@@ -1,12 +1,18 @@
 "use client";
 
 import { ArrowLeft, CheckCircle2, Download, PackageCheck, RefreshCw, ShieldCheck } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { mobileApi, usesBundledDemoData } from "../api-client";
-import { deferUpdateFor24Hours } from "../device";
+import { deferUpdateFor24Hours, listenForAppResume } from "../device";
 import { appUpdater, type InstalledAppInfo, type UpdateDownloadProgress } from "../native-bridge";
 import type { AppRelease } from "../types";
-import { isNoNewReleaseError, updateCheckErrorMessage } from "./update-domain";
+import {
+  createUpdateResumeGate,
+  ensureUpdateInstallPermission,
+  isNoNewReleaseError,
+  updateCheckErrorMessage,
+} from "./update-domain";
 
 type UpdateCenterProps = {
   forcedRelease?: AppRelease | null;
@@ -37,7 +43,10 @@ export function UpdateCenter({ forcedRelease, onBack }: UpdateCenterProps) {
   const [checking, setChecking] = useState(!forcedRelease);
   const [progress, setProgress] = useState<UpdateDownloadProgress | null>(null);
   const [error, setError] = useState("");
-  const [installPermission, setInstallPermission] = useState<boolean | null>(null);
+  const [permissionNotice, setPermissionNotice] = useState("");
+  const [starting, setStarting] = useState(false);
+  const resumeGate = useRef(createUpdateResumeGate());
+  const updateInFlight = useRef(false);
 
   const check = useCallback(async () => {
     setChecking(true);
@@ -45,10 +54,6 @@ export function UpdateCenter({ forcedRelease, onBack }: UpdateCenterProps) {
     try {
       const info = await appUpdater.getInstalledInfo();
       setInstalled(info);
-
-      void appUpdater.canInstallPackages()
-        .then(({ allowed }) => setInstallPermission(allowed))
-        .catch(() => setInstallPermission(null));
 
       const latest = demoMode ? previewRelease : await mobileApi.latestRelease();
       setRelease(latest.versionCode > info.versionCode ? latest : null);
@@ -78,14 +83,17 @@ export function UpdateCenter({ forcedRelease, onBack }: UpdateCenterProps) {
   const downloading = progress && ["downloading", "verified", "installing"].includes(progress.state);
 
   const startUpdate = useCallback(async () => {
-    if (!release) return;
+    if (!release || updateInFlight.current) return;
+    updateInFlight.current = true;
+    setStarting(true);
     setError("");
     try {
-      if (installPermission === false) {
-        await appUpdater.openInstallPermission();
-        setError("请允许逐光安装未知应用，返回后再次点击下载并更新");
+      const allowed = await ensureUpdateInstallPermission(appUpdater, resumeGate.current);
+      if (!allowed) {
+        setPermissionNotice("请在系统设置中允许逐光安装应用，授权后返回将自动继续更新");
         return;
       }
+      setPermissionNotice("");
       const url = release.downloadUrl
         ?? (demoMode ? "" : (await mobileApi.createDownloadTicket(release.versionCode)).url);
       if (!url) throw new Error("当前是设计验收数据，发布 APK 后即可执行真实下载更新");
@@ -98,8 +106,30 @@ export function UpdateCenter({ forcedRelease, onBack }: UpdateCenterProps) {
       });
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "更新未完成，请重试");
+    } finally {
+      updateInFlight.current = false;
+      setStarting(false);
     }
-  }, [demoMode, installPermission, release]);
+  }, [demoMode, release]);
+
+  useEffect(() => listenForAppResume(() => {
+    void appUpdater.canInstallPackages()
+      .then(({ allowed }) => {
+        if (!allowed) {
+          if (resumeGate.current.isWaiting()) {
+            setPermissionNotice("尚未开启安装权限，点击下载并更新可重新授权");
+          }
+          return;
+        }
+        setPermissionNotice("");
+        window.setTimeout(() => {
+          if (resumeGate.current.claim(true)) void startUpdate();
+        }, 0);
+      })
+      .catch(() => {
+        if (resumeGate.current.isWaiting()) setError("无法读取系统安装权限，请稍后重试");
+      });
+  }), [startUpdate]);
 
   return (
     <main className="zg-mobile-app zg-update-center">
@@ -119,7 +149,7 @@ export function UpdateCenter({ forcedRelease, onBack }: UpdateCenterProps) {
       ) : (
         <>
           <section className="zg-update-product">
-            <span className="zg-update-logo">逐</span>
+            <span className="zg-update-logo"><Image alt="" height={58} src="./logo-mark.svg" unoptimized width={58} /></span>
             <div><h2>逐光 <small>{installed?.versionName ?? "读取中"}</small></h2><p>{release ? `发现新版本 ${release.versionName}` : checking ? "正在检查新版本" : error ? "更新服务暂时不可用" : "当前已是最新版本"}</p></div>
           </section>
 
@@ -134,7 +164,7 @@ export function UpdateCenter({ forcedRelease, onBack }: UpdateCenterProps) {
                 <p><ShieldCheck aria-hidden size={20} /><span>签名与文件完整性</span><strong>下载后校验</strong></p>
                 <p><PackageCheck aria-hidden size={20} /><span>安装确认</span><strong>仅需一次系统确认</strong></p>
               </section>
-              <button className="zg-update-primary" onClick={() => void startUpdate()} type="button">下载并更新</button>
+              <button className="zg-update-primary" disabled={starting || Boolean(downloading)} onClick={() => void startUpdate()} type="button">{starting && !downloading ? "正在准备安全更新" : "下载并更新"}</button>
               {!mandatory ? <button className="zg-update-later" onClick={() => { void deferUpdateFor24Hours(); onBack(); }} type="button">稍后提醒我</button> : null}
             </>
           ) : !checking && !error ? (
@@ -143,6 +173,7 @@ export function UpdateCenter({ forcedRelease, onBack }: UpdateCenterProps) {
         </>
       )}
 
+      {permissionNotice ? <p className="zg-update-notice" role="status">{permissionNotice}</p> : null}
       {error ? <p className="zg-update-error" role="alert">{error}</p> : null}
       <footer className="zg-update-security"><ShieldCheck aria-hidden size={20} /><span><strong>安全更新</strong>仅安装包名与当前签名一致、SHA-256 完整性通过的 APK。</span></footer>
     </main>

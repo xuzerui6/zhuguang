@@ -82,7 +82,7 @@ class MemoryR2 implements R2Bucket {
     return {
       body,
       customMetadata: stored.customMetadata,
-      httpEtag: '"test-etag"',
+      httpEtag: "test-etag",
       size: stored.bytes.byteLength,
       writeHttpMetadata() {},
     };
@@ -238,6 +238,29 @@ test("OTP policy enforces five attempts, hourly limits and production SMS config
   const productionFailure = await request({ ...env, APP_ENV: "production" }, "/api/v1/auth/otp/request", json({ phone: "13800000005" }));
   assert.equal(productionFailure.response.status, 503);
   assert.equal((productionFailure.payload?.error as Record<string, unknown>).code, "sms_not_configured");
+  database.sqlite.close();
+});
+
+test("coach media honors quoted, weak and multi-value ETags", async () => {
+  const database = new D1Adapter();
+  const media = new MemoryR2();
+  await migrate(database);
+  seedSupply(database);
+  database.sqlite.prepare("UPDATE coaches SET avatar_object_key = 'coaches/1/avatar.webp' WHERE id = 1").run();
+  await media.put("coaches/1/avatar.webp", "coach-avatar");
+  const env: ApiEnv = { APP_ENV: "test", DB: database, MEDIA: media };
+
+  const initial = await request(env, "/api/v1/media/coaches/1/avatar");
+  assert.equal(initial.response.status, 200);
+  assert.equal(initial.response.headers.get("etag"), "test-etag");
+  assert.equal(await initial.response.text(), "coach-avatar");
+
+  const quoted = await request(env, "/api/v1/media/coaches/1/avatar", { headers: { "if-none-match": '"test-etag"' } });
+  assert.equal(quoted.response.status, 304);
+  const weakMultiValue = await request(env, "/api/v1/media/coaches/1/avatar", { headers: { "if-none-match": '"other", W/"test-etag"' } });
+  assert.equal(weakMultiValue.response.status, 304);
+  const stale = await request(env, "/api/v1/media/coaches/1/avatar", { headers: { "if-none-match": '"stale"' } });
+  assert.equal(stale.response.status, 200);
   database.sqlite.close();
 });
 

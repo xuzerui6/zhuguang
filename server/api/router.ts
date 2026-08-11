@@ -87,6 +87,19 @@ export async function handleApiRequest(request: Request, env: ApiEnv, ctx: ApiEx
   }
 }
 
+function matchesIfNoneMatch(headerValue: string | null, objectEtag: string) {
+  if (!headerValue) return false;
+  const expected = normalizeEtag(objectEtag);
+  return headerValue.split(",").some((candidate) => {
+    const value = candidate.trim();
+    return value === "*" || normalizeEtag(value) === expected;
+  });
+}
+
+function normalizeEtag(value: string) {
+  return value.trim().replace(/^W\/\s*/iu, "").replace(/^"|"$/gu, "");
+}
+
 async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionContext, requestId: string) {
   const path = url.pathname;
   const local = !env.DB && env.APP_ENV !== "production";
@@ -111,7 +124,7 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     if (!coach?.object_key) throw new ApiError(404, "coach_media_not_found", "未找到该教练图片");
     const object = await env.MEDIA.get(coach.object_key);
     if (!object) throw new ApiError(404, "coach_media_not_found", "未找到该教练图片");
-    if (request.headers.get("if-none-match") === object.httpEtag) {
+    if (matchesIfNoneMatch(request.headers.get("if-none-match"), object.httpEtag)) {
       return new Response(null, { headers: { etag: object.httpEtag }, status: 304 });
     }
     const headers = new Headers({

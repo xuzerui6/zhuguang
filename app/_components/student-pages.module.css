@@ -1227,6 +1227,24 @@
 .accountSecurity small { color: var(--zg-muted); font-size: 9px; }
 .accountSecurity > a { align-items: center; background: #fff; border: 1px solid var(--zg-line); border-radius: 5px; display: flex; font-size: 10px; justify-content: center; min-height: 40px; padding: 0 14px; }
 
+@media (max-width: 1024px) {
+  .studentPage button,
+  .studentPage select,
+  .studentPage input:not([type="checkbox"]) {
+    min-height: 44px;
+  }
+
+  .studentPage button {
+    min-width: 44px;
+  }
+
+  .bookingActions a,
+  .recordActions a,
+  .accountSecurity > a {
+    min-height: 44px;
+  }
+}
+
 @media (max-width: 1000px) {
   .nextBooking { grid-template-columns: 72px 1fr auto; }
   .bookingCoach { display: none; }

@@ -361,6 +361,18 @@
 
 .toast { align-items: center; background: #17231d; border-radius: 6px; bottom: 22px; box-shadow: var(--zg-shadow-lg); color: #fff; display: flex; font-size: 12px; gap: 7px; left: 50%; min-height: 40px; padding: 0 14px; position: fixed; transform: translateX(-50%); z-index: 100; }
 
+@media (max-width: 1024px) {
+  .opsPage button,
+  .opsPage select,
+  .opsPage input:not([type="checkbox"]) {
+    min-height: 44px;
+  }
+
+  .opsPage button {
+    min-width: 44px;
+  }
+}
+
 @media (max-width: 1250px) {
   .matchLayout { grid-template-columns: minmax(680px, 1fr) 340px; }
   .matchRow,

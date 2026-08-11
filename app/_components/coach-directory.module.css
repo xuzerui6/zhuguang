@@ -640,8 +640,18 @@
   border: 0;
   border-radius: 5px;
   color: #fff;
-  min-height: 42px;
+  min-height: 44px;
   padding: 0 18px;
+}
+
+@media (max-width: 1024px) {
+  .filterControl select,
+  .dateControl input,
+  .segmented button,
+  .favoriteFilter,
+  .heartButton {
+    min-height: 44px;
+  }
 }
 
 @media (max-width: 1180px) {

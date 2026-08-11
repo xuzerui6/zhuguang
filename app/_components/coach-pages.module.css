@@ -331,6 +331,18 @@
 
 .toast { align-items: center; background: #15241d; border-radius: 6px; bottom: 24px; box-shadow: var(--zg-shadow-lg); color: #fff; display: flex; font-size: 13px; gap: 8px; left: 50%; min-height: 42px; padding: 0 16px; position: fixed; transform: translateX(-50%); z-index: 100; }
 
+@media (max-width: 1024px) {
+  .coachPage button,
+  .coachPage select,
+  .coachPage input:not([type="checkbox"]) {
+    min-height: 44px;
+  }
+
+  .coachPage button {
+    min-width: 44px;
+  }
+}
+
 @media (max-width: 1100px) {
   .metrics { grid-template-columns: 1fr 1fr; }
   .homeColumns { grid-template-columns: 1fr; }

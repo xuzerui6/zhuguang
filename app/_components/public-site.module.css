@@ -626,6 +626,12 @@
   }
 }
 
+@media (max-width: 1024px) {
+  .searchPanel select {
+    min-height: 44px;
+  }
+}
+
 @media (max-width: 820px) {
   .desktopNav,
   .headerActions {

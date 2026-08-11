@@ -2,16 +2,8 @@
 
 import { ArrowRight, LoaderCircle, Mail } from "lucide-react";
 import Script from "next/script";
-import { useCallback, useRef, useState } from "react";
-
-declare global {
-  interface Window {
-    turnstile?: {
-      render(element: HTMLElement, options: Record<string, unknown>): string;
-      reset(widgetId: string): void;
-    };
-  }
-}
+import { useCallback, useEffect, useRef, useState } from "react";
+import { removeTurnstileWidget } from "../_lib/turnstile";
 
 export function EmailLoginForm({ returnTo, siteKey }: { returnTo: string; siteKey?: string }) {
   const widgetHost = useRef<HTMLDivElement>(null);
@@ -35,6 +27,13 @@ export function EmailLoginForm({ returnTo, siteKey }: { returnTo: string; siteKe
     });
   }, [siteKey]);
 
+  const clearTurnstile = useCallback(() => {
+    removeTurnstileWidget(window.turnstile, widgetId.current);
+    widgetId.current = null;
+  }, []);
+
+  useEffect(() => clearTurnstile, [clearTurnstile]);
+
   async function submit() {
     setLoading(true);
     setError("");
@@ -48,6 +47,7 @@ export function EmailLoginForm({ returnTo, siteKey }: { returnTo: string; siteKe
       const payload = await response.json() as { data?: { challengeId?: string }; error?: { message?: string } };
       if (!response.ok) throw new Error(payload.error?.message || "登录服务暂时不可用");
       if (!challengeId) {
+        clearTurnstile();
         setChallengeId(payload.data?.challengeId || "");
         setTurnstileToken("");
       } else {

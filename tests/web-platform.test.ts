@@ -10,8 +10,17 @@ import {
   studentNavigation,
 } from "../app/_lib/web-platform";
 import { canAccessArea, createWebSession } from "../app/_lib/web-session";
+import { removeTurnstileWidget } from "../app/_lib/turnstile";
 
 const root = new URL("../", import.meta.url);
+
+test("Turnstile widgets are disposed exactly once when a page leaves", () => {
+  const removed: string[] = [];
+  const api = { remove: (widgetId: string) => removed.push(widgetId) };
+  assert.equal(removeTurnstileWidget(api, "widget-1"), true);
+  assert.equal(removeTurnstileWidget(api, null), false);
+  assert.deepEqual(removed, ["widget-1"]);
+});
 
 test("classifies each web area without viewport or device heuristics", () => {
   assert.equal(getRouteArea("/"), "public");

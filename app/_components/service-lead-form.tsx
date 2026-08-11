@@ -2,16 +2,8 @@
 
 import { CheckCircle2, LoaderCircle, Send } from "lucide-react";
 import Script from "next/script";
-import { FormEvent, useCallback, useRef, useState } from "react";
-
-declare global {
-  interface Window {
-    turnstile?: {
-      render(element: HTMLElement, options: Record<string, unknown>): string;
-      reset(widgetId: string): void;
-    };
-  }
-}
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { removeTurnstileWidget } from "../_lib/turnstile";
 
 export function ServiceLeadForm({ coachId = 5, siteKey }: { coachId?: number; siteKey?: string }) {
   const widgetHost = useRef<HTMLDivElement>(null);
@@ -31,6 +23,11 @@ export function ServiceLeadForm({ coachId = 5, siteKey }: { coachId?: number; si
       theme: "light",
     });
   }, [siteKey]);
+
+  useEffect(() => () => {
+    removeTurnstileWidget(window.turnstile, widgetId.current);
+    widgetId.current = null;
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

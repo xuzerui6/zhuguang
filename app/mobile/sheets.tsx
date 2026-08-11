@@ -2,6 +2,7 @@
 
 import { Check, ChevronRight, Headphones, LockKeyhole, Mail, MessageCircle, ShieldCheck, Smartphone, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { removeTurnstileWidget } from "../_lib/turnstile";
 import { CoachAvatar, EmptyState, Sheet } from "./components";
 import type { LearnerProfile, MatchPreferences, MobileCoach, MobileNotification, MobileSession } from "./types";
 
@@ -147,7 +148,11 @@ export function AuthSheet({
       script.addEventListener("load", mount, { once: true });
       document.head.appendChild(script);
     }
-    return () => { active = false; };
+    return () => {
+      active = false;
+      removeTurnstileWidget(window.turnstile, widgetId || null);
+      onChangeTurnstileToken("");
+    };
   }, [challengeSent, onChangeTurnstileToken, showLocalCode, turnstileSiteKey]);
 
   const emailReady = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email);

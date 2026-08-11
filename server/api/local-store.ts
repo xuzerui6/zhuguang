@@ -55,6 +55,7 @@ function issueLocalSession(identity: LocalIdentity, deviceId: string): MobileSes
       title: demoCoaches[0].title,
     },
     expiresAt: Date.now() + 15 * 60_000,
+    contactMasked: maskPhone(identity.phone),
     phoneMasked: maskPhone(identity.phone),
     refreshToken: randomToken("zgr"),
   };

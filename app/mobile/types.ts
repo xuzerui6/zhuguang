@@ -67,6 +67,7 @@ export type CoachVenue = {
 export type BookingSlot = {
   id: string;
   coachId: number;
+  venueId?: string;
   date: string;
   dateLabel: string;
   time: string;
@@ -155,7 +156,9 @@ export type MobileSession = {
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
-  phoneMasked: string;
+  contactMasked: string;
+  phoneMasked?: string;
+  authMethod?: "phone_otp" | "email_otp";
   availableModes: AccountMode[];
   coach?: CoachAccountSummary;
 };
@@ -163,8 +166,11 @@ export type MobileSession = {
 export type MobileIdentity = {
   availableModes: AccountMode[];
   coach?: CoachAccountSummary;
-  phoneMasked: string;
+  contactMasked: string;
+  phoneMasked?: string;
+  authMethod?: "phone_otp" | "email_otp";
   userId?: string;
+  roles?: Array<"student" | "coach" | "operator">;
 };
 
 export type AppRelease = {
@@ -186,6 +192,7 @@ export type CoachOverview = {
   coach: MobileCoach;
   conversations: Array<Pick<MobileConversation, "id" | "title"> & { last_message_at?: number }>;
   slots: BookingSlot[];
+  venues?: CoachVenue[];
 };
 
 export type MobileStudentAppProps = {

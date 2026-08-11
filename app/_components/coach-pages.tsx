@@ -4,181 +4,170 @@ import {
   ArrowRight,
   BadgeCheck,
   CalendarCheck2,
-  CalendarDays,
-  Check,
+  CalendarPlus,
   CheckCircle2,
-  ChevronRight,
+  CircleAlert,
   CircleDollarSign,
   Clock3,
   FileCheck2,
+  LoaderCircle,
   MapPin,
-  MessageCircle,
-  MoreHorizontal,
-  Plus,
+  RefreshCw,
   Send,
   ShieldCheck,
-  X,
+  Sparkles,
 } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
-import { coaches, pilotBookings } from "../_lib/web-platform";
-import styles from "./coach-pages.module.css";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import type { BookingStatus, CoachOverview, MobileBooking } from "../mobile/types";
+import { formatFen, platformRequest } from "./platform-client";
+import styles from "./platform-pages.module.css";
 
 export type CoachSection = "home" | "bookings" | "schedule" | "messages" | "courses" | "payments" | "credentials";
 
-type Booking = {
-  id: string;
-  learner: string;
-  price: number;
-  schedule: string;
-  sport: string;
-  status: string;
-  tone: string;
-  venue: string;
+const statusCopy: Record<BookingStatus, string> = {
+  cancelled_by_coach: "教练已取消",
+  cancelled_by_student: "学员已取消",
+  completed: "已完成",
+  confirmed: "已确认",
+  pending_coach: "待确认",
+  rejected: "已拒绝",
+  reschedule_requested: "申请改期",
 };
 
+function statusTone(status: BookingStatus) {
+  if (status === "confirmed" || status === "completed") return "green";
+  if (status === "pending_coach" || status === "reschedule_requested") return "amber";
+  return "gray";
+}
+
+function useCoachOverview() {
+  const [data, setData] = useState<CoachOverview | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setData(await platformRequest<CoachOverview>("/api/v1/coach/overview")); setError(""); }
+    catch (loadError) { setError(loadError instanceof Error ? loadError.message : "教练工作台暂时不可用"); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => {
+    let active = true;
+    void platformRequest<CoachOverview>("/api/v1/coach/overview")
+      .then((result) => { if (active) { setData(result); setError(""); } })
+      .catch((loadError: unknown) => { if (active) setError(loadError instanceof Error ? loadError.message : "教练工作台暂时不可用"); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+  return { data, error, load, loading };
+}
+
 export function CoachPage({ section }: { section: CoachSection }) {
-  const [bookings, setBookings] = useState<Booking[]>(pilotBookings.map((item) => ({ ...item })));
+  const state = useCoachOverview();
   const [notice, setNotice] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [busy, setBusy] = useState("");
+  if (state.loading) return <Loading label="正在读取教练工作台" />;
+  if (!state.data) return <ErrorState message={state.error} onRetry={state.load} />;
 
-  function updateBooking(id: string, status: string) {
-    setBookings((current) => current.map((booking) => booking.id === id ? { ...booking, status, tone: status === "已确认" || status === "已完成" ? "green" : status === "已拒绝" ? "gray" : "blue" } : booking));
-    setNotice(`演示视图：预约 ${id} 已更新为“${status}”，未写入正式业务记录`);
-    window.setTimeout(() => setNotice(""), 2200);
+  async function mutate(path: string, body: unknown, success: string) {
+    setBusy(path); setActionError("");
+    try { await platformRequest(path, { body, method: "POST" }); setNotice(success); await state.load(); window.setTimeout(() => setNotice(""), 2600); return true; }
+    catch (error) { setActionError(error instanceof Error ? error.message : "操作没有完成"); return false; }
+    finally { setBusy(""); }
   }
 
-  return (
-    <>
-      {section === "home" ? <CoachHome bookings={bookings} /> : null}
-      {section === "bookings" ? <CoachBookings bookings={bookings} onUpdate={updateBooking} /> : null}
-      {section === "schedule" ? <CoachSchedule /> : null}
-      {section === "messages" ? <CoachMessages /> : null}
-      {section === "courses" ? <CoachCourses bookings={bookings} onUpdate={updateBooking} /> : null}
-      {section === "payments" ? <CoachPayments bookings={bookings} /> : null}
-      {section === "credentials" ? <CoachCredentials /> : null}
-      {notice ? <div className={styles.toast} role="status"><Check aria-hidden size={17} />{notice}</div> : null}
-    </>
-  );
+  let content: React.ReactNode;
+  if (section === "bookings") content = <BookingManager bookings={state.data.bookings} busy={busy} mutate={mutate} />;
+  else if (section === "schedule") content = <ScheduleManager busy={busy} overview={state.data} mutate={mutate} />;
+  else if (section === "messages") content = <CoachMessages busy={busy} overview={state.data} mutate={mutate} />;
+  else if (section === "courses") content = <CourseRecords busy={busy} overview={state.data} mutate={mutate} />;
+  else if (section === "payments") content = <PaymentManager busy={busy} overview={state.data} mutate={mutate} />;
+  else if (section === "credentials") content = <ProfileManager busy={busy} overview={state.data} mutate={mutate} />;
+  else content = <CoachHome overview={state.data} />;
+  return <>{content}{actionError ? <div className={styles.notice} role="alert"><CircleAlert aria-hidden size={17} />{actionError}</div> : null}{notice ? <div className={styles.notice} role="status"><CheckCircle2 aria-hidden size={17} />{notice}</div> : null}</>;
 }
 
-function PageHeading({ copy, title, action }: { action?: React.ReactNode; copy: string; title: string }) {
-  return <header className={styles.pageHeading}><div><h1>{title}</h1><p>{copy}</p></div>{action}</header>;
+function Heading({ action, copy, title }: { action?: React.ReactNode; copy: string; title: string }) {
+  return <header className={styles.heading}><div><p className={styles.eyebrow}>教练模式</p><h1>{title}</h1><p>{copy}</p></div>{action}</header>;
 }
 
-function CoachHome({ bookings }: { bookings: Booking[] }) {
-  const pending = bookings.filter((item) => item.status === "待确认" || item.status === "申请改期").length;
-  return (
-    <div className={styles.coachPage}>
-      <PageHeading action={<Link href="/coach-workspace/schedule"><Plus aria-hidden size={16} />发布可约时段</Link>} copy="优先处理待确认预约，再查看今天的课程与消息。" title="今天需要关注的工作" />
-      <section className={styles.metrics}>
-        <article><span className={styles.greenIcon}><Clock3 aria-hidden size={20} /></span><div><p>待处理预约</p><strong>{pending}</strong><small>建议 2 小时内处理</small></div></article>
-        <article><span className={styles.blueIcon}><CalendarCheck2 aria-hidden size={20} /></span><div><p>今日课程</p><strong>2</strong><small>下一节 18:30 开始</small></div></article>
-        <article><span className={styles.coralIcon}><MessageCircle aria-hidden size={20} /></span><div><p>未读消息</p><strong>2</strong><small>来自 2 位学员</small></div></article>
-        <article><span className={styles.amberIcon}><CircleDollarSign aria-hidden size={20} /></span><div><p>待标记收款</p><strong>1</strong><small>课程完成后确认</small></div></article>
+function CoachHome({ overview }: { overview: CoachOverview }) {
+  const pending = overview.bookings.filter((item) => ["pending_coach", "reschedule_requested"].includes(item.status));
+  const confirmed = overview.bookings.filter((item) => item.status === "confirmed");
+  const unpaid = overview.bookings.filter((item) => item.status === "completed" && item.paymentStatus === "offline_unpaid");
+  return <div className={styles.page}>
+    <Heading action={<Link className={styles.primary} href="/coach-workspace/schedule"><CalendarPlus aria-hidden size={16} />发布可约时间</Link>} copy="待办数量与服务状态来自正式数据库，空数据不会用演示记录补齐。" title={`${overview.coach.name}，今天的工作已经整理好`} />
+    <section className={styles.metrics}>
+      <article><span>待处理预约</span><strong>{pending.length}</strong><small>确认、改期或拒绝</small></article>
+      <article><span>已确认课程</span><strong>{confirmed.length}</strong><small>等待到场履约</small></article>
+      <article><span>开放时段</span><strong>{overview.slots.length}</strong><small>未来可预约时段</small></article>
+      <article><span>待标记收款</span><strong>{unpaid.length}</strong><small>仅记录线下支付结果</small></article>
+    </section>
+    <div className={styles.split}>
+      <section className={styles.panel}><header className={styles.panelHeader}><div><h2>优先处理</h2><p>需要教练明确回应的预约申请</p></div><Link className={styles.secondary} href="/coach-workspace/bookings">全部预约</Link></header>
+        {pending.length ? <div className={styles.list}>{pending.slice(0, 5).map((booking) => <article className={styles.listItem} key={booking.id}><span className={styles.listIcon}><Clock3 aria-hidden size={19} /></span><div><h3>{booking.dateLabel} {booking.time}–{booking.endTime}</h3><p>{formatFen(booking.feeFen)} · {statusCopy[booking.status]}</p></div><Link className={styles.secondary} href="/coach-workspace/bookings">处理 <ArrowRight aria-hidden size={15} /></Link></article>)}</div> : <Empty title="当前没有待处理预约" copy="新预约提交后会立即进入这里，并同步到教练端通知。" />}
       </section>
-
-      <div className={styles.homeColumns}>
-        <section className={styles.workQueue}>
-          <header><div><h2>优先处理</h2><p>需要你作出明确操作的预约与服务事项</p></div><Link href="/coach-workspace/bookings">全部预约 <ArrowRight aria-hidden size={15} /></Link></header>
-          {bookings.filter((item) => item.status === "待确认" || item.status === "申请改期").map((booking) => <article key={booking.id}><span className={booking.status === "待确认" ? styles.statusAmber : styles.statusBlue}>{booking.status}</span><div><strong>{booking.learner} · {booking.sport}</strong><p>{booking.schedule} · {booking.venue}</p></div><Link href="/coach-workspace/bookings">立即处理 <ChevronRight aria-hidden size={16} /></Link></article>)}
-          <article><span className={styles.statusCoral}>未读</span><div><strong>徐子轩家长发来消息</strong><p>想确认周四课程需要提前准备什么</p></div><Link href="/coach-workspace/messages">回复消息 <ChevronRight aria-hidden size={16} /></Link></article>
-        </section>
-        <aside className={styles.todaySchedule}>
-          <header><h2>今日安排</h2><span>8月17日</span></header>
-          <div><time>09:30</time><span /><article><strong>成人基础训练</strong><p>王思涵 · 朝阳体育中心</p><b>已完成</b></article></div>
-          <div><time>18:30</time><span /><article><strong>青少年专项提升</strong><p>徐子轩 · 朝阳体育中心</p><b className={styles.upcoming}>待开始</b></article></div>
-          <Link href="/coach-workspace/schedule">查看完整排期 <ArrowRight aria-hidden size={15} /></Link>
-        </aside>
-      </div>
-
-      <section className={styles.operationBand}>
-        <div><BadgeCheck aria-hidden size={21} /><span><strong>资料状态正常</strong><small>3 项资质均在有效期内</small></span><Link href="/coach-workspace/credentials">查看资质</Link></div>
-        <div><CalendarDays aria-hidden size={21} /><span><strong>未来 7 天可约 9 个时段</strong><small>周六下午仍有 2 个空闲时段</small></span><Link href="/coach-workspace/schedule">管理排期</Link></div>
-        <div><CircleDollarSign aria-hidden size={21} /><span><strong>本月完成 12 节课程</strong><small>线下收款记录 ¥3,360</small></span><Link href="/coach-workspace/payments">查看记录</Link></div>
-      </section>
+      <aside className={styles.panel}><header className={styles.panelHeader}><div><h2>服务资料</h2><p>公开档案与工作状态</p></div></header><div className={styles.list}>
+        <div className={styles.listItem}><span className={styles.listIcon}><BadgeCheck aria-hidden size={19} /></span><div><h3>{overview.coach.verificationLabel}</h3><p>{overview.coach.sport} · {overview.coach.district}</p></div><em className={styles.status}>已上线</em></div>
+        <div className={styles.listItem}><span className={styles.listIcon}><MapPin aria-hidden size={19} /></span><div><h3>合作训练场</h3><p>{overview.venues?.[0]?.name || "尚未发布场馆"}</p></div></div>
+        <Link className={styles.listItem} href="/coach-workspace/credentials"><span className={styles.listIcon}><ShieldCheck aria-hidden size={19} /></span><div><h3>资料变更</h3><p>提交后由运营审核，不直接改写公开档案</p></div><ArrowRight aria-hidden size={16} /></Link>
+      </div></aside>
     </div>
-  );
+  </div>;
 }
 
-function CoachBookings({ bookings, onUpdate }: { bookings: Booking[]; onUpdate: (id: string, status: string) => void }) {
-  const [filter, setFilter] = useState("待处理");
-  const filtered = useMemo(() => {
-    if (filter === "待处理") return bookings.filter((item) => item.status === "待确认" || item.status === "申请改期");
-    if (filter === "已确认") return bookings.filter((item) => item.status === "已确认");
-    return bookings;
-  }, [bookings, filter]);
-  return (
-    <div className={styles.coachPage}>
-      <PageHeading copy="确认、改期或拒绝后，学员会同步收到状态通知。" title="预约管理" />
-      <section className={styles.tablePanel}>
-        <header className={styles.tableTools}><div className={styles.tabs}>{["待处理", "已确认", "全部"].map((item) => <button aria-pressed={filter === item} key={item} onClick={() => setFilter(item)} type="button">{item}<span>{item === "待处理" ? bookings.filter((row) => row.status === "待确认" || row.status === "申请改期").length : ""}</span></button>)}</div><div className={styles.tableSelects}><select aria-label="筛选日期"><option>未来 30 天</option><option>本周</option></select><select aria-label="筛选场馆"><option>全部场馆</option><option>朝阳体育中心</option></select></div></header>
-        <div className={styles.bookingTableHeader}><span>学员与项目</span><span>上课安排</span><span>费用</span><span>状态</span><span>操作</span></div>
-        <div className={styles.bookingRows}>
-          {filtered.map((booking) => <article key={booking.id}><div><span className={styles.learnerAvatar}>{booking.learner.slice(0, 1)}</span><span><strong>{booking.learner}</strong><small>{booking.sport} · 专项提升</small></span></div><div><strong>{booking.schedule}</strong><small>{booking.venue}</small></div><div><strong>¥{booking.price}</strong><small>线下待支付</small></div><div><span className={styles[`status${booking.tone[0].toUpperCase()}${booking.tone.slice(1)}`]}>{booking.status}</span><small>#{booking.id}</small></div><div className={styles.rowActions}>{booking.status === "待确认" || booking.status === "申请改期" ? <><button onClick={() => onUpdate(booking.id, "已确认")} type="button"><Check aria-hidden size={15} />确认</button><button onClick={() => onUpdate(booking.id, "申请改期")} type="button"><Clock3 aria-hidden size={15} />改期</button><button aria-label="拒绝预约" onClick={() => onUpdate(booking.id, "已拒绝")} title="拒绝" type="button"><X aria-hidden size={16} /></button></> : <button onClick={() => onUpdate(booking.id, "已完成")} type="button"><CheckCircle2 aria-hidden size={15} />完成课程</button>}</div></article>)}
-          {!filtered.length ? <div className={styles.empty}><CheckCircle2 aria-hidden size={26} /><strong>当前队列已处理完成</strong><p>新的预约申请会显示在这里。</p></div> : null}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function CoachSchedule() {
-  const initial = ["mon-18", "tue-18", "thu-18", "sat-10", "sat-14", "sun-09"];
-  const [available, setAvailable] = useState(initial);
-  const [weekOffset, setWeekOffset] = useState(0);
-  const days = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-  const periods = ["09:00", "10:30", "14:00", "16:00", "18:00", "19:30"];
-  const dates = days.map((_, index) => new Date(2026, 7, 17 + weekOffset * 7 + index));
-  const rangeLabel = `${dates[0].getMonth() + 1}月${dates[0].getDate()}日–${dates[6].getMonth() + 1}月${dates[6].getDate()}日`;
-  function toggle(dayIndex: number, period: string) {
-    const key = `${["mon", "tue", "wed", "thu", "fri", "sat", "sun"][dayIndex]}-${period.slice(0, 2)}`;
-    setAvailable((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
+function BookingManager({ bookings, busy, mutate }: { bookings: MobileBooking[]; busy: string; mutate: (path: string, body: unknown, success: string) => Promise<boolean> }) {
+  const [filter, setFilter] = useState<"active" | "all" | "done">("active");
+  const rows = useMemo(() => bookings.filter((booking) => filter === "all" || (filter === "done" ? ["completed", "cancelled_by_coach", "cancelled_by_student", "rejected"].includes(booking.status) : ["pending_coach", "confirmed", "reschedule_requested"].includes(booking.status))), [bookings, filter]);
+  async function transition(id: string, status: BookingStatus) {
+    await mutate(`/api/v1/coach/bookings/${encodeURIComponent(id)}/status`, { status }, `预约已更新为“${statusCopy[status]}”`);
   }
-  return (
-    <div className={styles.coachPage}>
-      <PageHeading action={<button className={styles.primaryAction} onClick={() => setAvailable(initial)} type="button"><Plus aria-hidden size={16} />恢复常用排期</button>} copy="点击时段切换可约状态，已产生预约的时段不能直接关闭。" title="排期与场馆" />
-      <section className={styles.schedulePanel}>
-        <header><div><button aria-label="上一周" onClick={() => setWeekOffset((current) => current - 1)} type="button">‹</button><strong>{rangeLabel}</strong><button aria-label="下一周" onClick={() => setWeekOffset((current) => current + 1)} type="button">›</button></div><p><span />可约 <span />已预约 <span />不可约</p></header>
-        <div className={styles.scheduleGrid}>
-          <div className={styles.timeColumn}><strong>时间</strong>{periods.map((period) => <span key={period}>{period}</span>)}</div>
-          {days.map((day, dayIndex) => <div className={styles.dayColumn} key={day}><strong>{day}<small>{dates[dayIndex].getDate()}</small></strong>{periods.map((period) => { const key = `${["mon", "tue", "wed", "thu", "fri", "sat", "sun"][dayIndex]}-${period.slice(0, 2)}`; const booked = (dayIndex === 0 && period === "18:00") || (dayIndex === 3 && period === "18:00"); return <button aria-pressed={available.includes(key) || booked} className={booked ? styles.bookedSlot : available.includes(key) ? styles.availableSlot : ""} disabled={booked} key={period} onClick={() => toggle(dayIndex, period)} type="button">{booked ? "已预约" : available.includes(key) ? "可约" : "—"}</button>; })}</div>)}
-        </div>
-        <footer><MapPin aria-hidden size={17} /><div><strong>默认场馆：朝阳体育中心羽毛球馆</strong><p>北京市朝阳区安定路 1 号 · 可提前 24 小时修改</p></div><button disabled title="正式场馆资料接入后开放" type="button">场馆资料待接入</button></footer>
-      </section>
-    </div>
-  );
+  return <div className={styles.page}>
+    <Heading copy="确认、改期、拒绝和完成课程都会写入状态事件，并通知对应学员。" title="预约管理" />
+    <section className={styles.panel}><header className={styles.panelHeader}><div className={styles.toolbar}>{([['active', '待处理'], ['all', '全部'], ['done', '已结束']] as const).map(([value, label]) => <button aria-pressed={filter === value} className={filter === value ? styles.primary : styles.secondary} key={value} onClick={() => setFilter(value)} type="button">{label}</button>)}</div></header>
+      {rows.length ? <div className={styles.table}><div className={styles.tableHead}><span>预约</span><span>时间</span><span>费用</span><span>状态</span><span>操作</span></div>{rows.map((booking) => <article className={styles.tableRow} key={booking.id}><span><strong>#{booking.id.slice(-8)}</strong><small>{booking.note || "未填写备注"}</small></span><span><strong>{booking.dateLabel} {booking.date}</strong><small>{booking.time}–{booking.endTime}</small></span><span><strong>{formatFen(booking.feeFen)}</strong><small>{booking.paymentStatus === "offline_paid" ? "线下已收款" : "线下待支付"}</small></span><span><em className={styles.status} data-tone={statusTone(booking.status)}>{statusCopy[booking.status]}</em></span><span className={styles.rowActions}>{booking.status === "pending_coach" ? <><button className={styles.primary} disabled={Boolean(busy)} onClick={() => void transition(booking.id, "confirmed")} type="button">确认</button><button className={styles.secondary} disabled={Boolean(busy)} onClick={() => void transition(booking.id, "reschedule_requested")} type="button">改期</button><button className={styles.danger} disabled={Boolean(busy)} onClick={() => void transition(booking.id, "rejected")} type="button">拒绝</button></> : booking.status === "confirmed" ? <><button className={styles.primary} disabled={Boolean(busy)} onClick={() => void transition(booking.id, "completed")} type="button">完成课程</button><button className={styles.danger} disabled={Boolean(busy)} onClick={() => void transition(booking.id, "cancelled_by_coach")} type="button">取消</button></> : null}</span></article>)}</div> : <Empty title="当前筛选下没有预约" copy="预约列表只展示真实业务记录，不会补入试点演示数据。" />}
+    </section>
+  </div>;
 }
 
-function CoachMessages() {
-  const contacts = [{ id: "xu", initial: "徐", name: "徐子轩家长", time: "10:24", preview: "想确认周四课程需要准备什么", unread: 2 }, { id: "wang", initial: "王", name: "王思涵", time: "昨天", preview: "谢谢教练，训练记录已收到", unread: 0 }];
-  const [activeChat, setActiveChat] = useState(contacts[0].id);
-  const [messages, setMessages] = useState([{ mine: false, body: "教练您好，想确认一下周四课程需要提前准备什么？", time: "10:18" }, { mine: true, body: "带好球拍和运动鞋即可，建议提前十分钟到场完成热身。", time: "10:24" }]);
-  const activeContact = contacts.find((contact) => contact.id === activeChat) ?? contacts[0];
-  function send(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); const body = String(form.get("message") ?? "").trim(); if (!body) return; setMessages((current) => [...current, { mine: true, body, time: "刚刚" }]); event.currentTarget.reset(); }
-  return (
-    <div className={styles.coachPage}>
-      <PageHeading copy="预约相关沟通统一留在站内，便于双方确认安排。" title="学员消息" />
-      <section className={styles.coachMessages}>
-        <aside><label><input placeholder="搜索学员" /></label>{contacts.map((contact) => <button className={activeChat === contact.id ? styles.activeChat : undefined} key={contact.id} onClick={() => setActiveChat(contact.id)} type="button"><span className={styles.learnerAvatar}>{contact.initial}</span><span><strong>{contact.name}<small>{contact.time}</small></strong><p>{contact.preview}</p></span>{contact.unread ? <b>{contact.unread}</b> : null}</button>)}</aside>
-        <div><header><span className={styles.learnerAvatar}>{activeContact.initial}</span><div><h2>{activeContact.name}</h2><p>羽毛球专项提升 · 下一课周四 18:30</p></div><Link href="/coach-workspace/bookings">查看预约</Link></header><div className={styles.messageHistory}><time>今天</time>{messages.map((message, index) => <div className={message.mine ? styles.coachBubble : styles.learnerBubble} key={index}><p>{message.body}</p><small>{message.time}</small></div>)}</div><form onSubmit={send}><input aria-label="回复学员" name="message" placeholder="输入回复" /><button aria-label="发送回复" type="submit"><Send aria-hidden size={17} /></button></form></div>
-      </section>
-    </div>
-  );
+function ScheduleManager({ busy, mutate, overview }: { busy: string; mutate: (path: string, body: unknown, success: string) => Promise<boolean>; overview: CoachOverview }) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const form = new FormData(event.currentTarget);
+    const startsAt = new Date(String(form.get("startsAt"))).getTime();
+    const endsAt = new Date(String(form.get("endsAt"))).getTime();
+    const ok = await mutate("/api/v1/coach/slots", { endsAt, startsAt, venueId: form.get("venueId") }, "可约时间已发布");
+    if (ok) event.currentTarget.reset();
+  }
+  return <div className={styles.page}><Heading copy="时段发布后才会出现在学员预约页；已被占用的时段不能重复创建。" title="排期与场馆" />
+    <div className={styles.split}><section className={styles.panel}><header className={styles.panelHeader}><div><h2>已开放时段</h2><p>共 {overview.slots.length} 个未来时段</p></div></header>{overview.slots.length ? <div className={styles.list}>{overview.slots.map((slot) => <article className={styles.listItem} key={slot.id}><span className={styles.listIcon}><CalendarCheck2 aria-hidden size={19} /></span><div><h3>{slot.dateLabel} {slot.date}</h3><p>{slot.time}–{slot.endTime} · {overview.venues?.find((venue) => venue.id === slot.venueId)?.name || "合作训练场"}</p></div><em className={styles.status}>可预约</em></article>)}</div> : <Empty copy="发布第一个真实场馆时段后，学员端会自动开放预约入口。" title="暂无可约时段" />}</section>
+      <aside className={styles.panel}><header className={styles.panelHeader}><div><h2>发布时段</h2><p>按北京时间填写</p></div></header>{overview.venues?.length ? <form className={styles.form} onSubmit={submit}><label className={styles.field}><span>训练场馆</span><select name="venueId" required>{overview.venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}</option>)}</select></label><label className={styles.field}><span>开始时间</span><input name="startsAt" required type="datetime-local" /></label><label className={styles.field}><span>结束时间</span><input name="endsAt" required type="datetime-local" /></label><button className={styles.primary} disabled={Boolean(busy)} type="submit"><CalendarPlus aria-hidden size={16} />发布时段</button></form> : <Empty copy="请先由运营人员审核并发布合作训练场。" title="场馆资料尚未就绪" />}</aside>
+    </div></div>;
 }
 
-function CoachCourses({ bookings, onUpdate }: { bookings: Booking[]; onUpdate: (id: string, status: string) => void }) {
-  const [notice, setNotice] = useState("");
-  function inspect(booking: Booking) { setNotice(`${booking.learner}的课程详情待正式课程记录接入后开放`); window.setTimeout(() => setNotice(""), 2200); }
-  return <div className={styles.coachPage}><PageHeading copy="记录课程重点、学员表现和下一步建议。" title="课程记录" /><section className={styles.courseList}><header><strong>近期课程</strong><span>共 {bookings.length} 条</span></header>{bookings.map((booking, index) => <article key={booking.id}><time>{index === 0 ? "今天" : index === 1 ? "明天" : "本周"}</time><span className={styles.learnerAvatar}>{booking.learner.slice(0, 1)}</span><div><h2>{booking.learner} · {booking.sport}</h2><p>{booking.schedule} · {booking.venue}</p><small>{booking.status === "已完成" ? "已生成训练记录" : "课程结束后补充训练反馈"}</small></div><span className={booking.status === "已完成" ? styles.statusGreen : styles.statusBlue}>{booking.status}</span>{booking.status === "已确认" ? <button onClick={() => onUpdate(booking.id, "已完成")} type="button">完成并记录</button> : <button onClick={() => inspect(booking)} type="button"><MoreHorizontal aria-hidden size={17} />查看</button>}</article>)}</section>{notice ? <div className={styles.toast} role="status"><Check aria-hidden size={17} />{notice}</div> : null}</div>;
+function CoachMessages({ busy, mutate, overview }: { busy: string; mutate: (path: string, body: unknown, success: string) => Promise<boolean>; overview: CoachOverview }) {
+  const [activeId, setActiveId] = useState(overview.conversations[0]?.id || "");
+  async function send(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (!activeId) return; const form = new FormData(event.currentTarget); const body = String(form.get("message") || "").trim(); if (!body) return; if (await mutate(`/api/v1/coach/conversations/${encodeURIComponent(activeId)}/messages`, { body }, "消息已发送")) event.currentTarget.reset(); }
+  return <div className={styles.page}><Heading copy="站内消息用于确认训练安排，锁屏通知不会展示未成年人姓名。" title="学员消息" /><section className={styles.panel}>{overview.conversations.length ? <div className={styles.conversation}><aside className={styles.conversationList}>{overview.conversations.map((item) => <button aria-pressed={activeId === item.id} key={item.id} onClick={() => setActiveId(item.id)} type="button"><strong>{item.title}</strong><span>{item.last_message_at ? "最近有新消息" : "会话已建立"}</span></button>)}</aside><div className={styles.messagePane}><header><h2>{overview.conversations.find((item) => item.id === activeId)?.title || "学员会话"}</h2></header><div className={styles.messages}><Empty copy="出于最小展示原则，教练概览只读取会话摘要。发送的回复会写入正式消息记录。" title="回复学员" /></div><form className={styles.compose} onSubmit={send}><input maxLength={1000} name="message" placeholder="输入回复" /><button className={styles.primary} disabled={Boolean(busy)} type="submit"><Send aria-hidden size={16} />发送</button></form></div></div> : <Empty copy="学员发起咨询或预约后，会话会出现在这里。" title="暂无学员会话" />}</section></div>;
 }
 
-function CoachPayments({ bookings }: { bookings: Booking[] }) {
-  const [paid, setPaid] = useState<string[]>([bookings[3]?.id].filter(Boolean) as string[]);
-  return <div className={styles.coachPage}><PageHeading copy="逐光首版采用线下支付，此处只记录双方确认的收款状态。" title="线下收款" /><section className={styles.paymentSummary}><div><p>本月已记录</p><strong>¥{paid.length * 280}</strong><span>{paid.length} 笔线下收款</span></div><div><p>待确认收款</p><strong>{bookings.filter((item) => item.status === "已确认" && !paid.includes(item.id)).length}</strong><span>完成课程后及时核对</span></div><div><ShieldCheck aria-hidden size={22} /><p><strong>平台不代收费用</strong><span>请勿在站内发送银行卡等敏感信息</span></p></div></section><section className={styles.paymentTable}><header><span>预约</span><span>课程时间</span><span>金额</span><span>收款状态</span><span>操作</span></header>{bookings.filter((item) => item.status === "已确认" || item.status === "已完成").map((booking) => <article key={booking.id}><span><strong>{booking.learner}</strong><small>{booking.sport} · #{booking.id}</small></span><span><strong>{booking.schedule}</strong><small>{booking.venue}</small></span><strong>¥{booking.price}</strong><span className={paid.includes(booking.id) ? styles.statusGreen : styles.statusAmber}>{paid.includes(booking.id) ? "已收款" : "待收款"}</span><button onClick={() => setPaid((current) => current.includes(booking.id) ? current.filter((id) => id !== booking.id) : [...current, booking.id])} type="button">{paid.includes(booking.id) ? "撤销标记" : "标记已收款"}</button></article>)}</section></div>;
+function CourseRecords({ busy, mutate, overview }: { busy: string; mutate: (path: string, body: unknown, success: string) => Promise<boolean>; overview: CoachOverview }) {
+  const completed = overview.bookings.filter((booking) => booking.status === "completed");
+  const [activeId, setActiveId] = useState(completed[0]?.id || "");
+  async function save(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); await mutate("/api/v1/coach/training-records", { bookingId: form.get("bookingId"), coachNotes: form.get("coachNotes"), summary: form.get("summary") }, "训练记录已发布给学员"); }
+  return <div className={styles.page}><Heading copy="课程完成后记录训练重点、学员表现和下一步建议。" title="课程记录" />{completed.length ? <div className={styles.split}><section className={styles.panel}><header className={styles.panelHeader}><div><h2>已完成课程</h2><p>选择一节课程补充记录</p></div></header><div className={styles.list}>{completed.map((booking) => <button aria-pressed={activeId === booking.id} className={styles.listItem} key={booking.id} onClick={() => setActiveId(booking.id)} type="button"><span className={styles.listIcon}><FileCheck2 aria-hidden size={19} /></span><div><h3>{booking.dateLabel} {booking.time}</h3><p>#{booking.id.slice(-8)} · {formatFen(booking.feeFen)}</p></div></button>)}</div></section><aside className={styles.panel}><header className={styles.panelHeader}><div><h2>发布训练记录</h2><p>发布后学员可在训练档案查看</p></div></header><form className={styles.form} onSubmit={save}><input name="bookingId" type="hidden" value={activeId} /><label className={styles.field}><span>本节总结</span><textarea maxLength={2000} name="summary" required /></label><label className={styles.field}><span>后续建议</span><textarea maxLength={2000} name="coachNotes" /></label><button className={styles.primary} disabled={Boolean(busy)} type="submit">发布记录</button></form></aside></div> : <section className={styles.panel}><Empty copy="完成真实课程后即可建立学员训练档案。" title="暂无可记录课程" /></section>}</div>;
 }
 
-function CoachCredentials() {
-  const coach = coaches[0];
-  return <div className={styles.coachPage}><PageHeading copy="公开页面只展示核验结论，资质原件仅限授权人员访问。" title="资质与资料" /><section className={styles.credentialProfile}><Image alt="周明教练" height={112} src={coach.image} unoptimized width={112} /><div><span><BadgeCheck aria-hidden size={15} />认证教练</span><h2>{coach.name}</h2><p>{coach.sport} · {coach.title}</p><small>资料状态以运营复核记录为准</small></div><button disabled title="资料变更服务接入后开放" type="button">资料变更待接入</button></section><section className={styles.credentialList}><header><h2>已核验材料</h2><span>按已完成核验材料展示</span></header>{coach.credentials.map((credential) => <article key={credential}><FileCheck2 aria-hidden size={22} /><div><strong>{credential}</strong><p>平台人工复核记录</p></div><span><CheckCircle2 aria-hidden size={15} />已核验</span><button disabled title="核验记录服务接入后开放" type="button">核验记录待接入</button></article>)}</section><section className={styles.credentialNotice}><ShieldCheck aria-hidden size={22} /><div><strong>资料保护说明</strong><p>身份证明和资质原件不会出现在公开页面。运营人员每次访问均记录用途与时间。</p></div></section></div>;
+function PaymentManager({ busy, mutate, overview }: { busy: string; mutate: (path: string, body: unknown, success: string) => Promise<boolean>; overview: CoachOverview }) {
+  const eligible = overview.bookings.filter((booking) => ["confirmed", "completed"].includes(booking.status));
+  return <div className={styles.page}><Heading copy="这里只记录线下收款结果，不在平台内收取费用。" title="线下收款" /><section className={styles.panel}>{eligible.length ? <div className={styles.table}><div className={styles.tableHead}><span>预约</span><span>课程时间</span><span>金额</span><span>收款状态</span><span>操作</span></div>{eligible.map((booking) => <article className={styles.tableRow} key={booking.id}><span><strong>#{booking.id.slice(-8)}</strong><small>{statusCopy[booking.status]}</small></span><span><strong>{booking.dateLabel} {booking.date}</strong><small>{booking.time}–{booking.endTime}</small></span><span><strong>{formatFen(booking.feeFen)}</strong><small>线下支付</small></span><span><em className={styles.status} data-tone={booking.paymentStatus === "offline_paid" ? "green" : "amber"}>{booking.paymentStatus === "offline_paid" ? "已收款" : "待收款"}</em></span><span><button className={styles.secondary} disabled={Boolean(busy)} onClick={() => void mutate(`/api/v1/coach/bookings/${encodeURIComponent(booking.id)}/offline-payment`, { paid: booking.paymentStatus !== "offline_paid" }, booking.paymentStatus === "offline_paid" ? "已撤销收款标记" : "已标记线下收款")} type="button">{booking.paymentStatus === "offline_paid" ? "撤销标记" : "标记已收款"}</button></span></article>)}</div> : <Empty copy="已确认或已完成课程会出现在这里。" title="暂无待记录收款" />}</section></div>;
 }
+
+function ProfileManager({ busy, mutate, overview }: { busy: string; mutate: (path: string, body: unknown, success: string) => Promise<boolean>; overview: CoachOverview }) {
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); await mutate("/api/v1/coach/profile-change-requests", { field: form.get("field"), value: form.get("value") }, "资料变更申请已提交审核"); }
+  return <div className={styles.page}><Heading copy="公开资料变更先进入人工审核，资质原件不会出现在公开页面。" title="资质与资料" /><div className={styles.split}><section className={styles.panel}><header className={styles.panelHeader}><div><h2>当前公开档案</h2><p>学员端正在展示的资料</p></div><em className={styles.status}>已审核</em></header><div className={styles.list}><div className={styles.listItem}><span className={styles.listIcon}><BadgeCheck aria-hidden size={19} /></span><div><h3>{overview.coach.name} · {overview.coach.title}</h3><p>{overview.coach.sport} · {overview.coach.district}</p></div></div><div className={styles.listItem}><span className={styles.listIcon}><CircleDollarSign aria-hidden size={19} /></span><div><h3>常规课 ¥{overview.coach.price} · 试课 ¥{overview.coach.trialPrice}</h3><p>价格变更需审核后生效</p></div></div><div className={styles.listItem}><span className={styles.listIcon}><ShieldCheck aria-hidden size={19} /></span><div><h3>{overview.coach.verificationLabel}</h3><p>评价 {overview.coach.reviewCount} 条 · 已完成课程 {overview.coach.lessons} 节</p></div></div></div></section><aside className={styles.panel}><header className={styles.panelHeader}><div><h2>申请资料变更</h2><p>提交后由运营人员核验</p></div></header><form className={styles.form} onSubmit={submit}><label className={styles.field}><span>变更项目</span><select name="field"><option value="bio">个人介绍</option><option value="title">教练头衔</option><option value="district">服务区域</option><option value="venue">训练场馆</option><option value="price">常规课价格</option><option value="trialPrice">试课价格</option><option value="goals">训练方向</option></select></label><label className={styles.field}><span>新的内容</span><textarea maxLength={1500} name="value" required /></label><button className={styles.primary} disabled={Boolean(busy)} type="submit">提交审核</button></form></aside></div></div>;
+}
+
+function Empty({ copy, title }: { copy: string; title: string }) { return <div className={styles.empty}><Sparkles aria-hidden size={28} /><strong>{title}</strong><p>{copy}</p></div>; }
+function Loading({ label }: { label: string }) { return <div className={styles.loading}><LoaderCircle aria-hidden size={27} /><span>{label}</span></div>; }
+function ErrorState({ message, onRetry }: { message: string; onRetry: () => Promise<void> }) { return <div className={styles.page}><div className={styles.error}><CircleAlert aria-hidden size={28} /><strong>工作台暂时没有加载成功</strong><p>{message}</p><button className={styles.secondary} onClick={() => void onRetry()} type="button"><RefreshCw aria-hidden size={16} />重新加载</button></div></div>; }

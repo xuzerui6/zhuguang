@@ -9,6 +9,15 @@ import org.json.JSONObject;
 
 public class ZhuguangPushReceiver extends JPushMessageReceiver {
     @Override
+    public void onRegister(Context context, String registrationId) {
+        if (registrationId == null || registrationId.trim().isEmpty()) return;
+        context.getSharedPreferences(PushBridgePlugin.PUSH_PREFERENCES, 0)
+            .edit()
+            .putString(PushBridgePlugin.REGISTRATION_ID, registrationId)
+            .apply();
+    }
+
+    @Override
     public void onNotifyMessageOpened(Context context, NotificationMessage message) {
         String deepLink = "zhuguang://student/messages";
         try {
@@ -22,4 +31,3 @@ public class ZhuguangPushReceiver extends JPushMessageReceiver {
         context.startActivity(intent);
     }
 }
-

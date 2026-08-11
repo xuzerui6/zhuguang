@@ -56,12 +56,11 @@ function timeout<T>(promise: Promise<T>, durationMs: number) {
 export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   const demoMode = useMemo(() => usesBundledDemoData(), []);
   const [booting, setBooting] = useState(true);
-  const [showBootBrand, setShowBootBrand] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState<boolean | null>(null);
   const [mode, setMode] = useState<AccountMode>("student");
   const [studentTab, setStudentTab] = useState<MobileTab>("home");
   const [coachTab, setCoachTab] = useState<CoachTab>("workspace");
-  const [identity, setIdentity] = useState<MobileIdentity>({ availableModes: ["student"], phoneMasked: "" });
+  const [identity, setIdentity] = useState<MobileIdentity>({ availableModes: ["student"], contactMasked: "", phoneMasked: "" });
   const [roleSheet, setRoleSheet] = useState(false);
   const [surface, setSurface] = useState<Surface>("app");
   const [forcedRelease, setForcedRelease] = useState<AppRelease | null>(null);
@@ -131,9 +130,13 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   }, [demoMode]);
 
   const initializePush = useCallback(async () => {
-    const push = await pushBridge.setPrivacyConsent(true);
+    let push = await pushBridge.setPrivacyConsent(true);
     if (demoMode) return;
     try {
+      if (push.initialized && !push.registrationId) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1_500));
+        push = await pushBridge.setPrivacyConsent(true);
+      }
       const [installationId, installed] = await Promise.all([getOrCreateDeviceId(), appUpdater.getInstalledInfo()]);
       await mobileApi.registerInstallation({
         installationId,
@@ -147,12 +150,6 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   }, [demoMode]);
 
   useEffect(() => {
-    if (!booting) return;
-    const timer = window.setTimeout(() => setShowBootBrand(true), 250);
-    return () => window.clearTimeout(timer);
-  }, [booting]);
-
-  useEffect(() => {
     let cancelled = false;
     void Promise.all([
       readSession(),
@@ -164,9 +161,10 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
       let nextIdentity: MobileIdentity = {
         availableModes: session?.availableModes ?? ["student"],
         coach: session?.coach,
+        contactMasked: session?.contactMasked ?? session?.phoneMasked ?? "",
         phoneMasked: session?.phoneMasked ?? "",
       };
-      if (demoMode) nextIdentity = { availableModes: ["student", "coach"], coach: demoCoach, phoneMasked: "138 **** 2026" };
+      if (demoMode) nextIdentity = { availableModes: ["student", "coach"], coach: demoCoach, contactMasked: "local@example.com", phoneMasked: "138 **** 2026" };
       else if (session) {
         try {
           nextIdentity = await timeout(mobileApi.me(), 4_000);
@@ -191,13 +189,16 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
     const removeUrl = listenForAppUrl(applyDeepLink);
     let pushHandle: { remove: () => Promise<void> } | undefined;
     void pushBridge.onOpen(applyDeepLink).then((handle) => { pushHandle = handle; });
-    const removeResume = listenForAppResume(() => void checkForUpdates());
+    const removeResume = listenForAppResume(() => {
+      void checkForUpdates();
+      if (privacyAccepted) void initializePush();
+    });
     return () => {
       removeUrl();
       removeResume();
       void pushHandle?.remove();
     };
-  }, [applyDeepLink, checkForUpdates]);
+  }, [applyDeepLink, checkForUpdates, initializePush, privacyAccepted]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => window.scrollTo({ behavior: "auto", left: 0, top: 0 }));
@@ -219,16 +220,18 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
 
   const handleSessionChange = useCallback((session: MobileSession | null) => {
     const nextIdentity: MobileIdentity = demoMode
-      ? { availableModes: ["student", "coach"], coach: demoCoach, phoneMasked: session?.phoneMasked ?? "138 **** 2026" }
-      : { availableModes: session?.availableModes ?? ["student"], coach: session?.coach, phoneMasked: session?.phoneMasked ?? "" };
+      ? { availableModes: ["student", "coach"], coach: demoCoach, contactMasked: session?.contactMasked ?? "local@example.com", phoneMasked: session?.phoneMasked ?? "138 **** 2026" }
+      : { availableModes: session?.availableModes ?? ["student"], coach: session?.coach, contactMasked: session?.contactMasked ?? session?.phoneMasked ?? "", phoneMasked: session?.phoneMasked ?? "" };
     setIdentity(nextIdentity);
     if (!nextIdentity.availableModes.includes("coach")) switchMode("student");
-  }, [demoMode, switchMode]);
+    if (session && privacyAccepted) void initializePush();
+  }, [demoMode, initializePush, privacyAccepted, switchMode]);
 
   if (booting) {
     return (
-      <main aria-hidden={!showBootBrand} className={`zg-mobile-app zg-brand-launch ${showBootBrand ? "is-visible" : ""}`}>
-        <div className="zg-brand-launch-lockup"><Image alt="" height={56} priority src="./logo-mark.svg" unoptimized width={56} /><strong>逐光</strong></div>
+      <main aria-busy="true" aria-label="正在准备逐光" className="zg-mobile-app zg-native-handoff">
+        <header><span /><i /><b /></header>
+        <section><span /><span /><div><i /><i /><i /><i /></div><span /></section>
       </main>
     );
   }

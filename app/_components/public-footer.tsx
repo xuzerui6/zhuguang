@@ -20,7 +20,7 @@ export function PublicFooter() {
         <div>
           <strong>平台合作</strong>
           <Link href="/coach-partnership">教练合作</Link>
-          <Link href="/login">认证教练工作台</Link>
+          <Link href="/login">教练工作台</Link>
           <Link href="/login">运营工作台</Link>
         </div>
         <div>

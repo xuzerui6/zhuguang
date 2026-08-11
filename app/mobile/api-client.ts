@@ -127,11 +127,11 @@ export const mobileApi = {
     minimumAppVersion: string;
   }>("/api/v1/bootstrap"),
   me: () => request<MobileIdentity>("/api/v1/me"),
-  requestOtp: (phone: string) => request<{ challengeId: string; expiresIn: number; retryAfter: number }>("/api/v1/auth/otp/request", {
-    body: JSON.stringify({ phone }),
+  requestEmailOtp: (email: string, turnstileToken: string) => request<{ challengeId: string; expiresIn: number; retryAfter: number }>("/api/v1/auth/email/request", {
+    body: JSON.stringify({ email, turnstileToken }),
     method: "POST",
   }),
-  verifyOtp: (challengeId: string, code: string, favoriteCoachIds: number[] = []) => request<MobileSession>("/api/v1/auth/otp/verify", {
+  verifyEmailOtp: (challengeId: string, code: string, favoriteCoachIds: number[] = []) => request<MobileSession>("/api/v1/auth/email/verify", {
     body: JSON.stringify({ challengeId, code, favoriteCoachIds }),
     method: "POST",
   }).then(async (session) => {

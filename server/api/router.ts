@@ -59,7 +59,25 @@ import {
   uploadReleaseArtifactD1,
 } from "./releases";
 import { dispatchPushDeliveriesD1, queueVersionNotificationsD1 } from "./push";
-import { assertPilotApp, normalizePhone, randomId } from "./security";
+import { assertPilotApp, normalizePhone, randomId, verifyTurnstile } from "./security";
+import { requestEmailOtpD1, verifyEmailOtpD1 } from "./email-auth";
+import {
+  createCredentialChangeRequestD1,
+  createServiceLeadD1,
+  createTrainingRecordD1,
+  getOpsOverviewD1,
+  listContentDocumentsD1,
+  listOpsBookingsD1,
+  listOpsCoachesD1,
+  listOpsLeadsD1,
+  listOpsUsersD1,
+  listStudentTrainingRecordsD1,
+  markNotificationReadD1,
+  publishContentDocumentD1,
+  saveContentDocumentD1,
+  updateOpsCoachStatusD1,
+  updateOpsLeadD1,
+} from "./operations";
 
 const bookingStatuses = new Set<BookingStatus>([
   "cancelled_by_coach",
@@ -199,6 +217,77 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     return success(await saveNotificationPreferencesD1((await authenticateStudent(request, env))!, input, env), requestId);
   }
 
+  if (request.method === "GET" && path === "/api/v1/operator/overview") {
+    assertOperator(request, env);
+    return success(await getOpsOverviewD1(env), requestId);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/operator/leads") {
+    assertOperator(request, env);
+    return success(await listOpsLeadsD1(env), requestId);
+  }
+
+  const operatorLeadMatch = path.match(/^\/api\/v1\/operator\/leads\/([^/]+)$/u);
+  if (request.method === "PATCH" && operatorLeadMatch) {
+    assertOperator(request, env);
+    const body = await readJson<{ assignedTo?: unknown; note?: unknown; status?: unknown }>(request);
+    return success(await updateOpsLeadD1(decodeURIComponent(operatorLeadMatch[1]), {
+      assignedTo: typeof body.assignedTo === "string" ? body.assignedTo.slice(0, 100) : undefined,
+      note: typeof body.note === "string" ? body.note.slice(0, 1000) : undefined,
+      status: typeof body.status === "string" ? body.status : undefined,
+    }, operatorActor(request), env), requestId);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/operator/bookings") {
+    assertOperator(request, env);
+    return success(await listOpsBookingsD1(env), requestId);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/operator/coaches") {
+    assertOperator(request, env);
+    return success(await listOpsCoachesD1(env), requestId);
+  }
+
+  const operatorCoachStatusMatch = path.match(/^\/api\/v1\/operator\/coaches\/(\d+)\/status$/u);
+  if (request.method === "PATCH" && operatorCoachStatusMatch) {
+    assertOperator(request, env);
+    const body = await readJson<{ status?: unknown }>(request);
+    return success(await updateOpsCoachStatusD1(Number(operatorCoachStatusMatch[1]), requireString(body.status, "status", 30), operatorActor(request), env), requestId);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/operator/users") {
+    assertOperator(request, env);
+    return success(await listOpsUsersD1(env), requestId);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/operator/content") {
+    assertOperator(request, env);
+    return success(await listContentDocumentsD1(env), requestId);
+  }
+
+  if (request.method === "POST" && path === "/api/v1/operator/content") {
+    assertOperator(request, env);
+    const body = await readJson<{ audience?: unknown; body?: unknown; slug?: unknown; title?: unknown }>(request);
+    return success(await saveContentDocumentD1({
+      audience: requireString(body.audience, "audience", 30),
+      body: requireString(body.body, "body", 20_000),
+      slug: requireString(body.slug, "slug", 100),
+      title: requireString(body.title, "title", 120),
+    }, operatorActor(request), env), requestId, undefined, 201);
+  }
+
+  const operatorContentPublishMatch = path.match(/^\/api\/v1\/operator\/content\/([^/]+)\/publish$/u);
+  if (request.method === "POST" && operatorContentPublishMatch) {
+    assertOperator(request, env);
+    const body = await readJson<{ versionId?: unknown }>(request);
+    return success(await publishContentDocumentD1(
+      decodeURIComponent(operatorContentPublishMatch[1]),
+      requireString(body.versionId, "versionId", 180),
+      operatorActor(request),
+      env,
+    ), requestId);
+  }
+
   if (request.method === "POST" && path === "/api/v1/operator/releases") {
     assertOperator(request, env);
     const body = await readJson<Parameters<typeof createReleaseD1>[0]>(request);
@@ -253,6 +342,23 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     return success(coaches, requestId, { count: coaches.length });
   }
 
+  if (request.method === "POST" && path === "/api/v1/service-leads") {
+    const body = await readJson<{ coachId?: unknown; contactEmail?: unknown; contactName?: unknown; district?: unknown; goal?: unknown; sport?: unknown; turnstileToken?: unknown }>(request);
+    if (local) return success({ id: randomId("lead"), status: "new" }, requestId, undefined, 201);
+    await verifyTurnstile(request, body.turnstileToken, env);
+    const identity = local ? null : await authenticateStudent(request, env, false);
+    return success(await createServiceLeadD1({
+      coachId: body.coachId == null ? undefined : positiveInteger(body.coachId, "coachId"),
+      contactEmail: requireString(body.contactEmail, "contactEmail", 254),
+      contactName: requireString(body.contactName, "contactName", 40),
+      district: requireString(body.district, "district", 40),
+      goal: requireString(body.goal, "goal", 160),
+      source: request.headers.get("x-app-platform") === "android" ? "android" : "web",
+      sport: requireString(body.sport, "sport", 40),
+      userId: identity?.userId,
+    }, env), requestId, undefined, 201);
+  }
+
   const coachSlotsMatch = path.match(/^\/api\/v1\/coaches\/(\d+)\/slots$/u);
   if (request.method === "GET" && coachSlotsMatch) {
     const coachId = Number(coachSlotsMatch[1]);
@@ -272,6 +378,28 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     const body = await readJson<{ phone?: unknown }>(request);
     const phone = normalizePhone(body.phone);
     return success(local ? requestLocalOtp(phone) : await requestOtpD1(request, phone, env), requestId, undefined, 201);
+  }
+
+  if (request.method === "POST" && path === "/api/v1/auth/email/request") {
+    const body = await readJson<{ email?: unknown; turnstileToken?: unknown }>(request);
+    if (local) {
+      return success(requestLocalOtp("13800138000"), requestId, undefined, 201);
+    }
+    return success(await requestEmailOtpD1(request, { email: body.email, turnstileToken: body.turnstileToken }, env), requestId, undefined, 201);
+  }
+
+  if (request.method === "POST" && path === "/api/v1/auth/email/verify") {
+    const body = await readJson<{ challengeId?: unknown; code?: unknown; favoriteCoachIds?: unknown }>(request);
+    const challengeId = requireString(body.challengeId, "challengeId", 180);
+    const code = requireString(body.code, "code", 6);
+    if (!/^\d{6}$/u.test(code)) throw new ApiError(422, "invalid_otp", "请输入 6 位验证码", { code: "验证码格式不正确" });
+    const favoriteCoachIds = Array.isArray(body.favoriteCoachIds) ? body.favoriteCoachIds.filter((id): id is number => Number.isInteger(id)) : [];
+    if (local) {
+      if (code !== "888888") throw new ApiError(400, "invalid_otp", "验证码不正确");
+      const localSession = verifyLocalOtp(challengeId, code, deviceId, favoriteCoachIds);
+      return success({ ...localSession, authMethod: "email_otp", contactMasked: "lo***@example.com", phoneMasked: "lo***@example.com" }, requestId);
+    }
+    return success(await verifyEmailOtpD1(challengeId, code, deviceId, favoriteCoachIds, env), requestId);
   }
 
   if (request.method === "POST" && path === "/api/v1/auth/otp/verify") {
@@ -409,6 +537,17 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     return success(await listNotificationsD1((await authenticateStudent(request, env))!, env), requestId);
   }
 
+  const notificationReadMatch = path.match(/^\/api\/v1\/notifications\/([^/]+)\/read$/u);
+  if (request.method === "POST" && notificationReadMatch) {
+    if (local) return success({ id: decodeURIComponent(notificationReadMatch[1]), read: true }, requestId);
+    return success(await markNotificationReadD1((await authenticateStudent(request, env))!, decodeURIComponent(notificationReadMatch[1]), env), requestId);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/training-records") {
+    if (local) return success([], requestId);
+    return success(await listStudentTrainingRecordsD1((await authenticateStudent(request, env))!, env), requestId);
+  }
+
   if (request.method === "GET" && path === "/api/v1/learner-profiles") {
     if (local) authenticateLocal(request);
     else await authenticateStudent(request, env);
@@ -457,6 +596,26 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
       endsAt: timestamp(body.endsAt, "endsAt"),
       startsAt: timestamp(body.startsAt, "startsAt"),
       venueId: requireString(body.venueId, "venueId", 200),
+    }, env), requestId, undefined, 201);
+  }
+
+  if (request.method === "POST" && path === "/api/v1/coach/training-records") {
+    const body = await readJson<{ bookingId?: unknown; coachNotes?: unknown; metrics?: unknown; summary?: unknown }>(request);
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不写入训练记录");
+    return success(await createTrainingRecordD1(await authenticateCoach(request, env), {
+      bookingId: requireString(body.bookingId, "bookingId", 180),
+      coachNotes: typeof body.coachNotes === "string" ? body.coachNotes.slice(0, 2000) : "",
+      metrics: body.metrics,
+      summary: requireString(body.summary, "summary", 2000),
+    }, env), requestId, undefined, 201);
+  }
+
+  if (request.method === "POST" && path === "/api/v1/coach/profile-change-requests") {
+    const body = await readJson<{ field?: unknown; value?: unknown }>(request);
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不写入资料变更申请");
+    return success(await createCredentialChangeRequestD1(await authenticateCoach(request, env), {
+      field: requireString(body.field, "field", 60),
+      value: body.value,
     }, env), requestId, undefined, 201);
   }
 
@@ -544,6 +703,10 @@ function validateLearner(body: Partial<LearnerProfile>) {
   };
 }
 
+function operatorActor(request: Request) {
+  return request.headers.get("x-operator-actor")?.trim().toLowerCase().slice(0, 160) || "operator";
+}
+
 function withCors(response: Response, request: Request, env: ApiEnv, requestId: string) {
   const headers = new Headers(response.headers);
   const origin = request.headers.get("origin");
@@ -551,7 +714,7 @@ function withCors(response: Response, request: Request, env: ApiEnv, requestId: 
     headers.set("access-control-allow-origin", origin);
     headers.append("vary", "origin");
   }
-  headers.set("access-control-allow-headers", "authorization, content-type, idempotency-key, x-app-platform, x-app-version, x-app-version-code, x-device-id, x-operator-secret, x-release-version-name, x-request-id, x-zhuguang-app-key");
+  headers.set("access-control-allow-headers", "authorization, content-type, idempotency-key, x-app-platform, x-app-version, x-app-version-code, x-device-id, x-operator-actor, x-operator-secret, x-release-version-name, x-request-id, x-zhuguang-app-key");
   headers.set("access-control-allow-methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
   headers.set("access-control-expose-headers", "x-request-id");
   headers.set("referrer-policy", "no-referrer");

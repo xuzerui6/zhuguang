@@ -5,10 +5,13 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import cn.jiguang.api.utils.JCollectionAuth;
@@ -27,6 +30,8 @@ import com.getcapacitor.annotation.PermissionCallback;
     permissions = @Permission(alias = "notifications", strings = { Manifest.permission.POST_NOTIFICATIONS })
 )
 public class PushBridgePlugin extends Plugin {
+    static final String PUSH_PREFERENCES = "zhuguang_push";
+    static final String REGISTRATION_ID = "registration_id";
     private static final String CHANNEL_BOOKING = "zhuguang_booking";
     private static final String CHANNEL_MESSAGE = "zhuguang_message";
     private static final String CHANNEL_UPDATE = "zhuguang_update";
@@ -41,29 +46,60 @@ public class PushBridgePlugin extends Plugin {
         boolean accepted = Boolean.TRUE.equals(call.getBoolean("accepted", false));
         JSObject result = new JSObject();
         if (!accepted) {
+            getContext().getSharedPreferences(PUSH_PREFERENCES, 0).edit().putBoolean("privacy_accepted", false).apply();
+            try {
+                JCollectionAuth.setAuth(getContext(), false);
+                JPushInterface.stopPush(getContext());
+            } catch (Exception ignored) {
+                // The SDK may not have been initialized on this process yet.
+            }
             result.put("initialized", false);
             result.put("provider", "disabled-before-consent");
             call.resolve(result);
             return;
         }
         String appKey = configuredAppKey();
-        if (appKey.isBlank() || "NOT_CONFIGURED".equals(appKey)) {
+        if (appKey.trim().isEmpty() || "NOT_CONFIGURED".equals(appKey)) {
             result.put("initialized", false);
             result.put("provider", "jpush-unconfigured");
             call.resolve(result);
             return;
         }
         try {
+            getContext().getSharedPreferences(PUSH_PREFERENCES, 0).edit().putBoolean("privacy_accepted", true).apply();
             JCollectionAuth.setAuth(getContext(), true);
             JPushInterface.setDebugMode(false);
             JPushInterface.init(getContext());
+            JPushInterface.resumePush(getContext());
             result.put("initialized", true);
             result.put("provider", "jpush");
-            result.put("registrationId", JPushInterface.getRegistrationID(getContext()));
-            call.resolve(result);
+            awaitRegistrationId(call, result, 0);
         } catch (Exception error) {
             call.reject("推送服务初始化失败", "PUSH_INIT_FAILED", error);
         }
+    }
+
+    private void awaitRegistrationId(PluginCall call, JSObject result, int attempt) {
+        String registrationId = JPushInterface.getRegistrationID(getContext());
+        if (registrationId == null || registrationId.trim().isEmpty()) {
+            SharedPreferences preferences = getContext().getSharedPreferences(PUSH_PREFERENCES, 0);
+            registrationId = preferences.getString(REGISTRATION_ID, "");
+        }
+        if (registrationId != null && !registrationId.trim().isEmpty()) {
+            result.put("registrationId", registrationId);
+            result.put("registrationReady", true);
+            call.resolve(result);
+            return;
+        }
+        if (attempt >= 20) {
+            result.put("registrationReady", false);
+            call.resolve(result);
+            return;
+        }
+        new Handler(Looper.getMainLooper()).postDelayed(
+            () -> awaitRegistrationId(call, result, attempt + 1),
+            100L
+        );
     }
 
     @PluginMethod
@@ -141,10 +177,13 @@ public class PushBridgePlugin extends Plugin {
         NotificationManager manager = getContext().getSystemService(NotificationManager.class);
         NotificationChannel booking = new NotificationChannel(CHANNEL_BOOKING, "预约进度", NotificationManager.IMPORTANCE_HIGH);
         booking.setDescription("预约确认、改期、取消与课程完成状态");
+        booking.setShowBadge(true);
         NotificationChannel message = new NotificationChannel(CHANNEL_MESSAGE, "服务消息", NotificationManager.IMPORTANCE_DEFAULT);
         message.setDescription("教练与学员的服务沟通消息");
+        message.setShowBadge(true);
         NotificationChannel update = new NotificationChannel(CHANNEL_UPDATE, "版本更新", NotificationManager.IMPORTANCE_DEFAULT);
         update.setDescription("逐光安全版本更新提醒");
+        update.setShowBadge(false);
         manager.createNotificationChannel(booking);
         manager.createNotificationChannel(message);
         manager.createNotificationChannel(update);

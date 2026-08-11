@@ -7,7 +7,7 @@ export function Brand({ compact = false }: { compact?: boolean }) {
       <Image alt="" height={34} priority src="/logo-mark.svg" unoptimized width={34} />
       <span>
         <strong>逐光</strong>
-        {!compact ? <small>专业运动教练服务平台</small> : null}
+        {!compact ? <small>运动教练服务平台</small> : null}
       </span>
     </Link>
   );

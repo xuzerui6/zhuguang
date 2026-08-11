@@ -23,7 +23,7 @@ const menuRows = [
   { icon: Heart, label: "收藏与对比", detail: "管理关注的教练", action: "favorites" },
   { icon: UserRound, label: "常用学员", detail: "管理本人和孩子档案", action: "learners" },
   { icon: ShieldCheck, label: "服务保障", detail: "资质、合同与申诉", action: "assurance" },
-  { icon: LockKeyhole, label: "账号与隐私", detail: "手机号、授权与注销", action: "privacy" },
+  { icon: LockKeyhole, label: "账号与隐私", detail: "邮箱、授权与注销", action: "privacy" },
   { icon: Headphones, label: "帮助与反馈", detail: "客服与问题反馈", action: "feedback" },
   { icon: RefreshCw, label: "关于与更新", detail: "版本、安全校验与更新日志", action: "updates" },
 ] as const;
@@ -33,7 +33,7 @@ export function ProfileView({
   completedCount,
   learner,
   onAction,
-  phoneMasked,
+  contactMasked,
   savedCount,
   coachSummary,
   onOpenCoachMode,
@@ -42,12 +42,12 @@ export function ProfileView({
   completedCount: number;
   learner: LearnerProfile;
   onAction: (action: string) => void;
-  phoneMasked?: string;
+  contactMasked?: string;
   savedCount: number;
   coachSummary?: CoachAccountSummary;
   onOpenCoachMode?: () => void;
 }) {
-  const ownerName = learner.guardianName?.trim() || (phoneMasked ? "已验证用户" : "访客");
+  const ownerName = learner.guardianName?.trim() || (contactMasked ? "已验证用户" : "访客");
   const ownerRole = learner.relation === "child" ? `${learner.name}的家长 · 北京` : "学员 · 北京";
   const learnerInitial = learner.name.trim().slice(0, 1) || "学";
   const learnerMeta = [
@@ -66,7 +66,7 @@ export function ProfileView({
       <section className="zg-profile-summary">
         <ProfileAvatar label={`${ownerName}头像`} />
         <div><h1>{ownerName}</h1><p>{ownerRole}</p></div>
-        <button onClick={() => onAction("privacy")} type="button"><VerifiedPhone masked={phoneMasked} /></button>
+        <button onClick={() => onAction("privacy")} type="button"><VerifiedPhone masked={contactMasked} /></button>
       </section>
 
       {coachSummary?.auditStatus === "approved" && onOpenCoachMode ? (

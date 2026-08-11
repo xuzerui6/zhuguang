@@ -11,10 +11,10 @@ function NativeMobileApp() {
   const demoMode = usesBundledDemoData();
   const [audience, setAudience] = useState("青少年");
   const [city, setCity] = useState("北京");
-  const [goal, setGoal] = useState("专项提升");
-  const [savedCoachIds, setSavedCoachIds] = useState<number[]>([1, 2]);
-  const [selectedCoachId, setSelectedCoachId] = useState(1);
-  const [sport, setSport] = useState("羽毛球");
+  const [goal, setGoal] = useState("短跑专项");
+  const [savedCoachIds, setSavedCoachIds] = useState<number[]>([]);
+  const [selectedCoachId, setSelectedCoachId] = useState(5);
+  const [sport, setSport] = useState("田径");
 
   return (
     <MobileStudentApp

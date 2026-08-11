@@ -23,19 +23,21 @@ import { pushLockScreenBody } from "../server/api/push";
 
 const preferences: MatchPreferences = {
   audience: "青少年",
-  budget: 600,
+  budget: 240,
   city: "北京",
   desiredTime: "周末",
-  district: "朝阳区",
-  goal: "专项提升",
-  sport: "羽毛球",
+  district: "通州区",
+  goal: "短跑专项",
+  sport: "田径",
 };
 
 test("matching applies the locked 30/25/25/15/5 weights", () => {
-  assert.deepEqual(getMatchResult(demoCoaches[0], preferences).score, 100);
-  assert.equal(getMatchResult(demoCoaches[0], { ...preferences, goal: "兴趣入门" }).score, 70);
-  assert.deepEqual(getMatchResult(demoCoaches[2], preferences), { eligible: false, reasons: [], score: 0 });
-  assert.deepEqual(getMatchResult({ ...demoCoaches[0], verified: false }, preferences), { eligible: false, reasons: [], score: 0 });
+  const availableCoach = { ...demoCoaches[0], availability: ["周六 10:00"] };
+  assert.deepEqual(getMatchResult(availableCoach, preferences).score, 100);
+  assert.equal(getMatchResult(availableCoach, { ...preferences, goal: "兴趣入门" }).score, 70);
+  assert.equal(getMatchResult(demoCoaches[0], preferences).score, 75);
+  assert.deepEqual(getMatchResult({ ...availableCoach, sport: "游泳" }, preferences), { eligible: false, reasons: [], score: 0 });
+  assert.deepEqual(getMatchResult({ ...availableCoach, verified: false }, preferences), { eligible: false, reasons: [], score: 0 });
 });
 
 test("booking dates and state transitions reject expired or illegal paths", () => {

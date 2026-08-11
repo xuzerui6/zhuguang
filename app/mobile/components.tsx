@@ -312,7 +312,7 @@ export function VerifiedPhone({ masked }: { masked?: string }) {
   return (
     <span className="zg-verified-phone">
       <ShieldCheck aria-hidden size={17} />
-      <span>{masked ? `手机号 ${masked}` : "手机号待验证"}</span>
+      <span>{masked ? `账号 ${masked}` : "账号待验证"}</span>
       <ChevronRight aria-hidden size={16} />
     </span>
   );

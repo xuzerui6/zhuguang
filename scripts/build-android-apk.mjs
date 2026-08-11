@@ -20,6 +20,8 @@ const versionName = process.env.ZHUGUANG_ANDROID_VERSION_NAME?.trim() || "1.1.0"
 const versionCode = Number.parseInt(process.env.ZHUGUANG_ANDROID_VERSION_CODE || "3", 10);
 const apiBaseUrl = process.env.ZHUGUANG_API_BASE_URL?.trim() || process.env.VITE_API_BASE_URL?.trim() || "";
 const pilotAppKey = process.env.ZHUGUANG_PILOT_APP_KEY?.trim() || process.env.VITE_PILOT_APP_KEY?.trim() || "";
+const jpushAppKey = process.env.JPUSH_APP_KEY?.trim() || "121aab5cb2b40216f8f8c1f2";
+const turnstileSiteKey = process.env.VITE_TURNSTILE_SITE_KEY?.trim() || "0x4AAAAAAEM50c0fGqXTnUvL";
 
 const signingVariables = [
   "ZHUGUANG_ANDROID_KEYSTORE",
@@ -103,10 +105,12 @@ const buildEnvironment = {
   ANDROID_HOME: androidSdk,
   ANDROID_SDK_ROOT: androidSdk,
   JAVA_HOME: javaHome,
+  JPUSH_APP_KEY: jpushAppKey,
   VITE_API_BASE_URL: apiBaseUrl,
   VITE_APP_VERSION: versionName,
   VITE_APP_VERSION_CODE: String(versionCode),
   VITE_PILOT_APP_KEY: pilotAppKey,
+  VITE_TURNSTILE_SITE_KEY: turnstileSiteKey,
   Path: [
     path.join(javaHome, "bin"),
     path.join(androidSdk, "platform-tools"),
@@ -215,7 +219,7 @@ const metadata = {
   file: apkFilename,
   minAndroid: "7.0",
   packageId: "com.zhuguang.coachos",
-  pushProvider: process.env.JPUSH_APP_KEY ? "jpush" : "jpush-unconfigured-simulated-only",
+  pushProvider: jpushAppKey ? "jpush" : "jpush-unconfigured-simulated-only",
   sha256: createHash("sha256").update(apkBuffer).digest("hex"),
   signature: "release",
   sizeBytes: statSync(targetApk).size,

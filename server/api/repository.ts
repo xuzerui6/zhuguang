@@ -17,7 +17,9 @@ import {
   getBearerToken,
   getClientIp,
   keyedHash,
+  maskEmail,
   maskPhone,
+  normalizeEmail,
   normalizePhone,
   randomId,
   randomOtp,
@@ -27,6 +29,8 @@ import {
 import { sendBookingStatusSms, sendOtpSms } from "./sms";
 
 export type StudentIdentity = {
+  authMethod: "phone_otp" | "email_otp";
+  contactMasked: string;
   deviceId: string;
   phoneLast4: string;
   sessionId: string;
@@ -144,13 +148,16 @@ function mapBooking(row: Row): MobileBooking {
 export async function authenticateStudent(request: Request, env: ApiEnv, required = true): Promise<StudentIdentity | null> {
   const token = getBearerToken(request);
   if (!token) {
+    const trustedEmail = request.headers.get("oai-authenticated-user-email");
+    const trusted = Boolean(env.OPERATOR_API_SECRET) && request.headers.get("x-operator-secret") === env.OPERATOR_API_SECRET;
+    if (trusted && trustedEmail) return authenticateTrustedWebStudent(trustedEmail, env);
     if (required) throw new ApiError(401, "authentication_required", "请先验证手机号");
     return null;
   }
   const tokenHash = await sha256Hex(token);
   const now = Date.now();
   const row = await db(env).prepare(`
-    SELECT s.id, s.user_id, s.device_id, u.phone_last4
+    SELECT s.id, s.user_id, s.device_id, s.auth_method, u.phone_last4, u.email_encrypted
     FROM sessions s
     JOIN users u ON u.id = s.user_id
     WHERE s.access_token_hash = ? AND s.revoked_at IS NULL AND s.access_expires_at > ?
@@ -161,7 +168,13 @@ export async function authenticateStudent(request: Request, env: ApiEnv, require
     return null;
   }
   void db(env).prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?").bind(now, row.id).run();
+  const authMethod = row.auth_method === "email_otp" ? "email_otp" as const : "phone_otp" as const;
+  const contactMasked = authMethod === "email_otp" && row.email_encrypted
+    ? maskEmail(await decryptPhone(stringValue(row.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? ""))
+    : maskPhone(stringValue(row.phone_last4));
   return {
+    authMethod,
+    contactMasked,
     deviceId: stringValue(row.device_id),
     phoneLast4: stringValue(row.phone_last4),
     sessionId: stringValue(row.id),
@@ -169,10 +182,64 @@ export async function authenticateStudent(request: Request, env: ApiEnv, require
   };
 }
 
+async function authenticateTrustedWebStudent(emailInput: string, env: ApiEnv): Promise<StudentIdentity> {
+  const email = normalizeEmail(emailInput);
+  const database = db(env);
+  const now = Date.now();
+  const emailHash = await keyedHash(email, env.AUTH_HASH_SECRET ?? "");
+  let user = await database.prepare("SELECT id, email_encrypted FROM users WHERE email_hash = ? AND status = 'active' AND deleted_at IS NULL").bind(emailHash).first<Row>();
+  const userId = user ? stringValue(user.id) : randomId("user");
+  if (!user) {
+    const emailEncrypted = await encryptPhone(email, env.PHONE_ENCRYPTION_KEY ?? "");
+    await database.batch([
+      database.prepare(`
+        INSERT INTO users (id, email_hash, email_encrypted, email_domain, role, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'student', 'active', ?, ?)
+      `).bind(userId, emailHash, emailEncrypted, email.split("@")[1], now, now),
+      database.prepare(`
+        INSERT INTO user_roles (user_id, role, status, granted_at, updated_at)
+        VALUES (?, 'student', 'active', ?, ?)
+      `).bind(userId, now, now),
+      database.prepare(`
+        INSERT INTO learner_profiles (id, user_id, name, relation, gender, sport, level, goal, created_at, updated_at)
+        VALUES (?, ?, '我的学员', 'self', 'unspecified', '田径', '待完善', '专项提升', ?, ?)
+      `).bind(randomId("learner"), userId, now, now),
+    ]);
+    user = { id: userId, email_encrypted: emailEncrypted };
+  }
+  const coach = await database.prepare("SELECT id FROM coaches WHERE lower(siwc_email) = ? AND audit_status = 'approved' LIMIT 1").bind(email).first<Row>();
+  if (coach) {
+    await database.batch([
+      database.prepare("UPDATE coaches SET user_id = ?, updated_at = ? WHERE id = ? AND (user_id IS NULL OR user_id = ?)").bind(userId, now, coach.id, userId),
+      database.prepare(`
+        INSERT INTO user_roles (user_id, role, status, granted_at, updated_at)
+        VALUES (?, 'coach', 'active', ?, ?)
+        ON CONFLICT(user_id, role) DO UPDATE SET status = 'active', updated_at = excluded.updated_at
+      `).bind(userId, now, now),
+    ]);
+  }
+  const opsEmails = new Set((env.OPS_EMAIL_ALLOWLIST ?? "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean));
+  if (opsEmails.has(email)) {
+    await database.prepare(`
+      INSERT INTO user_roles (user_id, role, status, granted_at, updated_at)
+      VALUES (?, 'operator', 'active', ?, ?)
+      ON CONFLICT(user_id, role) DO UPDATE SET status = 'active', updated_at = excluded.updated_at
+    `).bind(userId, now, now).run();
+  }
+  return {
+    authMethod: "email_otp",
+    contactMasked: maskEmail(email),
+    deviceId: "zhuguang-web",
+    phoneLast4: "",
+    sessionId: `web:${userId}`,
+    userId,
+  };
+}
+
 export async function getMobileIdentityD1(identity: StudentIdentity, env: ApiEnv) {
   const database = db(env);
   const [user, roleRows, coach] = await Promise.all([
-    database.prepare("SELECT phone_last4 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").bind(identity.userId).first<Row>(),
+    database.prepare("SELECT phone_last4, email_encrypted FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").bind(identity.userId).first<Row>(),
     database.prepare("SELECT role FROM user_roles WHERE user_id = ? AND status = 'active'").bind(identity.userId).all<Row>(),
     database.prepare(`
       SELECT id, name, sport, title, audit_status,
@@ -200,10 +267,16 @@ export async function getMobileIdentityD1(identity: StudentIdentity, env: ApiEnv
   } else {
     roles.delete("coach");
   }
+  const contactMasked = user.email_encrypted
+    ? maskEmail(await decryptPhone(stringValue(user.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? ""))
+    : maskPhone(stringValue(user.phone_last4));
   return {
+    authMethod: user.email_encrypted ? "email_otp" as const : "phone_otp" as const,
     availableModes: [...roles],
     coach: coachSummary,
-    phoneMasked: `*** **** ${stringValue(user.phone_last4)}`,
+    contactMasked,
+    phoneMasked: contactMasked,
+    roles: [...new Set((roleRows.results ?? []).map((row) => stringValue(row.role)).filter((role): role is "student" | "coach" | "operator" => role === "student" || role === "coach" || role === "operator"))],
     userId: identity.userId,
   };
 }
@@ -261,7 +334,13 @@ export async function requestOtpD1(request: Request, phoneInput: unknown, env: A
   return { challengeId, expiresIn: 300, retryAfter: 60 };
 }
 
-function newSessionRecord(userId: string, deviceId: string, phoneLast4: string, rotatedFromId?: string) {
+function newSessionRecord(
+  userId: string,
+  deviceId: string,
+  contactMasked: string,
+  authMethod: "phone_otp" | "email_otp",
+  rotatedFromId?: string,
+) {
   const accessToken = randomToken("zga");
   const refreshToken = randomToken("zgr");
   const now = Date.now();
@@ -269,9 +348,11 @@ function newSessionRecord(userId: string, deviceId: string, phoneLast4: string, 
     accessToken,
     accessTokenHashPromise: sha256Hex(accessToken),
     deviceId,
+    authMethod,
+    contactMasked,
     expiresAt: now + 15 * 60_000,
     id: randomId("session"),
-    phoneMasked: `*** **** ${phoneLast4}`,
+    phoneMasked: contactMasked,
     refreshExpiresAt: now + 30 * 24 * 60 * 60_000,
     refreshToken,
     refreshTokenHashPromise: sha256Hex(refreshToken),
@@ -306,7 +387,7 @@ export async function verifyOtpD1(
   let user = await database.prepare("SELECT id, phone_last4 FROM users WHERE phone_hash = ? AND deleted_at IS NULL").bind(challenge.phone_hash).first<Row>();
   const userId = user ? stringValue(user.id) : randomId("user");
   const phoneLast4 = stringValue(challenge.phone_last4);
-  const session = newSessionRecord(userId, deviceId, phoneLast4);
+  const session = newSessionRecord(userId, deviceId, maskPhone(phoneLast4), "phone_otp");
   const [accessTokenHash, refreshTokenHash] = await Promise.all([session.accessTokenHashPromise, session.refreshTokenHashPromise]);
   const statements: D1PreparedStatement[] = [];
   if (!user) {
@@ -329,9 +410,9 @@ export async function verifyOtpD1(
   statements.push(database.prepare("UPDATE auth_challenges SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL").bind(now, challengeId));
   statements.push(database.prepare(`
     INSERT INTO sessions
-      (id, user_id, device_id, access_token_hash, refresh_token_hash, access_expires_at, refresh_expires_at, rotated_from_id, last_seen_at, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(session.id, userId, deviceId, accessTokenHash, refreshTokenHash, session.expiresAt, session.refreshExpiresAt, null, now, now));
+      (id, user_id, device_id, auth_method, access_token_hash, refresh_token_hash, access_expires_at, refresh_expires_at, rotated_from_id, last_seen_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(session.id, userId, deviceId, session.authMethod, accessTokenHash, refreshTokenHash, session.expiresAt, session.refreshExpiresAt, null, now, now));
   for (const coachId of [...new Set(localFavoriteCoachIds)].filter((id) => Number.isInteger(id) && id > 0).slice(0, 100)) {
     statements.push(database.prepare(`
       INSERT OR IGNORE INTO favorites (user_id, coach_id, created_at)
@@ -339,11 +420,13 @@ export async function verifyOtpD1(
     `).bind(userId, now, coachId));
   }
   await database.batch(statements);
-  const mobileIdentity = await getMobileIdentityD1({ deviceId, phoneLast4, sessionId: session.id, userId }, env);
+  const mobileIdentity = await getMobileIdentityD1({ authMethod: "phone_otp", contactMasked: session.contactMasked, deviceId, phoneLast4, sessionId: session.id, userId }, env);
   return {
     accessToken: session.accessToken,
+    authMethod: session.authMethod,
     availableModes: mobileIdentity.availableModes,
     coach: mobileIdentity.coach,
+    contactMasked: session.contactMasked,
     expiresAt: session.expiresAt,
     phoneMasked: session.phoneMasked,
     refreshToken: session.refreshToken,
@@ -354,7 +437,7 @@ export async function refreshSessionD1(refreshToken: string, deviceId: string, e
   const database = db(env);
   const tokenHash = await sha256Hex(refreshToken);
   const row = await database.prepare(`
-    SELECT s.*, u.phone_last4 FROM sessions s JOIN users u ON u.id = s.user_id
+    SELECT s.*, u.phone_last4, u.email_encrypted FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.refresh_token_hash = ?
   `).bind(tokenHash).first<Row>();
   if (!row) throw new ApiError(401, "invalid_session", "登录状态已失效，请重新验证手机号");
@@ -366,17 +449,23 @@ export async function refreshSessionD1(refreshToken: string, deviceId: string, e
   if (numberValue(row.refresh_expires_at) <= now || stringValue(row.device_id) !== deviceId) {
     throw new ApiError(401, "invalid_session", "登录状态已失效，请重新验证手机号");
   }
-  const session = newSessionRecord(stringValue(row.user_id), deviceId, stringValue(row.phone_last4), stringValue(row.id));
+  const authMethod = row.auth_method === "email_otp" ? "email_otp" as const : "phone_otp" as const;
+  const contactMasked = authMethod === "email_otp" && row.email_encrypted
+    ? maskEmail(await decryptPhone(stringValue(row.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? ""))
+    : maskPhone(stringValue(row.phone_last4));
+  const session = newSessionRecord(stringValue(row.user_id), deviceId, contactMasked, authMethod, stringValue(row.id));
   const [accessTokenHash, refreshTokenHash] = await Promise.all([session.accessTokenHashPromise, session.refreshTokenHashPromise]);
   await database.batch([
     database.prepare("UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").bind(now, row.id),
     database.prepare(`
       INSERT INTO sessions
-        (id, user_id, device_id, access_token_hash, refresh_token_hash, access_expires_at, refresh_expires_at, rotated_from_id, last_seen_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(session.id, row.user_id, deviceId, accessTokenHash, refreshTokenHash, session.expiresAt, session.refreshExpiresAt, row.id, now, now),
+        (id, user_id, device_id, auth_method, access_token_hash, refresh_token_hash, access_expires_at, refresh_expires_at, rotated_from_id, last_seen_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(session.id, row.user_id, deviceId, authMethod, accessTokenHash, refreshTokenHash, session.expiresAt, session.refreshExpiresAt, row.id, now, now),
   ]);
   const mobileIdentity = await getMobileIdentityD1({
+    authMethod,
+    contactMasked,
     deviceId,
     phoneLast4: stringValue(row.phone_last4),
     sessionId: session.id,
@@ -384,8 +473,10 @@ export async function refreshSessionD1(refreshToken: string, deviceId: string, e
   }, env);
   return {
     accessToken: session.accessToken,
+    authMethod,
     availableModes: mobileIdentity.availableModes,
     coach: mobileIdentity.coach,
+    contactMasked,
     expiresAt: session.expiresAt,
     phoneMasked: session.phoneMasked,
     refreshToken: session.refreshToken,
@@ -401,9 +492,11 @@ export async function deleteAccountD1(identity: StudentIdentity, env: ApiEnv) {
   const now = Date.now();
   await database.batch([
     database.prepare(`
-      UPDATE users SET phone_hash = ?, phone_encrypted = '', phone_last4 = '', status = 'deleted', deleted_at = ?, updated_at = ?
+      UPDATE users SET phone_hash = ?, phone_encrypted = NULL, phone_last4 = NULL,
+        email_hash = ?, email_encrypted = NULL, email_domain = NULL,
+        status = 'deleted', deleted_at = ?, updated_at = ?
       WHERE id = ? AND status = 'active'
-    `).bind(`deleted_${randomId("phone")}`, now, now, identity.userId),
+    `).bind(`deleted_${randomId("phone")}`, `deleted_${randomId("email")}`, now, now, identity.userId),
     database.prepare("UPDATE sessions SET revoked_at = coalesce(revoked_at, ?) WHERE user_id = ?").bind(now, identity.userId),
     database.prepare("DELETE FROM favorites WHERE user_id = ?").bind(identity.userId),
     database.prepare("DELETE FROM notifications WHERE user_id = ?").bind(identity.userId),
@@ -443,7 +536,7 @@ export async function getCoachD1(coachId: number, env: ApiEnv) {
 
 export async function listSlotsD1(coachId: number, env: ApiEnv) {
   const result = await db(env).prepare(`
-    SELECT id, coach_id, starts_at, ends_at, status FROM availability_slots
+    SELECT id, coach_id, venue_id, starts_at, ends_at, status FROM availability_slots
     WHERE coach_id = ? AND starts_at > ? AND status = 'open'
     ORDER BY starts_at ASC LIMIT 100
   `).bind(coachId, Date.now()).all<Row>();
@@ -452,6 +545,7 @@ export async function listSlotsD1(coachId: number, env: ApiEnv) {
     available: row.status === "open",
     coachId: numberValue(row.coach_id),
     id: stringValue(row.id),
+    venueId: stringValue(row.venue_id),
   }));
 }
 
@@ -693,7 +787,7 @@ export async function authenticateCoach(request: Request, env: ApiEnv): Promise<
 
 export async function coachOverviewD1(identity: CoachIdentity, env: ApiEnv) {
   const database = db(env);
-  const [coach, bookings, conversations, slots] = await Promise.all([
+  const [coach, bookings, conversations, slots, venues] = await Promise.all([
     getCoachD1(identity.coachId, env),
     database.prepare(`
       SELECT b.*, s.starts_at, s.ends_at FROM booking_requests b JOIN availability_slots s ON s.id = b.slot_id
@@ -701,12 +795,20 @@ export async function coachOverviewD1(identity: CoachIdentity, env: ApiEnv) {
     `).bind(identity.coachId).all<Row>(),
     database.prepare("SELECT id, title, last_message_at FROM conversations WHERE coach_id = ? ORDER BY last_message_at DESC LIMIT 50").bind(identity.coachId).all<Row>(),
     listSlotsD1(identity.coachId, env),
+    database.prepare("SELECT id, coach_id, name, address, district FROM venues WHERE coach_id = ? AND active = 1 ORDER BY created_at").bind(identity.coachId).all<Row>(),
   ]);
   return {
     bookings: (bookings.results ?? []).map(mapBooking),
     coach,
     conversations: conversations.results ?? [],
     slots,
+    venues: (venues.results ?? []).map((venue) => ({
+      address: stringValue(venue.address),
+      coachId: numberValue(venue.coach_id),
+      district: stringValue(venue.district),
+      id: stringValue(venue.id),
+      name: stringValue(venue.name),
+    })),
   };
 }
 

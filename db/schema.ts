@@ -13,9 +13,12 @@ const nowMs = sql`(unixepoch() * 1000)`;
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
-  phoneHash: text("phone_hash").notNull().unique(),
-  phoneEncrypted: text("phone_encrypted").notNull(),
-  phoneLast4: text("phone_last4").notNull(),
+  phoneHash: text("phone_hash").unique(),
+  phoneEncrypted: text("phone_encrypted"),
+  phoneLast4: text("phone_last4"),
+  emailHash: text("email_hash").unique(),
+  emailEncrypted: text("email_encrypted"),
+  emailDomain: text("email_domain"),
   role: text("role", { enum: ["student", "coach", "operator"] }).notNull().default("student"),
   status: text("status", { enum: ["active", "locked", "deleted"] }).notNull().default("active"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
@@ -300,6 +303,7 @@ export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   deviceId: text("device_id").notNull(),
+  authMethod: text("auth_method", { enum: ["phone_otp", "email_otp"] }).notNull().default("phone_otp"),
   accessTokenHash: text("access_token_hash").notNull().unique(),
   refreshTokenHash: text("refresh_token_hash").notNull().unique(),
   accessExpiresAt: integer("access_expires_at", { mode: "timestamp_ms" }).notNull(),
@@ -309,3 +313,124 @@ export const sessions = sqliteTable("sessions", {
   revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
 }, (table) => [index("sessions_user_device_idx").on(table.userId, table.deviceId, table.revokedAt)]);
+
+export const emailAuthChallenges = sqliteTable("email_auth_challenges", {
+  id: text("id").primaryKey(),
+  emailHash: text("email_hash").notNull(),
+  emailEncrypted: text("email_encrypted").notNull(),
+  emailDomain: text("email_domain").notNull(),
+  codeHash: text("code_hash").notNull(),
+  ipHash: text("ip_hash").notNull(),
+  deviceHash: text("device_hash").notNull().default(""),
+  attempts: integer("attempts").notNull().default(0),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  resendAfter: integer("resend_after", { mode: "timestamp_ms" }).notNull(),
+  lockedUntil: integer("locked_until", { mode: "timestamp_ms" }),
+  consumedAt: integer("consumed_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  index("email_auth_challenges_email_idx").on(table.emailHash, table.createdAt),
+  index("email_auth_challenges_ip_idx").on(table.ipHash, table.createdAt),
+  index("email_auth_challenges_device_idx").on(table.deviceHash, table.createdAt),
+]);
+
+export const serviceLeads = sqliteTable("service_leads", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  coachId: integer("coach_id").references(() => coaches.id, { onDelete: "set null" }),
+  contactName: text("contact_name").notNull(),
+  contactEmailEncrypted: text("contact_email_encrypted"),
+  sport: text("sport").notNull(),
+  district: text("district").notNull(),
+  goal: text("goal").notNull(),
+  source: text("source").notNull().default("web"),
+  status: text("status", { enum: ["new", "contacted", "qualified", "closed"] }).notNull().default("new"),
+  assignedTo: text("assigned_to"),
+  note: text("note").notNull().default(""),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  index("service_leads_queue_idx").on(table.status, table.createdAt),
+  index("service_leads_coach_idx").on(table.coachId, table.status),
+]);
+
+export const trainingRecords = sqliteTable("training_records", {
+  id: text("id").primaryKey(),
+  bookingId: text("booking_id").notNull().references(() => bookingRequests.id, { onDelete: "cascade" }).unique(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  coachId: integer("coach_id").notNull().references(() => coaches.id),
+  summary: text("summary").notNull(),
+  metricsJson: text("metrics_json").notNull().default("{}"),
+  coachNotes: text("coach_notes").notNull().default(""),
+  publishedAt: integer("published_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  index("training_records_student_idx").on(table.userId, table.createdAt),
+  index("training_records_coach_idx").on(table.coachId, table.createdAt),
+]);
+
+export const credentialChangeRequests = sqliteTable("credential_change_requests", {
+  id: text("id").primaryKey(),
+  coachId: integer("coach_id").notNull().references(() => coaches.id, { onDelete: "cascade" }),
+  field: text("field").notNull(),
+  proposedValueJson: text("proposed_value_json").notNull(),
+  status: text("status", { enum: ["pending", "approved", "rejected", "cancelled"] }).notNull().default("pending"),
+  reviewedBy: text("reviewed_by"),
+  reviewNote: text("review_note").notNull().default(""),
+  reviewedAt: integer("reviewed_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [index("credential_change_requests_queue_idx").on(table.status, table.createdAt)]);
+
+export const contentDocuments = sqliteTable("content_documents", {
+  id: text("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  title: text("title").notNull(),
+  audience: text("audience", { enum: ["public", "student", "coach"] }).notNull().default("public"),
+  status: text("status", { enum: ["draft", "published", "archived"] }).notNull().default("draft"),
+  activeVersionId: text("active_version_id"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [index("content_documents_status_idx").on(table.status, table.updatedAt)]);
+
+export const contentVersions = sqliteTable("content_versions", {
+  id: text("id").primaryKey(),
+  documentId: text("document_id").notNull().references(() => contentDocuments.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  body: text("body").notNull(),
+  createdBy: text("created_by"),
+  publishedAt: integer("published_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  uniqueIndex("content_versions_document_version_unique").on(table.documentId, table.version),
+  index("content_versions_document_idx").on(table.documentId, table.createdAt),
+]);
+
+export const emailDeliveries = sqliteTable("email_deliveries", {
+  id: text("id").primaryKey(),
+  challengeId: text("challenge_id").references(() => emailAuthChallenges.id, { onDelete: "set null" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  recipientHash: text("recipient_hash").notNull(),
+  template: text("template").notNull(),
+  status: text("status", { enum: ["pending", "sent", "failed", "dead"] }).notNull().default("pending"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  providerMessageId: text("provider_message_id"),
+  lastError: text("last_error"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  index("email_deliveries_status_idx").on(table.status, table.createdAt),
+  index("email_deliveries_recipient_idx").on(table.recipientHash, table.createdAt),
+]);
+
+export const opsAuditLogs = sqliteTable("ops_audit_logs", {
+  id: text("id").primaryKey(),
+  actor: text("actor").notNull(),
+  action: text("action").notNull(),
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id"),
+  detailJson: text("detail_json").notNull().default("{}"),
+  requestId: text("request_id"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [index("ops_audit_logs_entity_idx").on(table.entityType, table.entityId, table.createdAt)]);

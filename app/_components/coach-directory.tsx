@@ -2,7 +2,6 @@
 
 import {
   BadgeCheck,
-  CalendarDays,
   Check,
   ChevronDown,
   Clock3,
@@ -17,7 +16,7 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import type { CoachProfile } from "../_lib/web-platform";
 import { coaches } from "../_lib/web-platform";
 import styles from "./coach-directory.module.css";
@@ -29,28 +28,42 @@ type DirectoryProps = {
   initialSport?: string;
 };
 
-export function CoachDirectory({ embedded = false, initialDistrict = "全部区域", initialGoal = "全部目标", initialSport = "全部项目" }: DirectoryProps) {
+const ALL_SPORTS = "全部项目";
+const ALL_DISTRICTS = "全部区域";
+const ALL_GOALS = "全部目标";
+const ALL_AUDIENCES = "全部对象";
+
+export function CoachDirectory({ embedded = false, initialDistrict = ALL_DISTRICTS, initialGoal = ALL_GOALS, initialSport = ALL_SPORTS }: DirectoryProps) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isNavigating, startTransition] = useTransition();
   const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [favorites, setFavorites] = useState<number[]>([1]);
+  const [favorites, setFavorites] = useState<number[]>([]);
   const sport = searchParams.get("sport") || initialSport;
   const district = searchParams.get("district") || initialDistrict;
   const goal = searchParams.get("goal") || initialGoal;
-  const audience = searchParams.get("audience") || "全部对象";
-  const date = searchParams.get("date") || "";
-  const price = searchParams.get("price") || "不限价格";
-  const sort = searchParams.get("sort") || "综合排序";
+  const audience = searchParams.get("audience") || ALL_AUDIENCES;
   const favoritesOnly = searchParams.get("favorites") === "1";
-  const selectedId = Number(searchParams.get("coach")) || 1;
+  const selectedId = Number(searchParams.get("coach")) || coaches[0]?.id;
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      try {
+        const stored = JSON.parse(localStorage.getItem("zhuguang-web-favorites") || "[]");
+        if (Array.isArray(stored)) setFavorites(stored.filter((id): id is number => Number.isInteger(id)));
+      } catch {
+        setFavorites([]);
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   function updateQuery(changes: Record<string, string | null>) {
     const next = new URLSearchParams(searchParams.toString());
     for (const [key, value] of Object.entries(changes)) {
-      if (!value) next.delete(key);
-      else next.set(key, value);
+      if (value) next.set(key, value);
+      else next.delete(key);
     }
     const query = next.toString();
     startTransition(() => router.replace(`${pathname}${query ? `?${query}` : ""}`, { scroll: false }));
@@ -60,106 +73,64 @@ export function CoachDirectory({ embedded = false, initialDistrict = "全部区�
     updateQuery({ [key]: value === fallback ? null : value, coach: null });
   }
 
-  const results = useMemo(() => {
-    let items = coaches.filter((coach) => {
-      if (sport !== "全部项目" && coach.sport !== sport) return false;
-      if (district !== "全部区域" && coach.district !== district) return false;
-      if (goal !== "全部目标" && !coach.goals.includes(goal)) return false;
-      if (audience !== "全部对象" && !coach.audience.includes(audience)) return false;
-      if (date) {
-        const weekday = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][new Date(`${date}T12:00:00`).getDay()];
-        if (!coach.availability.some((item) => item.day === weekday)) return false;
-      }
-      if (favoritesOnly && !favorites.includes(coach.id)) return false;
-      if (price === "300元以内" && coach.price > 300) return false;
-      if (price === "250元以内" && coach.price > 250) return false;
-      return true;
-    });
-    if (sort === "评分优先") items = [...items].sort((a, b) => b.rating - a.rating);
-    if (sort === "价格从低到高") items = [...items].sort((a, b) => a.price - b.price);
-    return items;
-  }, [audience, date, district, favorites, favoritesOnly, goal, price, sort, sport]);
+  const results = useMemo(() => coaches.filter((coach) => {
+    if (sport !== ALL_SPORTS && coach.sport !== sport) return false;
+    if (district !== ALL_DISTRICTS && coach.district !== district) return false;
+    if (goal !== ALL_GOALS && !coach.goals.includes(goal)) return false;
+    if (audience !== ALL_AUDIENCES && !coach.audience.includes(audience)) return false;
+    if (favoritesOnly && !favorites.includes(coach.id)) return false;
+    return true;
+  }), [audience, district, favorites, favoritesOnly, goal, sport]);
 
-  const selected = results.find((coach) => coach.id === selectedId) ?? results[0] ?? coaches[0];
+  const selected = results.find((coach) => coach.id === selectedId) ?? results[0];
 
   function resetFilters() {
-    updateQuery({ audience: null, coach: null, date: null, district: null, favorites: null, goal: null, price: null, sport: null });
+    updateQuery({ audience: null, coach: null, district: null, favorites: null, goal: null, sport: null });
   }
 
   function toggleFavorite(id: number) {
-    setFavorites((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+    setFavorites((current) => {
+      const next = current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
+      localStorage.setItem("zhuguang-web-favorites", JSON.stringify(next));
+      return next;
+    });
   }
 
   return (
     <section aria-busy={isNavigating} className={`${styles.directory} ${embedded ? styles.embedded : styles.standalone}`}>
       <header className={styles.directoryHeader}>
-        <div>
-          <p>{embedded ? "学员服务 / 北京" : "北京教练服务"}</p>
-          <h1>找适合你的教练</h1>
-        </div>
-        {!embedded ? <p>先比较经历、场馆、价格与时间，再决定是否预约。</p> : null}
+        <div><p>{embedded ? "学员服务 / 北京" : "北京教练服务"}</p><h1>找到适合你的教练</h1></div>
+        {!embedded ? <p>所有评分、评价、课量和排期都来自真实业务数据；缺失信息会明确标注。</p> : null}
       </header>
 
       <div className={`${styles.filters} ${filtersExpanded ? styles.filtersExpanded : ""}`} aria-label="教练筛选条件">
-        <button aria-expanded={filtersExpanded} className={styles.filterTitle} onClick={() => setFiltersExpanded((current) => !current)} type="button"><SlidersHorizontal aria-hidden size={18} />筛选<ChevronDown aria-hidden className={styles.filterToggleIcon} size={15} /></button>
-        <FilterSelect label="运动项目" onChange={(value) => setFilter("sport", value, "全部项目")} options={["全部项目", "羽毛球", "游泳", "篮球", "体能", "田径"]} value={sport} />
-        <FilterSelect label="区域" onChange={(value) => setFilter("district", value, "全部区域")} options={["全部区域", "朝阳区", "海淀区", "东城区", "丰台区", "通州区"]} value={district} />
-        <FilterSelect label="训练目标" onChange={(value) => setFilter("goal", value, "全部目标")} options={["全部目标", "专项提升", "兴趣培养", "体能强化", "比赛备战", "中考体育", "短跑专项", "跑姿纠正"]} value={goal} />
-        <FilterSelect label="服务对象" onChange={(value) => setFilter("audience", value, "全部对象")} options={["全部对象", "青少年", "成人", "成人进阶", "亲子"]} value={audience} />
-        <label className={styles.dateControl}><span>日期</span><input aria-label="选择训练日期" onChange={(event) => updateQuery({ date: event.target.value || null, coach: null })} type="date" value={date} /><CalendarDays aria-hidden size={17} /></label>
-        <FilterSelect label="价格" onChange={(value) => setFilter("price", value, "不限价格")} options={["不限价格", "300元以内", "250元以内"]} value={price} />
+        <button aria-expanded={filtersExpanded} className={styles.filterTitle} onClick={() => setFiltersExpanded((current) => !current)} type="button"><SlidersHorizontal aria-hidden size={18} />筛选 <ChevronDown aria-hidden className={styles.filterToggleIcon} size={15} /></button>
+        <FilterSelect label="运动项目" onChange={(value) => setFilter("sport", value, ALL_SPORTS)} options={[ALL_SPORTS, "田径"]} value={sport} />
+        <FilterSelect label="区域" onChange={(value) => setFilter("district", value, ALL_DISTRICTS)} options={[ALL_DISTRICTS, "通州区"]} value={district} />
+        <FilterSelect label="训练目标" onChange={(value) => setFilter("goal", value, ALL_GOALS)} options={[ALL_GOALS, "中考体育", "短跑专项", "跑姿纠正", "专项体能"]} value={goal} />
+        <FilterSelect label="服务对象" onChange={(value) => setFilter("audience", value, ALL_AUDIENCES)} options={[ALL_AUDIENCES, "青少年", "成人"]} value={audience} />
         <button className={styles.resetButton} onClick={resetFilters} type="button"><RefreshCw aria-hidden size={15} />清空</button>
       </div>
 
       <div className={styles.resultsToolbar}>
         <strong>找到 {results.length} 位教练</strong>
-        <div className={styles.segmented}>
-          {["综合排序", "评分优先", "价格从低到高"].map((item) => (
-            <button aria-pressed={sort === item} className={sort === item ? styles.selectedSegment : ""} key={item} onClick={() => setFilter("sort", item, "综合排序")} type="button">{item}</button>
-          ))}
-        </div>
-        <button aria-pressed={favoritesOnly} className={styles.favoriteFilter} onClick={() => updateQuery({ favorites: favoritesOnly ? null : "1", coach: null })} type="button">
-          <Heart aria-hidden fill={favoritesOnly ? "currentColor" : "none"} size={17} />只看已收藏
-        </button>
+        <span>资料更新时间以教练详情为准</span>
+        <button aria-pressed={favoritesOnly} className={styles.favoriteFilter} onClick={() => updateQuery({ favorites: favoritesOnly ? null : "1", coach: null })} type="button"><Heart aria-hidden fill={favoritesOnly ? "currentColor" : "none"} size={17} />只看已收藏</button>
       </div>
 
       <div className={styles.directoryBody}>
         <div className={styles.coachList}>
-          {results.map((coach) => (
-            <CoachResult
-              active={selected.id === coach.id}
-              coach={coach}
-              favorite={favorites.includes(coach.id)}
-              key={coach.id}
-              onFavorite={() => toggleFavorite(coach.id)}
-              onSelect={() => updateQuery({ coach: String(coach.id) })}
-            />
-          ))}
-          {!results.length ? (
-            <div className={styles.emptyState}>
-              <Search aria-hidden size={28} />
-              <strong>没有符合全部条件的教练</strong>
-              <p>减少一个筛选条件，或查看北京全部试点教练。</p>
-              <button onClick={resetFilters} type="button">查看全部教练</button>
-            </div>
-          ) : null}
+          {results.map((coach) => <CoachResult active={selected?.id === coach.id} coach={coach} favorite={favorites.includes(coach.id)} key={coach.id} onFavorite={() => toggleFavorite(coach.id)} onSelect={() => updateQuery({ coach: String(coach.id) })} />)}
+          {!results.length ? <div className={styles.emptyState}><Search aria-hidden size={28} /><strong>没有符合全部条件的教练</strong><p>减少一个筛选条件，或查看当前全部试点教练。</p><button onClick={resetFilters} type="button">查看全部教练</button></div> : null}
         </div>
-        {results.length ? <CoachInspector coach={selected} embedded={embedded} /> : null}
+        {selected ? <CoachInspector coach={selected} embedded={embedded} /> : null}
       </div>
     </section>
   );
 }
 
 function FilterSelect({ label, onChange, options, value }: { label: string; onChange: (value: string) => void; options: string[]; value: string }) {
-  return (
-    <label className={styles.filterControl}>
-      <span>{label}</span>
-      <select aria-label={label} onChange={(event) => onChange(event.target.value)} value={value}>
-        {options.map((option) => <option key={option}>{option}</option>)}
-      </select>
-      <ChevronDown aria-hidden size={16} />
-    </label>
-  );
+  return <label className={styles.filterControl}><span>{label}</span><select aria-label={label} onChange={(event) => onChange(event.target.value)} value={value}>{options.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown aria-hidden size={16} /></label>;
 }
 
 function CoachResult({ active, coach, favorite, onFavorite, onSelect }: { active: boolean; coach: CoachProfile; favorite: boolean; onFavorite: () => void; onSelect: () => void }) {
@@ -167,65 +138,32 @@ function CoachResult({ active, coach, favorite, onFavorite, onSelect }: { active
     <article className={`${styles.coachResult} ${active ? styles.activeResult : ""}`}>
       <button aria-label={`查看${coach.name}教练`} className={styles.selectCoach} onClick={onSelect} type="button" />
       <Link aria-label={`打开${coach.name}教练详情`} className={styles.openCoach} href={`/coaches/${coach.id}`} />
-      <div className={styles.resultImage}>
-        <Image alt={`${coach.name}教练`} fill sizes="180px" src={coach.image} unoptimized />
-        {active ? <span><Check aria-hidden size={16} /></span> : null}
-      </div>
+      <div className={styles.resultImage}><Image alt={`${coach.name}教练`} fill sizes="180px" src={coach.image} unoptimized />{active ? <span><Check aria-hidden size={16} /></span> : null}</div>
       <div className={styles.resultInfo}>
-        <div className={styles.resultName}>
-          <h2>{coach.name}</h2>
-          <span><BadgeCheck aria-hidden size={15} />{coach.verificationLabel}</span>
-        </div>
+        <div className={styles.resultName}><h2>{coach.name}</h2><span><BadgeCheck aria-hidden size={15} />{coach.verificationLabel}</span></div>
         <p className={styles.resultTitle}>{coach.title}</p>
-        <p><ShieldCheck aria-hidden size={15} />{coach.credentials.length ? coach.credentials.slice(0, 2).join(" · ") : "专项资料待补充核验"}</p>
+        <p><ShieldCheck aria-hidden size={15} />未展示未经核验的证书或成绩</p>
         <p><MapPin aria-hidden size={15} />{coach.venue} <span>· {coach.district}</span></p>
-        <p className={styles.nextSlot}><Clock3 aria-hidden size={15} />{coach.bookable ? `最早可约 ${coach.nextSlot}` : coach.nextSlot}</p>
+        <p className={styles.nextSlot}><Clock3 aria-hidden size={15} />{coach.nextSlot}</p>
       </div>
       <div className={styles.resultCommercial}>
-        {coach.isNew ? <span className={`${styles.rating} ${styles.newCoachRating}`}><Star aria-hidden size={16} />新教练<small>暂无评价</small></span> : <span className={styles.rating}><Star aria-hidden fill="currentColor" size={16} />{coach.rating}<small>（{coach.reviewCount}条评价）</small></span>}
-        <strong>¥{coach.price}<small>/课时</small></strong>
-        <span>60–90分钟</span>
-        <button aria-label={favorite ? `取消收藏${coach.name}` : `收藏${coach.name}`} className={styles.heartButton} onClick={onFavorite} type="button">
-          <Heart aria-hidden fill={favorite ? "currentColor" : "none"} size={19} />{favorite ? "已收藏" : "收藏"}
-        </button>
+        <span className={`${styles.rating} ${styles.newCoachRating}`}><Star aria-hidden size={16} />新教练<small>暂无评价</small></span>
+        <strong>¥{coach.price}<small>/课时</small></strong><span>试课 ¥{coach.trialPrice}</span>
+        <button aria-label={favorite ? `取消收藏${coach.name}` : `收藏${coach.name}`} className={styles.heartButton} onClick={onFavorite} type="button"><Heart aria-hidden fill={favorite ? "currentColor" : "none"} size={19} />{favorite ? "已收藏" : "收藏"}</button>
       </div>
     </article>
   );
 }
 
 function CoachInspector({ coach, embedded }: { coach: CoachProfile; embedded: boolean }) {
-  const bookingHref = embedded ? `/student/bookings?coach=${coach.id}` : `/login?next=${encodeURIComponent(`/student/bookings?coach=${coach.id}`)}`;
-  const contactHref = embedded ? `/student/messages?coach=${coach.id}` : `/login?next=${encodeURIComponent(`/student/messages?coach=${coach.id}`)}`;
+  const contactHref = embedded ? `/student/messages?coach=${coach.id}` : "/#service-inquiry";
   return (
     <aside className={styles.inspector} aria-label={`${coach.name}教练摘要`}>
-      <div className={styles.inspectorProfile}>
-        <Image alt={`${coach.name}教练`} height={120} src={coach.image} unoptimized width={120} />
-        <div><span><BadgeCheck aria-hidden size={14} />{coach.verificationLabel}</span><h2>{coach.name}</h2><p>{coach.title}</p></div>
-      </div>
-      <div className={styles.inspectorFacts}>
-        <p><Star aria-hidden fill={coach.isNew ? "none" : "currentColor"} size={16} /><strong>{coach.isNew ? "新教练" : coach.rating}</strong><span>{coach.isNew ? "暂无评价" : `${coach.reviewCount} 条评价`}</span></p>
-        <p><MapPin aria-hidden size={16} /><strong>{coach.district}</strong><span>{coach.venue}</span></p>
-      </div>
-      <section>
-        <header><h3>认证与资质</h3><Link href={`/coaches/${coach.id}`}>查看全部</Link></header>
-        <ul className={styles.credentials}>
-          {coach.credentials.map((item) => <li key={item}><ShieldCheck aria-hidden size={17} /><span>{item}</span><BadgeCheck aria-hidden size={16} /></li>)}
-          {!coach.credentials.length ? <li className={styles.inspectorEmpty}><ShieldCheck aria-hidden size={17} /><span>专项资料待补充核验</span></li> : null}
-        </ul>
-      </section>
-      <section>
-        <header><h3>本周可约时间</h3><span>北京时间</span></header>
-        <div className={styles.availability}>
-          {coach.availability.map((item) => (
-            <div key={item.day}><strong>{item.day}</strong>{item.periods.map((period) => <span key={period}>{period}</span>)}</div>
-          ))}
-          {!coach.availability.length ? <div className={styles.inspectorAvailabilityEmpty}><Clock3 aria-hidden size={17} /><span>真实场馆与时段待发布</span></div> : null}
-        </div>
-      </section>
-      <div className={styles.inspectorActions}>
-        <Link href={`/coaches/${coach.id}`}>查看详情</Link>
-        <Link href={coach.bookable ? bookingHref : contactHref}>{coach.bookable ? "预约试课" : "先咨询"}</Link>
-      </div>
+      <div className={styles.inspectorProfile}><Image alt={`${coach.name}教练`} height={120} src={coach.image} unoptimized width={120} /><div><span><BadgeCheck aria-hidden size={14} />{coach.verificationLabel}</span><h2>{coach.name}</h2><p>{coach.title}</p></div></div>
+      <div className={styles.inspectorFacts}><p><Star aria-hidden size={16} /><strong>新教练</strong><span>暂无评价</span></p><p><MapPin aria-hidden size={16} /><strong>{coach.district}</strong><span>{coach.venue}</span></p></div>
+      <section><header><h3>资料核验</h3><Link href={`/coaches/${coach.id}`}>查看档案</Link></header><ul className={styles.credentials}><li className={styles.inspectorEmpty}><ShieldCheck aria-hidden size={17} /><span>仅展示已确认的身份与服务资料</span></li></ul></section>
+      <section><header><h3>本周可约时间</h3><span>北京时间</span></header><div className={styles.availability}><div className={styles.inspectorAvailabilityEmpty}><Clock3 aria-hidden size={17} /><span>真实场馆与时段待运营发布</span></div></div></section>
+      <div className={styles.inspectorActions}><Link href={`/coaches/${coach.id}`}>查看详情</Link><Link href={contactHref}>咨询训练安排</Link></div>
     </aside>
   );
 }

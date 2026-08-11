@@ -2,6 +2,7 @@ export interface ApiEnv {
   APP_ENV?: string;
   AUTH_HASH_SECRET?: string;
   COACH_EMAIL_ALLOWLIST?: string;
+  OPS_EMAIL_ALLOWLIST?: string;
   CORS_ORIGINS?: string;
   DB?: D1Database;
   MEDIA?: R2Bucket;
@@ -22,6 +23,10 @@ export interface ApiEnv {
   TENCENT_SMS_SDK_APP_ID?: string;
   TENCENT_SMS_SIGN_NAME?: string;
   TENCENT_SMS_TEMPLATE_ID?: string;
+  TENCENT_SES_REGION?: string;
+  TENCENT_SES_FROM_EMAIL?: string;
+  TENCENT_SES_FROM_NAME?: string;
+  TURNSTILE_SECRET_KEY?: string;
 }
 
 export interface ApiExecutionContext {

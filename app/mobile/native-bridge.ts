@@ -34,7 +34,7 @@ type AppUpdaterPlugin = {
 };
 
 type PushBridgePlugin = {
-  setPrivacyConsent(options: { accepted: boolean }): Promise<{ initialized: boolean; provider: string; registrationId?: string }>;
+  setPrivacyConsent(options: { accepted: boolean }): Promise<{ initialized: boolean; provider: string; registrationId?: string; registrationReady?: boolean }>;
   getPermissionStatus(): Promise<{ granted: boolean; canAskAgain: boolean }>;
   requestPermission(): Promise<{ granted: boolean; canAskAgain: boolean }>;
   simulateNotification(options: {

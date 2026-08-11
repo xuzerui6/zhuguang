@@ -21,6 +21,12 @@ export function pushLockScreenBody(type: string, body: string) {
   return body;
 }
 
+export function pushChannelId(type: string) {
+  if (type === "version_update") return "zhuguang_update";
+  if (type.includes("message")) return "zhuguang_message";
+  return "zhuguang_booking";
+}
+
 export async function enqueuePendingPushDeliveriesD1(env: ApiEnv) {
   const now = Date.now();
   await db(env).prepare(`
@@ -47,6 +53,8 @@ async function sendJPush(row: Row, env: ApiEnv) {
       notification: {
         android: {
           alert: pushLockScreenBody(text(row.type), text(row.body)),
+          channel_id: pushChannelId(text(row.type)),
+          small_icon: "ic_notification_zhuguang",
           extras: {
             deepLink: text(row.deep_link),
             notificationId: text(row.notification_id),

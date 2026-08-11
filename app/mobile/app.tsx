@@ -79,7 +79,17 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
   const [activeTab, setActiveTab] = useState<MobileTab>(props.initialTab ?? "home");
   const [view, setView] = useState<MobileView>(props.initialTab ?? "home");
   const [preferences, setPreferences] = useState<MatchPreferences>(() => getInitialPreferences(props));
-  const [learner, setLearner] = useState(() => demoMode ? defaultLearner : { ...defaultLearner, age: 0, goal: "专项提升", id: "", name: "我的学员", guardianName: undefined, guardianPhone: undefined });
+  const [learner, setLearner] = useState(() => demoMode ? defaultLearner : {
+    ...defaultLearner,
+    age: 0,
+    goal: "短跑专项",
+    guardianName: undefined,
+    guardianPhone: undefined,
+    id: "",
+    level: "入门",
+    name: "我的学员",
+    sport: "田径",
+  });
   const [notifications, setNotifications] = useState<MobileNotification[]>(() => demoMode ? demoNotifications : []);
   const [query, setQuery] = useState("");
   const [selectedCoachId, setSelectedCoachId] = useState(props.selectedCoachId || 1);
@@ -97,7 +107,8 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
   const [sheet, setSheet] = useState<SheetName>(null);
   const [cancelTarget, setCancelTarget] = useState<MobileBooking | null>(null);
   const [session, setSession] = useState<MobileSession | null>(null);
-  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [challengeId, setChallengeId] = useState("");
   const [authError, setAuthError] = useState("");
@@ -294,7 +305,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
           setSession(null);
           setPendingBooking(true);
           setSheet("auth");
-          showFeedback("登录状态已更新，请重新验证手机号");
+          showFeedback("登录状态已更新，请重新验证邮箱");
           return;
         }
         if (!demoMode || apiConnected) {
@@ -341,7 +352,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     setAuthLoading(true);
     setAuthError("");
     try {
-      const result = await mobileApi.requestOtp(phone);
+      const result = await mobileApi.requestEmailOtp(email, turnstileToken);
       setChallengeId(result.challengeId);
     } catch (error) {
       if (demoMode) setChallengeId("local-preview");
@@ -349,7 +360,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     } finally {
       setAuthLoading(false);
     }
-  }, [demoMode, phone]);
+  }, [demoMode, email, turnstileToken]);
 
   const verifyCode = useCallback(async () => {
     setAuthLoading(true);
@@ -371,23 +382,25 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
           },
           refreshToken: createRequestId("refresh"),
           expiresAt: Date.now() + 15 * 60 * 1000,
-          phoneMasked: `${phone.slice(0, 3)} **** ${phone.slice(-4)}`,
+          authMethod: "email_otp",
+          contactMasked: email || "local@example.com",
+          phoneMasked: email || "local@example.com",
         };
         await writeSession(verifiedSession);
       } else {
-        verifiedSession = await mobileApi.verifyOtp(challengeId, otpCode, savedCoachIds);
+        verifiedSession = await mobileApi.verifyEmailOtp(challengeId, otpCode, savedCoachIds);
       }
       setSession(verifiedSession);
       onSessionChange?.(verifiedSession);
       setSheet(null);
-      showFeedback("手机号验证成功");
+      showFeedback("邮箱验证成功");
       if (pendingBooking) window.setTimeout(() => void performBooking(), 120);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "验证码无效，请重新输入");
     } finally {
       setAuthLoading(false);
     }
-  }, [challengeId, onSessionChange, otpCode, pendingBooking, performBooking, phone, savedCoachIds, showFeedback]);
+  }, [challengeId, email, onSessionChange, otpCode, pendingBooking, performBooking, savedCoachIds, showFeedback]);
 
   const openConversationForCoach = useCallback((coachId: number) => {
     const existing = conversations.find((conversation) => conversation.coachId === coachId);
@@ -489,14 +502,14 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       {view === "booking" ? <BookingView agreed={agreed} coach={selectedCoach} learner={learner} note={bookingNote} onBack={handleBack} onChangeNote={setBookingNote} onConfirm={submitBooking} onSelectSlot={setSelectedSlot} onToggleAgreement={() => setAgreed((current) => !current)} preferences={preferences} selectedSlot={selectedSlot} slots={bookingSlots} submitting={submitting} venue={selectedVenue} /> : null}
       {view === "bookings" ? <BookingsView bookings={bookings} coaches={coaches} onCancel={(booking) => { setCancelTarget(booking); setSheet("cancel"); }} onDiscover={() => navigateTab("discover")} onMessage={openConversationForCoach} onReschedule={(booking) => openBooking(coaches.find((coach) => coach.id === booking.coachId) ?? selectedCoach)} onTab={setBookingTab} tab={bookingTab} venues={venues} /> : null}
       {view === "messages" ? <MessagesView coaches={coaches} conversations={conversations} draft={messageDraft} onBack={() => setSelectedConversation(null)} onChangeDraft={setMessageDraft} onOpen={(conversation) => { setSelectedConversation({ ...conversation, unreadCount: 0 }); setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, unreadCount: 0 } : item)); }} onSend={sendMessage} selectedConversation={selectedConversation} /> : null}
-      {view === "profile" ? <ProfileView activeBookingCount={activeBookingCount} coachSummary={session?.coach ?? props.coachSummary} completedCount={bookings.filter((booking) => booking.status === "completed").length} learner={learner} onAction={profileAction} onOpenCoachMode={props.onOpenCoachMode} phoneMasked={session?.phoneMasked} savedCount={savedCoachIds.length} /> : null}
+      {view === "profile" ? <ProfileView activeBookingCount={activeBookingCount} coachSummary={session?.coach ?? props.coachSummary} completedCount={bookings.filter((booking) => booking.status === "completed").length} contactMasked={session?.contactMasked ?? session?.phoneMasked} learner={learner} onAction={profileAction} onOpenCoachMode={props.onOpenCoachMode} savedCount={savedCoachIds.length} /> : null}
 
       {showBottomNav ? <BottomNav active={activeTab} bookingCount={pendingBookingCount} messageCount={unreadMessages} onNavigate={navigateTab} /> : null}
 
       {sheet === "filters" ? <FilterSheet onChange={updatePreferences} onClose={() => setSheet(null)} resultCount={filterResultCount} value={preferences} /> : null}
       {sheet === "city" ? <CitySheet district={preferences.district} onClose={() => setSheet(null)} onDistrict={(district) => updatePreferences({ ...preferences, district })} /> : null}
       {sheet === "notifications" ? <NotificationsSheet notifications={notifications} onClose={() => setSheet(null)} /> : null}
-      {sheet === "auth" ? <AuthSheet challengeSent={Boolean(challengeId)} code={otpCode} error={authError} loading={authLoading} onChangeCode={setOtpCode} onChangePhone={setPhone} onClose={() => { setSheet(null); setPendingBooking(false); }} onRequestCode={requestCode} onVerify={verifyCode} phone={phone} showLocalCode={demoMode} /> : null}
+      {sheet === "auth" ? <AuthSheet challengeSent={Boolean(challengeId)} code={otpCode} email={email} error={authError} loading={authLoading} onChangeCode={setOtpCode} onChangeEmail={setEmail} onChangeTurnstileToken={setTurnstileToken} onClose={() => { setSheet(null); setPendingBooking(false); }} onRequestCode={requestCode} onVerify={verifyCode} showLocalCode={demoMode} turnstileSiteKey={(import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_TURNSTILE_SITE_KEY || ""} turnstileToken={turnstileToken} /> : null}
       {sheet === "booking-success" ? <BookingSuccessSheet coach={selectedCoach} onClose={() => setSheet(null)} onViewBooking={() => { setSheet(null); navigateTab("bookings"); setBookingTab("pending"); }} /> : null}
       {sheet === "cancel" ? <CancelBookingSheet onCancel={() => void confirmCancel()} onClose={() => { setCancelTarget(null); setSheet(null); }} /> : null}
       {sheet === "favorites" ? <FavoritesSheet coaches={coaches.filter((coach) => savedCoachIds.includes(coach.id))} onClose={() => setSheet(null)} onOpen={(coach) => { setSheet(null); openCoach(coach); }} /> : null}

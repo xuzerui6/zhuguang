@@ -66,7 +66,7 @@ export const defaultLearner: LearnerProfile = {
 export const demoNotifications: MobileNotification[] = [
   { id: "notification-message", type: "coach_message", title: "周明教练回复了你的咨询", body: "方便确认一下学员目前的训练频率吗？", createdAt: "刚刚", read: false },
   { id: "notification-audit", type: "credential", title: "教练履历复核完成", body: "你收藏的林悦教练已完成最新资料复核。", createdAt: "昨天", read: true },
-  { id: "notification-sms", type: "service", title: "预约提醒将通过短信同步", body: "验证手机号后，可及时收到教练确认和改期通知。", createdAt: "2 天前", read: true },
+  { id: "notification-email", type: "service", title: "预约进度会同步到账号", body: "验证邮箱后，可在逐光查看教练确认和改期通知。", createdAt: "2 天前", read: true },
 ];
 
 function dateParts(offset: number) {

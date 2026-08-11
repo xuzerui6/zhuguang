@@ -20,9 +20,7 @@ export function PublicHeader() {
         </nav>
         <div className={styles.headerActions}>
           <Link className={styles.loginLink} href="/login">登录</Link>
-          <Link className={styles.enterButton} href="/login">
-            进入平台 <ArrowRight aria-hidden size={16} />
-          </Link>
+          <Link className={styles.enterButton} href="/login">进入平台 <ArrowRight aria-hidden size={16} /></Link>
         </div>
         <details className={styles.mobileMenu}>
           <summary aria-label="打开导航"><Menu aria-hidden size={22} /></summary>
@@ -35,4 +33,3 @@ export function PublicHeader() {
     </header>
   );
 }
-

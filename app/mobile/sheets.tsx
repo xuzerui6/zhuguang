@@ -1,7 +1,7 @@
 "use client";
 
-import { Check, ChevronRight, Headphones, LockKeyhole, MessageCircle, ShieldCheck, Smartphone, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Check, ChevronRight, Headphones, LockKeyhole, Mail, MessageCircle, ShieldCheck, Smartphone, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { CoachAvatar, EmptyState, Sheet } from "./components";
 import type { LearnerProfile, MatchPreferences, MobileCoach, MobileNotification, MobileSession } from "./types";
 
@@ -20,8 +20,8 @@ export function FilterSheet({
   return (
     <Sheet onClose={onClose} title="筛选合适的教练">
       <div className="zg-filter-sheet">
-        <FilterGroup label="运动项目" options={["全部项目", "羽毛球", "游泳", "网球", "篮球"]} selected={value.sport} onSelect={(item) => update("sport", item)} />
-        <FilterGroup label="北京区域" options={["全北京", "朝阳区", "海淀区", "东城区"]} selected={value.district} onSelect={(item) => update("district", item)} />
+        <FilterGroup label="运动项目" options={["全部项目", "田径", "羽毛球", "游泳", "网球", "篮球"]} selected={value.sport} onSelect={(item) => update("sport", item)} />
+        <FilterGroup label="北京区域" options={["全北京", "通州区", "朝阳区", "海淀区", "东城区"]} selected={value.district} onSelect={(item) => update("district", item)} />
         <FilterGroup label="训练目标" options={["全部目标", "兴趣入门", "专项提升", "比赛备战", "动作纠错", "校队选拔"]} selected={value.goal} onSelect={(item) => update("goal", item)} />
         <FilterGroup label="服务对象" options={["全部人群", "儿童", "青少年", "成人", "亲子"]} selected={value.audience} onSelect={(item) => update("audience", item)} />
         <FilterGroup label="希望时段" options={["不限", "工作日", "周末", "晚间"]} selected={value.desiredTime} onSelect={(item) => update("desiredTime", item as MatchPreferences["desiredTime"])} />
@@ -91,41 +91,82 @@ export function NotificationsSheet({ notifications, onClose }: { notifications: 
 export function AuthSheet({
   challengeSent,
   code,
+  email,
   error,
   loading,
   onChangeCode,
-  onChangePhone,
+  onChangeEmail,
+  onChangeTurnstileToken,
   onClose,
   onRequestCode,
   onVerify,
-  phone,
   showLocalCode,
+  turnstileSiteKey,
+  turnstileToken,
 }: {
   challengeSent: boolean;
   code: string;
+  email: string;
   error: string;
   loading: boolean;
   onChangeCode: (value: string) => void;
-  onChangePhone: (value: string) => void;
+  onChangeEmail: (value: string) => void;
+  onChangeTurnstileToken: (value: string) => void;
   onClose: () => void;
   onRequestCode: () => void;
   onVerify: () => void;
-  phone: string;
   showLocalCode: boolean;
+  turnstileSiteKey: string;
+  turnstileToken: string;
 }) {
+  const turnstileHost = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (challengeSent || showLocalCode || !turnstileSiteKey) return;
+    let active = true;
+    let widgetId = "";
+    const mount = () => {
+      if (!active || !window.turnstile || !turnstileHost.current || widgetId) return;
+      widgetId = window.turnstile.render(turnstileHost.current, {
+        action: "mobile_email_login",
+        appearance: "interaction-only",
+        callback: (token: string) => onChangeTurnstileToken(token),
+        "error-callback": () => onChangeTurnstileToken(""),
+        sitekey: turnstileSiteKey,
+        theme: "light",
+      });
+    };
+    const existing = document.querySelector<HTMLScriptElement>('script[data-zg-turnstile="true"]');
+    if (existing) mount();
+    else {
+      const script = document.createElement("script");
+      script.async = true;
+      script.defer = true;
+      script.dataset.zgTurnstile = "true";
+      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      script.addEventListener("load", mount, { once: true });
+      document.head.appendChild(script);
+    }
+    return () => { active = false; };
+  }, [challengeSent, onChangeTurnstileToken, showLocalCode, turnstileSiteKey]);
+
+  const emailReady = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email);
+  const securityReady = showLocalCode || Boolean(turnstileToken);
   return (
-    <Sheet onClose={onClose} title="验证手机号后继续">
+    <Sheet onClose={onClose} title="验证邮箱后继续">
       <div className="zg-auth-sheet">
-        <span className="zg-auth-icon"><Smartphone aria-hidden size={29} /></span>
+        <span className="zg-auth-icon"><Mail aria-hidden size={29} /></span>
         <h3>用于同步收藏与预约进度</h3>
         <p>仅在提交预约和同步个人服务记录时需要登录，浏览教练无需注册。</p>
-        <label><span>手机号码</span><input autoComplete="tel" inputMode="tel" maxLength={11} onChange={(event) => onChangePhone(event.target.value.replace(/\D/g, ""))} placeholder="请输入 11 位手机号" value={phone} /></label>
+        <label><span>邮箱地址</span><input autoCapitalize="none" autoComplete="email" inputMode="email" maxLength={254} onChange={(event) => onChangeEmail(event.target.value.trim())} placeholder="name@example.com" value={email} /></label>
+        {!challengeSent && !showLocalCode ? <div className="zg-turnstile-host" ref={turnstileHost} /> : null}
         {challengeSent ? <label><span>验证码</span><input autoComplete="one-time-code" inputMode="numeric" maxLength={6} onChange={(event) => onChangeCode(event.target.value.replace(/\D/g, ""))} placeholder="请输入 6 位验证码" value={code} /></label> : null}
         {error ? <p className="zg-auth-error">{error}</p> : null}
-        <button className="zg-sheet-primary" disabled={loading || phone.length !== 11 || (challengeSent && code.length !== 6)} onClick={challengeSent ? onVerify : onRequestCode} type="button">
+        <button className="zg-sheet-primary" disabled={loading || !emailReady || (!challengeSent && !securityReady) || (challengeSent && code.length !== 6)} onClick={challengeSent ? onVerify : onRequestCode} type="button">
           {loading ? "请稍候..." : challengeSent ? "验证并继续" : "获取验证码"}
         </button>
-        <small><LockKeyhole aria-hidden size={14} />手机号经加密存储，不会向教练公开。{showLocalCode ? " 本地测试验证码为 888888。" : ""}</small>
+        <small><LockKeyhole aria-hidden size={14} />邮箱经加密存储，不会向教练公开。{showLocalCode ? " 本地测试验证码为 888888。" : ""}</small>
+        {!showLocalCode && !turnstileSiteKey ? <p className="zg-auth-error">安全验证服务正在配置，暂时无法发送验证码。</p> : null}
       </div>
     </Sheet>
   );
@@ -176,7 +217,7 @@ export function LearnerSheet({ learner, onClose, onSave }: { learner: LearnerPro
         <div className="zg-learner-form">
           <label><span>姓名或称呼</span><input maxLength={20} onChange={(event) => update("name", event.target.value)} value={draft.name} /></label>
           <label><span>年龄</span><input max={100} min={0} onChange={(event) => update("age", Number(event.target.value))} type="number" value={draft.age || ""} /></label>
-          <label><span>运动项目</span><select onChange={(event) => update("sport", event.target.value)} value={draft.sport}><option>羽毛球</option><option>游泳</option><option>网球</option><option>篮球</option></select></label>
+          <label><span>运动项目</span><select onChange={(event) => update("sport", event.target.value)} value={draft.sport}><option>田径</option><option>羽毛球</option><option>游泳</option><option>网球</option><option>篮球</option></select></label>
           <label><span>当前水平</span><select onChange={(event) => update("level", event.target.value)} value={draft.level}><option>待完善</option><option>零基础</option><option>入门</option><option>进阶</option><option>竞赛</option></select></label>
           <label className="is-wide"><span>训练目标</span><input maxLength={80} onChange={(event) => update("goal", event.target.value)} value={draft.goal} /></label>
         </div>
@@ -193,14 +234,14 @@ export function AccountSheet({ onClose, onDelete, onLogout, session }: { onClose
   return (
     <Sheet onClose={onClose} title="账号与隐私">
       <div className="zg-account-sheet">
-        <section><strong>登录状态</strong><p>{session ? `手机号 ${session.phoneMasked} 已验证` : "当前为匿名浏览，提交预约时再验证手机号。"}</p></section>
+        <section><strong>登录状态</strong><p>{session ? `${session.contactMasked || session.phoneMasked} 已验证` : "当前为匿名浏览，提交预约时再验证邮箱。"}</p></section>
         <section><strong>隐私与数据</strong><p>可查看并管理个人资料授权、训练档案、消息记录与账号注销。</p></section>
         <button onClick={() => setPolicy(policy === "privacy" ? null : "privacy")} type="button">隐私政策<ChevronRight size={17} /></button>
-        {policy === "privacy" ? <p>逐光仅处理预约履约所需的手机号、学员档案与消息记录；资质原件和敏感会话通过鉴权访问，消息最多保留 90 天用于服务保障。</p> : null}
+        {policy === "privacy" ? <p>逐光仅处理预约履约所需的邮箱、学员档案与消息记录；资质原件和敏感会话通过鉴权访问，消息最多保留 90 天用于服务保障。</p> : null}
         <button onClick={() => setPolicy(policy === "terms" ? null : "terms")} type="button">用户协议<ChevronRight size={17} /></button>
         {policy === "terms" ? <p>预约需经教练确认后生效，首版费用在线下支付；取消、改期与争议处理以预约页面展示的服务规则为准。</p> : null}
         {session && !confirmingDelete ? <button onClick={() => setConfirmingDelete(true)} type="button">申请注销账号<ChevronRight size={17} /></button> : null}
-        {confirmingDelete ? <section><strong>确认注销账号？</strong><p>手机号与学员资料会去标识化，履约争议所需记录最多保留 90 天。</p><button className="is-danger" onClick={onDelete} type="button">确认注销</button><button onClick={() => setConfirmingDelete(false)} type="button">暂不注销</button></section> : null}
+        {confirmingDelete ? <section><strong>确认注销账号？</strong><p>邮箱与学员资料会去标识化，履约争议所需记录最多保留 90 天。</p><button className="is-danger" onClick={onDelete} type="button">确认注销</button><button onClick={() => setConfirmingDelete(false)} type="button">暂不注销</button></section> : null}
         {session ? <button className="is-danger" onClick={onLogout} type="button">退出登录</button> : null}
       </div>
     </Sheet>

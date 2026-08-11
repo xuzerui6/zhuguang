@@ -104,7 +104,7 @@ function json(body: unknown, headers: Record<string, string> = {}): RequestInit 
 
 async function migrate(database: D1Adapter) {
   const directory = new URL("../drizzle/", import.meta.url);
-  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql"]) {
+  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql"]) {
     const source = await readFile(new URL(file, directory), "utf8");
     for (const statement of source.split("--> statement-breakpoint").map((item) => item.trim()).filter(Boolean)) database.sqlite.exec(statement);
   }
@@ -198,6 +198,39 @@ test("D1 migration, auth rotation, favorite merge and slot concurrency form a re
 
   const unauthorized = await request(env, "/api/v1/favorites/1", { method: "PUT" });
   assert.equal(unauthorized.response.status, 401);
+  database.sqlite.close();
+});
+
+test("public service leads require a valid contact email and only expose decrypted contact data to operators", async () => {
+  const database = new D1Adapter();
+  await migrate(database);
+  seedSupply(database);
+  const env: ApiEnv = {
+    APP_ENV: "test",
+    AUTH_HASH_SECRET: "test-auth-hash-secret-with-adequate-length",
+    DB: database,
+    OPERATOR_API_SECRET: "operator-test-secret",
+    PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 12).toString("base64"),
+  };
+
+  const created = await request(env, "/api/v1/service-leads", json({
+    coachId: 1,
+    contactEmail: "student@example.com",
+    contactName: "李女士",
+    district: "通州区",
+    goal: "中考体育与跑姿评估",
+    sport: "田径",
+  }));
+  assert.equal(created.response.status, 201);
+  const stored = database.sqlite.prepare("SELECT contact_email_encrypted FROM service_leads LIMIT 1").get() as { contact_email_encrypted: string };
+  assert.notEqual(stored.contact_email_encrypted, "student@example.com");
+
+  const unauthorised = await request(env, "/api/v1/operator/leads");
+  assert.equal(unauthorised.response.status, 403);
+  const operatorView = await request(env, "/api/v1/operator/leads", { headers: { "x-operator-secret": "operator-test-secret" } });
+  assert.equal(operatorView.response.status, 200);
+  const lead = (operatorView.payload?.data as Array<{ contact_email: string }>)[0];
+  assert.equal(lead.contact_email, "student@example.com");
   database.sqlite.close();
 });
 

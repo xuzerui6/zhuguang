@@ -144,7 +144,7 @@ export function BookingView({
         <button disabled={!agreed || submitting} onClick={onConfirm} type="button">
           {submitting ? "正在提交..." : "提交预约申请"}
         </button>
-        <small><ShieldCheck aria-hidden size={14} />提交后需验证手机号，以便接收预约进度</small>
+        <small><ShieldCheck aria-hidden size={14} />提交后需验证邮箱，以便同步预约进度</small>
       </footer>
     </div>
   );

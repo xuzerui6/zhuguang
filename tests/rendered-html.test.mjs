@@ -32,12 +32,12 @@ test("server-renders a service-first homepage without prototype claims", async (
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>逐光 \| 运动教练服务平台<\/title>/);
-  assert.match(html, /专业运动教练/);
-  assert.match(html, /查找教练/);
-  assert.match(html, /身份与履历人工核验/);
-  assert.match(html, /教练确认后生效/);
-  assert.match(html, /值得认真了解的教练/);
+  assert.match(html, /<title>逐光运动教练服务平台<\/title>/);
+  assert.match(html, /专业运动训练服务/);
+  assert.match(html, /寻找教练/);
+  assert.match(html, /人工核验/);
+  assert.match(html, /教练确认后预约生效/);
+  assert.match(html, /资料真实，比数字热闹更重要/);
   assert.match(html, /了解合作方式/);
   assert.doesNotMatch(html, /Coach OS|28,000\+|320,000\+|注册教练|Android 私有试点版/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
@@ -45,34 +45,34 @@ test("server-renders a service-first homepage without prototype claims", async (
 
 test("all public and workspace routes support direct rendering", async () => {
   const routes = [
-    ["/coaches", "找适合你的教练"],
-    ["/coaches/1", "认证与资质"],
+    ["/coaches", "找到适合你的教练"],
+    ["/coaches/5", "资料核验状态"],
     ["/service-guarantee", "预约与履约"],
     ["/coach-partnership", "定向邀请和人工审核"],
     ["/login", "登录逐光"],
-    ["/student", "继续按计划训练"],
-    ["/student/coaches", "找适合你的教练"],
-    ["/student/bookings", "管理训练安排"],
-    ["/student/messages", "教练沟通"],
-    ["/student/training", "看见持续训练带来的变化"],
-    ["/student/profile", "学员账号"],
-    ["/coach-workspace", "今天需要关注的工作"],
-    ["/coach-workspace/bookings", "预约管理"],
-    ["/coach-workspace/schedule", "排期与场馆"],
-    ["/coach-workspace/messages", "学员消息"],
-    ["/coach-workspace/courses", "课程记录"],
-    ["/coach-workspace/payments", "线下收款"],
-    ["/coach-workspace/credentials", "资质与资料"],
-    ["/ops", "今日服务流转"],
-    ["/ops/matching", "匹配中心"],
-    ["/ops/coaches", "教练管理"],
-    ["/ops/bookings", "预约履约"],
-    ["/ops/users", "学员服务"],
-    ["/ops/content", "内容与协议"],
-    ["/ops/releases", "APK 在线分发暂未启用"],
+    ["/student", "学员平台导航"],
+    ["/student/coaches", "学员平台导航"],
+    ["/student/bookings", "学员平台导航"],
+    ["/student/messages", "学员平台导航"],
+    ["/student/training", "学员平台导航"],
+    ["/student/profile", "学员平台导航"],
+    ["/coach-workspace", "教练工作台导航"],
+    ["/coach-workspace/bookings", "教练工作台导航"],
+    ["/coach-workspace/schedule", "教练工作台导航"],
+    ["/coach-workspace/messages", "教练工作台导航"],
+    ["/coach-workspace/courses", "教练工作台导航"],
+    ["/coach-workspace/payments", "教练工作台导航"],
+    ["/coach-workspace/credentials", "教练工作台导航"],
+    ["/ops", "运营工作台导航"],
+    ["/ops/matching", "运营工作台导航"],
+    ["/ops/coaches", "运营工作台导航"],
+    ["/ops/bookings", "运营工作台导航"],
+    ["/ops/users", "运营工作台导航"],
+    ["/ops/content", "运营工作台导航"],
+    ["/ops/releases", "运营工作台导航"],
   ];
 
-  for (const [path, copy] of routes.map(([route, expected]) => route === "/ops/releases" ? [route, "APK"] : [route, expected])) {
+  for (const [path, copy] of routes) {
     const authenticated = path.startsWith("/student") || path.startsWith("/coach-workspace") || path.startsWith("/ops");
     const response = await render(path, authenticated);
     assert.equal(response.status, 200, path);

@@ -162,6 +162,42 @@
   transition: background 170ms ease;
 }
 
+.secondaryLogin {
+  align-items: center;
+  border: 1px solid var(--zg-line-strong);
+  border-radius: 6px;
+  color: var(--zg-ink);
+  display: flex;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 8px;
+  justify-content: center;
+  min-height: 46px;
+  width: 100%;
+}
+
+.secondaryLogin:hover {
+  background: var(--zg-canvas);
+  border-color: var(--zg-brand);
+}
+
+.loginDivider {
+  align-items: center;
+  color: var(--zg-muted);
+  display: grid;
+  font-size: 11px;
+  gap: 12px;
+  grid-template-columns: 1fr auto 1fr;
+  margin: 22px 0;
+}
+
+.loginDivider::before,
+.loginDivider::after {
+  background: var(--zg-line);
+  content: "";
+  height: 1px;
+}
+
 .bookingSummary > a:hover,
 .availabilityPanel > a:hover,
 .pageCta > a:hover,

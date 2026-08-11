@@ -2,9 +2,12 @@
 <animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:drawable="@drawable/splash_logo_vector">
     <target
-        android:name="zStroke"
-        android:animation="@animator/splash_z_draw" />
+        android:name="brandScale"
+        android:animation="@animator/splash_brand_scale" />
+    <target
+        android:name="zGlyph"
+        android:animation="@animator/splash_z_fade" />
     <target
         android:name="lightDot"
-        android:animation="@animator/splash_dot_motion" />
+        android:animation="@animator/splash_dot_fade" />
 </animated-vector>

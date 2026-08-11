@@ -35,6 +35,7 @@ preview.err.log
 preview.log
 preview-error.log
 /artifacts/
+/backups/
 
 # env files (can opt-in for committing if needed)
 .env*

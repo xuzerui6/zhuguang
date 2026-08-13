@@ -1,6 +1,7 @@
 param(
   [string]$ApiBaseUrl = 'https://api.beijingzhuguang.top',
-  [string]$SiteOrigin = 'https://beijingzhuguang.top'
+  [string]$SiteOrigin = 'https://beijingzhuguang.top',
+  [string]$AccessTeamDomain = 'https://bitter-waterfall-065d.cloudflareaccess.com'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,7 +47,8 @@ try {
   $siteBody = $site.Content.ReadAsStringAsync().GetAwaiter().GetResult()
 
   $workspace = Send-Request $client ([System.Net.Http.HttpMethod]::Get) "$SiteOrigin/ops"
-  $workspaceBody = $workspace.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+  $workspaceLocation = $workspace.Headers.Location
+  $accessOrigin = [Uri]$AccessTeamDomain
 
   $www = Send-Request $client ([System.Net.Http.HttpMethod]::Get) 'https://www.beijingzhuguang.top/coaches/7?from=www'
 
@@ -70,7 +72,8 @@ try {
     SiteStatus = [int]$site.StatusCode
     SiteBrandPresent = $siteBody.Contains('href="/coaches"')
     WorkspaceStatus = [int]$workspace.StatusCode
-    WorkspaceProtected = $workspaceBody.Contains('href="/login?next=') -and -not $workspaceBody.Contains('listing-status-control')
+    WorkspaceProtected = $workspaceLocation.Host -eq $accessOrigin.Host -and $workspaceLocation.AbsolutePath.StartsWith('/cdn-cgi/access/login')
+    WorkspaceLocationHost = $workspaceLocation.Host
     WwwStatus = [int]$www.StatusCode
     WwwLocation = $www.Headers.Location.AbsoluteUri
     MediaStatus = [int]$media.StatusCode
@@ -83,7 +86,7 @@ try {
   if (
     $result.SiteStatus -ne 200 -or
     -not $result.SiteBrandPresent -or
-    $result.WorkspaceStatus -ne 200 -or
+    $result.WorkspaceStatus -ne 302 -or
     -not $result.WorkspaceProtected -or
     $result.WwwStatus -ne 301 -or
     $result.WwwLocation -ne "$SiteOrigin/coaches/7?from=www" -or

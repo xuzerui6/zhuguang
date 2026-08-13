@@ -23,7 +23,9 @@
     "enabled": true
   },
   "vars": {
+    "CF_ACCESS_AUD": "144f8778b796ff466f012f024bf435ce48d3347a7e0803dc6bebb1afd5fb36fc",
     "CF_ACCESS_ENABLED": "true",
+    "CF_ACCESS_TEAM_DOMAIN": "https://bitter-waterfall-065d.cloudflareaccess.com",
     "ZHUGUANG_COACH_EMAILS": "xuzerui6@gmail.com",
     "ZHUGUANG_MOBILE_API_URL": "https://api.beijingzhuguang.top",
     "ZHUGUANG_OPS_EMAILS": "xuzerui6@gmail.com"

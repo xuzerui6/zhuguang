@@ -58,17 +58,19 @@ import {
   updateReleasePolicyD1,
   uploadReleaseArtifactD1,
 } from "./releases";
-import { dispatchPushDeliveriesD1, queueVersionNotificationsD1 } from "./push";
+import { dispatchPushDeliveriesD1, queueVersionNotificationsD1, sendOperatorTestPushD1 } from "./push";
 import { assertPilotApp, normalizePhone, randomId, verifyTurnstile } from "./security";
 import { requestEmailOtpD1, verifyEmailOtpD1 } from "./email-auth";
 import {
   createCredentialChangeRequestD1,
   createServiceLeadD1,
   createTrainingRecordD1,
+  batchUpdateOpsCoachListingD1,
   getOpsOverviewD1,
   listContentDocumentsD1,
   listOpsBookingsD1,
   listOpsCoachesD1,
+  listOpsCoachStatusEventsD1,
   listOpsLeadsD1,
   listOpsUsersD1,
   listStudentTrainingRecordsD1,
@@ -76,6 +78,7 @@ import {
   publishContentDocumentD1,
   saveContentDocumentD1,
   updateOpsCoachStatusD1,
+  updateOpsCoachListingD1,
   updateOpsLeadD1,
 } from "./operations";
 
@@ -96,7 +99,7 @@ export async function handleApiRequest(request: Request, env: ApiEnv, ctx: ApiEx
   if (request.method === "OPTIONS") return withCors(new Response(null, { status: 204 }), request, env, requestId);
 
   try {
-    const publicCoachMedia = /^\/api\/v1\/media\/coaches\/\d+\/(avatar|hero)$/u.test(url.pathname);
+    const publicCoachMedia = /^\/api\/v1\/media\/coaches\/\d+\/(avatar|card|hero)$/u.test(url.pathname);
     if (url.pathname !== "/api/v1/health" && url.pathname !== "/api/v1/app/releases/download" && !publicCoachMedia) assertPilotApp(request, env);
     const response = await route(request, url, env, ctx, requestId);
     return withCors(response, request, env, requestId);
@@ -133,12 +136,16 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     }, requestId);
   }
 
-  const publicCoachMediaMatch = path.match(/^\/api\/v1\/media\/coaches\/(\d+)\/(avatar|hero)$/u);
+  const publicCoachMediaMatch = path.match(/^\/api\/v1\/media\/coaches\/(\d+)\/(avatar|card|hero)$/u);
   if (request.method === "GET" && publicCoachMediaMatch) {
     if (!env.DB || !env.MEDIA) throw new ApiError(503, "media_unavailable", "教练图片服务暂时不可用");
     const coachId = Number(publicCoachMediaMatch[1]);
-    const column = publicCoachMediaMatch[2] === "avatar" ? "avatar_object_key" : "hero_object_key";
-    const coach = await env.DB.prepare(`SELECT ${column} AS object_key FROM coaches WHERE id = ? AND audit_status = 'approved'`).bind(coachId).first<{ object_key: string | null }>();
+    const column = publicCoachMediaMatch[2] === "avatar"
+      ? "avatar_object_key"
+      : publicCoachMediaMatch[2] === "card"
+        ? "card_object_key"
+        : "hero_object_key";
+    const coach = await env.DB.prepare(`SELECT ${column} AS object_key FROM coaches WHERE id = ? AND audit_status = 'approved' AND listing_status = 'online'`).bind(coachId).first<{ object_key: string | null }>();
     if (!coach?.object_key) throw new ApiError(404, "coach_media_not_found", "未找到该教练图片");
     const object = await env.MEDIA.get(coach.object_key);
     if (!object) throw new ApiError(404, "coach_media_not_found", "未找到该教练图片");
@@ -222,6 +229,22 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     return success(await getOpsOverviewD1(env), requestId);
   }
 
+  if (request.method === "POST" && path === "/api/v1/operator/push/test") {
+    assertOperator(request, env);
+    const body = await readJson<{ installationId?: unknown; type?: unknown }>(request);
+    const type = requireString(body.type, "type", 20);
+    if (type !== "booking" && type !== "message" && type !== "update") {
+      throw new ApiError(422, "validation_failed", "推送类型必须为 booking、message 或 update");
+    }
+    return success(await sendOperatorTestPushD1(
+      requireString(body.installationId, "installationId", 180),
+      type,
+      operatorActor(request),
+      requestId,
+      env,
+    ), requestId, undefined, 202);
+  }
+
   if (request.method === "GET" && path === "/api/v1/operator/leads") {
     assertOperator(request, env);
     return success(await listOpsLeadsD1(env), requestId);
@@ -253,6 +276,38 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     assertOperator(request, env);
     const body = await readJson<{ status?: unknown }>(request);
     return success(await updateOpsCoachStatusD1(Number(operatorCoachStatusMatch[1]), requireString(body.status, "status", 30), operatorActor(request), env), requestId);
+  }
+
+  const operatorCoachListingMatch = path.match(/^\/api\/v1\/operator\/coaches\/(\d+)\/listing$/u);
+  if (request.method === "PATCH" && operatorCoachListingMatch) {
+    assertOperator(request, env);
+    const body = await readJson<{ reason?: unknown; status?: unknown }>(request);
+    return success(await updateOpsCoachListingD1(
+      Number(operatorCoachListingMatch[1]),
+      requireString(body.status, "status", 30),
+      requireString(body.reason, "reason", 300),
+      operatorActor(request),
+      env,
+    ), requestId);
+  }
+
+  if (request.method === "PATCH" && path === "/api/v1/operator/coaches/listing/batch") {
+    assertOperator(request, env);
+    const body = await readJson<{ ids?: unknown; reason?: unknown; status?: unknown }>(request);
+    const ids = Array.isArray(body.ids) ? body.ids.map(Number) : [];
+    return success(await batchUpdateOpsCoachListingD1(
+      ids,
+      requireString(body.status, "status", 30),
+      requireString(body.reason, "reason", 300),
+      operatorActor(request),
+      env,
+    ), requestId);
+  }
+
+  const operatorCoachEventsMatch = path.match(/^\/api\/v1\/operator\/coaches\/(\d+)\/events$/u);
+  if (request.method === "GET" && operatorCoachEventsMatch) {
+    assertOperator(request, env);
+    return success(await listOpsCoachStatusEventsD1(Number(operatorCoachEventsMatch[1]), env), requestId);
   }
 
   if (request.method === "GET" && path === "/api/v1/operator/users") {

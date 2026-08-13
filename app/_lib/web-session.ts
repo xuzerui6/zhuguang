@@ -1,6 +1,7 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { getChatGPTUser } from "../chatgpt-auth";
 import type { ChatGPTUser } from "../chatgpt-auth";
+import { verifyCloudflareAccessToken } from "./cloudflare-access";
 import type { Permission, WebArea, WebSession } from "./web-platform";
 
 export const WEB_ACCESS_COOKIE = "zg_web_access";
@@ -82,6 +83,23 @@ async function mobileIdentityFromCookie(): Promise<MobileIdentity | null> {
   }
 }
 
+async function cloudflareAccessUser(): Promise<ChatGPTUser | null> {
+  const audience = process.env.CF_ACCESS_AUD;
+  const teamDomain = process.env.CF_ACCESS_TEAM_DOMAIN;
+  if (!audience || !teamDomain) return null;
+  const requestHeaders = await headers();
+  const token = requestHeaders.get("cf-access-jwt-assertion");
+  if (!token) return null;
+  const identity = await verifyCloudflareAccessToken(token, { audience, teamDomain });
+  if (!identity) return null;
+  return {
+    displayName: identity.name || identity.email,
+    email: identity.email,
+    fullName: identity.name || null,
+    id: identity.subject,
+  };
+}
+
 export function createWebSession(
   user: ChatGPTUser | null,
   roleConfiguration: { coachEmails?: string; opsEmails?: string } = {},
@@ -113,10 +131,16 @@ export async function getWebSession(): Promise<WebSession> {
       permissions,
     };
   }
-  return sessionFromChatGPT(await getChatGPTUser(), {
+  const roleConfiguration = {
     coachEmails: process.env.ZHUGUANG_COACH_EMAILS,
     opsEmails: process.env.ZHUGUANG_OPS_EMAILS,
-  });
+  };
+  if (process.env.CF_ACCESS_ENABLED === "true") {
+    const accessUser = await cloudflareAccessUser();
+    const session = sessionFromChatGPT(accessUser, roleConfiguration);
+    return accessUser ? { ...session, authorizationSource: session.availableAreas.length > 1 ? "allowlist" : "access" } : session;
+  }
+  return sessionFromChatGPT(await getChatGPTUser(), roleConfiguration);
 }
 
 export function canAccessArea(session: WebSession, area: Exclude<WebArea, "public">): boolean {

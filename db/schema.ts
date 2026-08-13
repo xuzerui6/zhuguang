@@ -75,15 +75,37 @@ export const coaches = sqliteTable("coaches", {
   goalsJson: text("goals_json").notNull().default("[]"),
   strengthsJson: text("strengths_json").notNull().default("[]"),
   availabilitySummaryJson: text("availability_summary_json").notNull().default("[]"),
+  profileKind: text("profile_kind", { enum: ["real", "demo"] }).notNull().default("real"),
+  listingStatus: text("listing_status", { enum: ["online", "offline"] }).notNull().default("online"),
+  listingReason: text("listing_reason").notNull().default(""),
+  listingChangedBy: text("listing_changed_by"),
+  listingChangedAt: integer("listing_changed_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  pricingStatus: text("pricing_status", { enum: ["published", "unavailable"] }).notNull().default("published"),
   auditStatus: text("audit_status", { enum: ["draft", "pending", "approved", "rejected", "suspended"] }).notNull().default("draft"),
   avatarObjectKey: text("avatar_object_key"),
+  cardObjectKey: text("card_object_key"),
   heroObjectKey: text("hero_object_key"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
 }, (table) => [
-  index("coaches_discovery_idx").on(table.city, table.sport, table.auditStatus),
+  index("coaches_discovery_idx").on(table.city, table.sport, table.auditStatus, table.listingStatus),
   index("coaches_district_idx").on(table.city, table.district),
+  index("coaches_listing_idx").on(table.listingStatus, table.profileKind, table.updatedAt),
   uniqueIndex("coaches_user_unique").on(table.userId).where(sql`${table.userId} is not null`),
+]);
+
+export const coachStatusEvents = sqliteTable("coach_status_events", {
+  id: text("id").primaryKey(),
+  coachId: integer("coach_id").notNull().references(() => coaches.id, { onDelete: "cascade" }),
+  eventType: text("event_type", { enum: ["audit", "listing"] }).notNull(),
+  fromStatus: text("from_status").notNull(),
+  toStatus: text("to_status").notNull(),
+  reason: text("reason").notNull().default(""),
+  actor: text("actor").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  index("coach_status_events_coach_idx").on(table.coachId, table.createdAt),
+  index("coach_status_events_type_idx").on(table.eventType, table.createdAt),
 ]);
 
 export const coachCredentials = sqliteTable("coach_credentials", {

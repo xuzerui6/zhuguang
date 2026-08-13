@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { generateKeyPair, SignJWT } from "jose";
 import {
   coachNavigation,
   coaches,
@@ -12,6 +13,8 @@ import {
 import { canAccessArea, createWebSession } from "../app/_lib/web-session";
 import { applyWebSecurityHeaders } from "../app/_lib/web-security";
 import { removeTurnstileWidget } from "../app/_lib/turnstile";
+import { verifyCloudflareAccessToken } from "../app/_lib/cloudflare-access";
+import { BEIJING_DISTRICTS, coachCatalog, SPORT_OPTIONS } from "../shared/coach-catalog";
 
 const root = new URL("../", import.meta.url);
 
@@ -28,6 +31,34 @@ test("the runtime proxy applies browser security headers", () => {
   assert.match(headers.get("content-security-policy") || "", /frame-ancestors 'self'/u);
   assert.equal(headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
   assert.equal(headers.get("x-content-type-options"), "nosniff");
+});
+
+test("Cloudflare Access identity requires a valid signature, issuer and audience", async () => {
+  const config = { audience: "access-audience", teamDomain: "https://zhuguang.cloudflareaccess.com" };
+  const trusted = await generateKeyPair("RS256");
+  const untrusted = await generateKeyPair("RS256");
+  const valid = await new SignJWT({ email: "Coach@Example.com", name: "认证教练" })
+    .setProtectedHeader({ alg: "RS256" })
+    .setIssuer(config.teamDomain)
+    .setAudience(config.audience)
+    .setSubject("access-user-1")
+    .setExpirationTime("5m")
+    .sign(trusted.privateKey);
+  assert.deepEqual(await verifyCloudflareAccessToken(valid, config, trusted.publicKey), {
+    email: "coach@example.com",
+    name: "认证教练",
+    subject: "access-user-1",
+  });
+
+  const forged = await new SignJWT({ email: "coach@example.com" })
+    .setProtectedHeader({ alg: "RS256" })
+    .setIssuer(config.teamDomain)
+    .setAudience(config.audience)
+    .setSubject("forged-user")
+    .setExpirationTime("5m")
+    .sign(untrusted.privateKey);
+  assert.equal(await verifyCloudflareAccessToken(forged, config, trusted.publicKey), null);
+  assert.equal(await verifyCloudflareAccessToken(valid, { ...config, audience: "wrong-audience" }, trusted.publicKey), null);
 });
 
 test("classifies each web area without viewport or device heuristics", () => {
@@ -127,4 +158,15 @@ test("R2 update controls are enabled and coach data remains internally consisten
     rating: 0,
     sport: "田径",
   });
+});
+
+test("coach catalog honestly covers all Beijing districts and pilot sports", () => {
+  assert.equal(coachCatalog.length, 18);
+  assert.deepEqual(new Set(coachCatalog.map((coach) => coach.district)), new Set(BEIJING_DISTRICTS));
+  assert.deepEqual(new Set(coachCatalog.map((coach) => coach.sport)), new Set(SPORT_OPTIONS));
+  assert.equal(coachCatalog.filter((coach) => coach.profileKind === "real").length, 3);
+  const demos = coachCatalog.filter((coach) => coach.profileKind === "demo");
+  assert.equal(demos.length, 15);
+  assert.ok(demos.every((coach) => coach.verificationLabel === "演示资料" && !coach.bookable && !coach.canConsult));
+  assert.ok(demos.every((coach) => coach.rating === 0 && coach.reviewCount === 0 && coach.lessons === 0));
 });

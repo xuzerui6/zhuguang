@@ -2,6 +2,7 @@ import { createRequestId } from "./domain";
 import { getOrCreateDeviceId, readSession, writeSession } from "./device";
 import type {
   AppRelease,
+  BookingSlot,
   BookingStatus,
   CoachOverview,
   LearnerProfile,
@@ -143,6 +144,7 @@ export const mobileApi = {
   setFavorite: (coachId: number, favorite: boolean) => request<{ favoriteCoachIds: number[] }>(`/api/v1/favorites/${coachId}`, {
     method: favorite ? "PUT" : "DELETE",
   }),
+  coachSlots: (coachId: number) => request<BookingSlot[]>(`/api/v1/coaches/${coachId}/slots`),
   createBooking: (input: {
     coachId: number;
     learnerId: string;

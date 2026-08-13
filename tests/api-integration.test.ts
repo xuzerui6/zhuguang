@@ -5,9 +5,40 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import test from "node:test";
 import { handleApiRequest } from "../server/api/router";
 import type { ApiEnv } from "../server/api/contracts";
+import { buildJPushPayload } from "../server/api/push";
 import { keyedHash } from "../server/api/security";
 
 if (!globalThis.crypto) Object.defineProperty(globalThis, "crypto", { value: webcrypto });
+
+test("JPush payloads use fixed channels, private lock-screen copy and role deep links", () => {
+  const payload = buildJPushPayload({
+    body: "private conversation text",
+    deep_link: "zhuguang://student/messages",
+    notification_id: "notification-test",
+    push_registration_id: "registration-test",
+    target_mode: "student",
+    title: "服务消息",
+    type: "service_message",
+  });
+  assert.deepEqual(payload.audience.registration_id, ["registration-test"]);
+  assert.equal(payload.notification.android.channel_id, "zhuguang_message");
+  assert.equal(payload.notification.android.extras.deepLink, "zhuguang://student/messages");
+  assert.equal(payload.notification.android.extras.targetMode, "student");
+  assert.equal(payload.notification.android.intent.url, "zhuguang://student/messages");
+  assert.notEqual(payload.notification.android.alert, "private conversation text");
+  assert.equal("small_icon" in payload.notification.android, false);
+
+  const operatorPayload = buildJPushPayload({
+    body: "booking status changed",
+    deepLink: "zhuguang://student/bookings",
+    push_registration_id: "registration-test",
+    targetMode: "student",
+    title: "booking",
+    type: "booking_status",
+  });
+  assert.equal(operatorPayload.notification.android.intent.url, "zhuguang://student/bookings");
+  assert.equal(operatorPayload.notification.android.extras.targetMode, "student");
+});
 
 class StatementAdapter implements D1PreparedStatement {
   constructor(private database: DatabaseSync, private query: string, private values: unknown[] = []) {}
@@ -104,7 +135,7 @@ function json(body: unknown, headers: Record<string, string> = {}): RequestInit 
 
 async function migrate(database: D1Adapter) {
   const directory = new URL("../drizzle/", import.meta.url);
-  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql"]) {
+  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql"]) {
     const source = await readFile(new URL(file, directory), "utf8");
     for (const statement of source.split("--> statement-breakpoint").map((item) => item.trim()).filter(Boolean)) database.sqlite.exec(statement);
   }
@@ -294,6 +325,50 @@ test("coach media honors quoted, weak and multi-value ETags", async () => {
   assert.equal(weakMultiValue.response.status, 304);
   const stale = await request(env, "/api/v1/media/coaches/1/avatar", { headers: { "if-none-match": '"stale"' } });
   assert.equal(stale.response.status, 200);
+  database.sqlite.close();
+});
+
+test("operator listing controls hide public discovery without changing audit state", async () => {
+  const database = new D1Adapter();
+  await migrate(database);
+  seedSupply(database);
+  const operatorSecret = "operator-listing-secret";
+  const env: ApiEnv = { APP_ENV: "test", DB: database, OPERATOR_API_SECRET: operatorSecret };
+  const operatorHeaders = { "content-type": "application/json", "x-operator-secret": operatorSecret };
+
+  const before = await request(env, "/api/v1/coaches");
+  assert.equal((before.payload?.data as unknown[]).length, 1);
+
+  const hidden = await request(env, "/api/v1/operator/coaches/1/listing", {
+    body: JSON.stringify({ reason: "资料例行复核", status: "offline" }),
+    headers: operatorHeaders,
+    method: "PATCH",
+  });
+  assert.equal(hidden.response.status, 200);
+  assert.equal((hidden.payload?.data as { status: string }).status, "offline");
+
+  const publicList = await request(env, "/api/v1/coaches");
+  assert.deepEqual(publicList.payload?.data, []);
+  const publicDetail = await request(env, "/api/v1/coaches/1");
+  assert.equal(publicDetail.response.status, 410);
+  assert.equal((publicDetail.payload?.error as { code: string }).code, "coach_offline");
+
+  const operationsList = await request(env, "/api/v1/operator/coaches", { headers: { "x-operator-secret": operatorSecret } });
+  const operationsCoach = (operationsList.payload?.data as Array<{ audit_status: string; listing_status: string }>)[0];
+  assert.equal(operationsCoach.audit_status, "approved");
+  assert.equal(operationsCoach.listing_status, "offline");
+
+  const history = await request(env, "/api/v1/operator/coaches/1/events", { headers: { "x-operator-secret": operatorSecret } });
+  const event = (history.payload?.data as Array<{ event_type: string; reason: string }>)[0];
+  assert.deepEqual({ eventType: event.event_type, reason: event.reason }, { eventType: "listing", reason: "资料例行复核" });
+
+  const restored = await request(env, "/api/v1/operator/coaches/1/listing", {
+    body: JSON.stringify({ reason: "复核完成", status: "online" }),
+    headers: operatorHeaders,
+    method: "PATCH",
+  });
+  assert.equal(restored.response.status, 200);
+  assert.equal((await request(env, "/api/v1/coaches")).response.status, 200);
   database.sqlite.close();
 });
 

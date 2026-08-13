@@ -68,8 +68,12 @@ function jsonArray(value: unknown) {
   }
 }
 
-function publicCoachMediaUrl(row: Row, kind: "avatar" | "hero", env?: ApiEnv) {
-  const objectKey = kind === "avatar" ? row.avatar_object_key : row.hero_object_key;
+function publicCoachMediaUrl(row: Row, kind: "avatar" | "card" | "hero", env?: ApiEnv) {
+  const objectKey = kind === "avatar"
+    ? row.avatar_object_key
+    : kind === "card"
+      ? row.card_object_key
+      : row.hero_object_key;
   const origin = env?.MOBILE_API_ORIGIN?.replace(/\/$/u, "");
   if (!objectKey || !origin) return undefined;
   return `${origin}/api/v1/media/coaches/${numberValue(row.id)}/${kind}`;
@@ -79,12 +83,22 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
   const reviewCount = numberValue(row.review_count);
   const availability = jsonArray(row.availability_summary_json);
   const isNew = reviewCount === 0 && numberValue(row.lessons) === 0;
+  const profileKind = row.profile_kind === "demo" ? "demo" : "real";
+  const pricingPublished = row.pricing_status !== "unavailable";
+  const profileCompleteness = profileKind === "demo" ? "demo" : pricingPublished ? (isNew ? "partial" : "complete") : "partial";
+  const verificationLabel = profileKind === "demo"
+    ? "演示资料"
+    : profileCompleteness === "partial"
+      ? (numberValue(row.id) === 5 ? "平台试点教练" : "资料待补充")
+      : "资料已核验";
   return {
     accent: "#087A50",
     audience: jsonArray(row.audience_json),
     availability,
     avatarUrl: publicCoachMediaUrl(row, "avatar", env),
-    bookable: availability.length > 0,
+    bookable: profileKind === "real" && availability.length > 0,
+    canConsult: profileKind === "real",
+    cardUrl: publicCoachMediaUrl(row, "card", env),
     city: stringValue(row.city),
     district: stringValue(row.district),
     experienceYears: numberValue(row.experience_years),
@@ -96,16 +110,22 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
     level: stringValue(row.level),
     name: stringValue(row.name),
     note: stringValue(row.bio),
-    price: Math.round(numberValue(row.price_fen) / 100),
-    proof: isNew ? ["平台试点教练", "服务区域已确认"] : [`${stringValue(row.level)}认证`, "身份与履历已核验", "服务保障已开通"],
+    price: pricingPublished ? Math.round(numberValue(row.price_fen) / 100) : undefined,
+    profileCompleteness,
+    profileKind,
+    proof: profileKind === "demo"
+      ? ["演示资料", "不可预约"]
+      : profileCompleteness === "partial"
+        ? [verificationLabel, "服务区域已确认"]
+        : [`${stringValue(row.level)}认证`, "身份与履历已核验", "服务保障已开通"],
     rating: numberValue(row.rating_basis_points) / 100,
     responseMinutes: numberValue(row.response_minutes),
     reviewCount,
     sport: stringValue(row.sport),
     strengths: jsonArray(row.strengths_json),
     title: stringValue(row.title),
-    trialPrice: Math.round(numberValue(row.trial_price_fen) / 100),
-    verificationLabel: isNew ? "平台试点教练" : "资料已核验",
+    trialPrice: pricingPublished ? Math.round(numberValue(row.trial_price_fen) / 100) : undefined,
+    verificationLabel,
     verified: row.audit_status === "approved",
   };
 }
@@ -207,7 +227,7 @@ async function authenticateTrustedWebStudent(emailInput: string, env: ApiEnv): P
     ]);
     user = { id: userId, email_encrypted: emailEncrypted };
   }
-  const coach = await database.prepare("SELECT id FROM coaches WHERE lower(siwc_email) = ? AND audit_status = 'approved' LIMIT 1").bind(email).first<Row>();
+  const coach = await database.prepare("SELECT id FROM coaches WHERE lower(siwc_email) = ? AND audit_status = 'approved' AND profile_kind = 'real' LIMIT 1").bind(email).first<Row>();
   if (coach) {
     await database.batch([
       database.prepare("UPDATE coaches SET user_id = ?, updated_at = ? WHERE id = ? AND (user_id IS NULL OR user_id = ?)").bind(userId, now, coach.id, userId),
@@ -244,7 +264,7 @@ export async function getMobileIdentityD1(identity: StudentIdentity, env: ApiEnv
     database.prepare(`
       SELECT id, name, sport, title, audit_status,
         (SELECT count(*) FROM booking_requests b WHERE b.coach_id = coaches.id AND b.status IN ('pending_coach', 'reschedule_requested')) AS pending_count
-      FROM coaches WHERE user_id = ? AND audit_status IN ('approved', 'suspended') LIMIT 1
+      FROM coaches WHERE user_id = ? AND profile_kind = 'real' AND audit_status IN ('approved', 'suspended') LIMIT 1
     `).bind(identity.userId).first<Row>(),
   ]);
   if (!user) throw new ApiError(401, "invalid_session", "登录状态已失效，请重新验证手机号");
@@ -416,7 +436,7 @@ export async function verifyOtpD1(
   for (const coachId of [...new Set(localFavoriteCoachIds)].filter((id) => Number.isInteger(id) && id > 0).slice(0, 100)) {
     statements.push(database.prepare(`
       INSERT OR IGNORE INTO favorites (user_id, coach_id, created_at)
-      SELECT ?, id, ? FROM coaches WHERE id = ? AND audit_status = 'approved'
+      SELECT ?, id, ? FROM coaches WHERE id = ? AND audit_status = 'approved' AND listing_status = 'online'
     `).bind(userId, now, coachId));
   }
   await database.batch(statements);
@@ -509,7 +529,7 @@ export async function deleteAccountD1(identity: StudentIdentity, env: ApiEnv) {
 }
 
 export async function listCoachesD1(env: ApiEnv, filters: URLSearchParams) {
-  const clauses = ["audit_status = 'approved'", "city = '北京'"];
+  const clauses = ["audit_status = 'approved'", "listing_status = 'online'", "city = '北京'"];
   const values: unknown[] = [];
   for (const [field, column] of [["sport", "sport"], ["district", "district"]] as const) {
     const value = filters.get(field);
@@ -523,29 +543,42 @@ export async function listCoachesD1(env: ApiEnv, filters: URLSearchParams) {
     clauses.push("price_fen <= ?");
     values.push(maxPriceFen);
   }
-  const query = `SELECT * FROM coaches WHERE ${clauses.join(" AND ")} ORDER BY rating_basis_points DESC, lessons DESC LIMIT 50`;
+  const query = `SELECT * FROM coaches WHERE ${clauses.join(" AND ")} ORDER BY CASE profile_kind WHEN 'real' THEN 0 ELSE 1 END, rating_basis_points DESC, lessons DESC, id ASC LIMIT 100`;
   const result = await db(env).prepare(query).bind(...values).all<Row>();
   return (result.results ?? []).map((row) => mapCoach(row, env));
 }
 
 export async function getCoachD1(coachId: number, env: ApiEnv) {
-  const row = await db(env).prepare("SELECT * FROM coaches WHERE id = ? AND audit_status = 'approved'").bind(coachId).first<Row>();
+  const row = await db(env).prepare("SELECT * FROM coaches WHERE id = ?").bind(coachId).first<Row>();
   if (!row) throw new ApiError(404, "coach_not_found", "未找到该教练");
+  if (row.audit_status !== "approved" || row.listing_status !== "online") {
+    throw new ApiError(410, "coach_offline", "该教练当前未公开展示");
+  }
   return mapCoach(row, env);
 }
 
-export async function listSlotsD1(coachId: number, env: ApiEnv) {
+export async function listSlotsD1(coachId: number, env: ApiEnv, requirePublic = true) {
+  const visibilityClause = requirePublic ? "AND listing_status = 'online'" : "";
+  const coach = await db(env).prepare(`SELECT profile_kind FROM coaches WHERE id = ? AND audit_status = 'approved' ${visibilityClause}`).bind(coachId).first<Row>();
+  if (!coach) throw new ApiError(410, "coach_offline", "该教练当前未公开展示");
+  if (coach.profile_kind === "demo") return [];
   const result = await db(env).prepare(`
-    SELECT id, coach_id, venue_id, starts_at, ends_at, status FROM availability_slots
-    WHERE coach_id = ? AND starts_at > ? AND status = 'open'
-    ORDER BY starts_at ASC LIMIT 100
+    SELECT s.id, s.coach_id, s.venue_id, s.starts_at, s.ends_at, s.status,
+      v.name AS venue_name, v.address AS venue_address, v.district AS venue_district
+    FROM availability_slots s
+    JOIN venues v ON v.id = s.venue_id AND v.active = 1
+    WHERE s.coach_id = ? AND s.starts_at > ? AND s.status = 'open'
+    ORDER BY s.starts_at ASC LIMIT 100
   `).bind(coachId, Date.now()).all<Row>();
   return (result.results ?? []).map((row) => ({
     ...beijingDateParts(numberValue(row.starts_at), numberValue(row.ends_at)),
     available: row.status === "open",
     coachId: numberValue(row.coach_id),
     id: stringValue(row.id),
+    venueAddress: stringValue(row.venue_address),
+    venueDistrict: stringValue(row.venue_district),
     venueId: stringValue(row.venue_id),
+    venueName: stringValue(row.venue_name),
   }));
 }
 
@@ -625,10 +658,10 @@ export async function setFavoriteD1(userId: string, coachId: number, favorite: b
   if (favorite) {
     const result = await database.prepare(`
       INSERT OR IGNORE INTO favorites (user_id, coach_id, created_at)
-      SELECT ?, id, ? FROM coaches WHERE id = ? AND audit_status = 'approved'
+      SELECT ?, id, ? FROM coaches WHERE id = ? AND audit_status = 'approved' AND listing_status = 'online'
     `).bind(userId, Date.now(), coachId).run();
     if (!result.meta.changes) {
-      const coach = await database.prepare("SELECT id FROM coaches WHERE id = ? AND audit_status = 'approved'").bind(coachId).first<Row>();
+      const coach = await database.prepare("SELECT id FROM coaches WHERE id = ? AND audit_status = 'approved' AND listing_status = 'online'").bind(coachId).first<Row>();
       if (!coach) throw new ApiError(404, "coach_not_found", "未找到该教练");
     }
   } else {
@@ -651,11 +684,13 @@ export async function createBookingD1(
   `).bind(identity.userId, idempotencyKey).first<Row>();
   if (existing) return mapBooking(existing);
   const slot = await database.prepare(`
-    SELECT s.*, c.trial_price_fen, c.audit_status FROM availability_slots s
+    SELECT s.*, c.trial_price_fen, c.audit_status, c.listing_status, c.profile_kind, c.pricing_status FROM availability_slots s
     JOIN coaches c ON c.id = s.coach_id
     WHERE s.id = ? AND s.coach_id = ? AND s.venue_id = ?
   `).bind(input.slotId, input.coachId, input.venueId).first<Row>();
-  if (!slot || slot.audit_status !== "approved") throw new ApiError(404, "slot_not_found", "未找到该可约时段");
+  if (!slot || slot.audit_status !== "approved" || slot.listing_status !== "online" || slot.profile_kind !== "real" || slot.pricing_status !== "published") {
+    throw new ApiError(404, "slot_not_found", "未找到该可约时段");
+  }
   if (slot.status !== "open") throw new ApiError(409, "slot_unavailable", "该时段刚刚被预约，请选择其他时间");
   if (numberValue(slot.starts_at) <= Date.now()) throw new ApiError(409, "slot_expired", "该时段已过期，请选择未来时间");
   let learner = await database.prepare("SELECT id FROM learner_profiles WHERE id = ? AND user_id = ?").bind(input.learnerId, identity.userId).first<Row>();
@@ -766,7 +801,7 @@ export async function authenticateCoach(request: Request, env: ApiEnv): Promise<
     const row = await db(env).prepare(`
       SELECT c.id, c.name FROM coaches c
       JOIN user_roles r ON r.user_id = c.user_id AND r.role = 'coach' AND r.status = 'active'
-      WHERE c.user_id = ? AND c.audit_status = 'approved' LIMIT 1
+      WHERE c.user_id = ? AND c.profile_kind = 'real' AND c.audit_status = 'approved' LIMIT 1
     `).bind(mobileIdentity.userId).first<Row>();
     if (!row) throw new ApiError(403, "coach_not_approved", "教练身份尚未通过人工审核或已被暂停");
     return {
@@ -780,21 +815,23 @@ export async function authenticateCoach(request: Request, env: ApiEnv): Promise<
   if (!email) throw new ApiError(401, "coach_sign_in_required", "请使用已获邀的教练账号登录");
   const allowlist = (env.COACH_EMAIL_ALLOWLIST ?? "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
   if (allowlist.length && !allowlist.includes(email)) throw new ApiError(403, "coach_not_invited", "该账号尚未加入教练试点名单");
-  const row = await db(env).prepare("SELECT id, name FROM coaches WHERE lower(siwc_email) = ? AND audit_status = 'approved'").bind(email).first<Row>();
+  const row = await db(env).prepare("SELECT id, name FROM coaches WHERE lower(siwc_email) = ? AND profile_kind = 'real' AND audit_status = 'approved'").bind(email).first<Row>();
   if (!row) throw new ApiError(403, "coach_not_approved", "教练身份尚未通过人工审核");
   return { coachId: numberValue(row.id), email, name: stringValue(row.name) };
 }
 
 export async function coachOverviewD1(identity: CoachIdentity, env: ApiEnv) {
   const database = db(env);
+  const coachRow = await database.prepare("SELECT * FROM coaches WHERE id = ? AND profile_kind = 'real' AND audit_status = 'approved'").bind(identity.coachId).first<Row>();
+  if (!coachRow) throw new ApiError(403, "coach_not_approved", "教练身份尚未通过人工审核或已被暂停");
   const [coach, bookings, conversations, slots, venues] = await Promise.all([
-    getCoachD1(identity.coachId, env),
+    Promise.resolve(mapCoach(coachRow, env)),
     database.prepare(`
       SELECT b.*, s.starts_at, s.ends_at FROM booking_requests b JOIN availability_slots s ON s.id = b.slot_id
       WHERE b.coach_id = ? ORDER BY b.created_at DESC LIMIT 100
     `).bind(identity.coachId).all<Row>(),
     database.prepare("SELECT id, title, last_message_at FROM conversations WHERE coach_id = ? ORDER BY last_message_at DESC LIMIT 50").bind(identity.coachId).all<Row>(),
-    listSlotsD1(identity.coachId, env),
+    listSlotsD1(identity.coachId, env, false),
     database.prepare("SELECT id, coach_id, name, address, district FROM venues WHERE coach_id = ? AND active = 1 ORDER BY created_at").bind(identity.coachId).all<Row>(),
   ]);
   return {
@@ -910,14 +947,17 @@ export async function upsertLearnerD1(
 
 export async function createConversationD1(identity: StudentIdentity, coachId: number, env: ApiEnv) {
   const database = db(env);
-  const coach = await database.prepare("SELECT id, name FROM coaches WHERE id = ? AND audit_status = 'approved'").bind(coachId).first<Row>();
+  const coach = await database.prepare("SELECT id, name, profile_kind, user_id FROM coaches WHERE id = ? AND audit_status = 'approved' AND listing_status = 'online'").bind(coachId).first<Row>();
   if (!coach) throw new ApiError(404, "coach_not_found", "未找到该教练");
+  if (coach.profile_kind === "demo") throw new ApiError(409, "demo_coach_unavailable", "演示资料不提供咨询服务");
   const id = randomId("conversation");
   const now = Date.now();
+  const kind = coach.user_id ? "coach" : "support";
+  const title = coach.user_id ? `${stringValue(coach.name)}教练` : `平台咨询 · ${stringValue(coach.name)}`;
   await database.prepare(`
     INSERT OR IGNORE INTO conversations (id, student_user_id, coach_id, kind, title, last_message_at, created_at)
-    VALUES (?, ?, ?, 'coach', ?, ?, ?)
-  `).bind(id, identity.userId, coachId, `${stringValue(coach.name)}教练`, now, now).run();
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(id, identity.userId, coachId, kind, title, now, now).run();
   const conversations = await listConversations(identity.userId, env);
   const created = conversations.find((conversation) => conversation.coachId === coachId);
   if (!created) throw new ApiError(500, "conversation_create_failed", "会话创建失败，请稍后重试");

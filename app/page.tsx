@@ -15,11 +15,11 @@ import { PublicFooter } from "./_components/public-footer";
 import { PublicHeader } from "./_components/public-header";
 import { ServiceLeadForm } from "./_components/service-lead-form";
 import styles from "./_components/public-site.module.css";
-import { coaches } from "./_lib/web-platform";
+import { loadPublicCoaches } from "./_lib/web-platform";
 
-const coach = coaches[0];
-
-export default function HomePage() {
+export default async function HomePage() {
+  const catalog = await loadPublicCoaches();
+  const coach = catalog.find((item) => item.profileKind === "real") ?? catalog[0]!;
   return (
     <>
       <PublicHeader />
@@ -55,7 +55,7 @@ export default function HomePage() {
           </div>
           <form action="/coaches" className={styles.searchPanel}>
             <label><span>城市</span><select defaultValue="北京" name="city" aria-label="选择城市"><option>北京</option></select></label>
-            <label><span>项目</span><select defaultValue="田径" name="sport" aria-label="选择运动项目"><option>田径</option></select></label>
+            <label><span>项目</span><select defaultValue="田径" name="sport" aria-label="选择运动项目"><option>田径</option><option>羽毛球</option><option>游泳</option><option>网球</option><option>篮球</option><option>体能</option></select></label>
             <label><span>目标</span><select defaultValue="专项提升" name="goal" aria-label="选择训练目标"><option>专项提升</option><option>中考体育</option><option>跑姿纠正</option><option>专项体能</option></select></label>
             <button type="submit"><Search aria-hidden size={18} />查看匹配结果</button>
           </form>
@@ -77,8 +77,8 @@ export default function HomePage() {
               <p className={styles.coachLocation}><MapPin aria-hidden size={16} />{coach.city}{coach.district} · {coach.venue}</p>
               <p className={styles.coachBio}>{coach.bio}</p>
               <div className={styles.coachFacts}>
-                <span><small>常规课</small><strong>¥{coach.price}</strong></span>
-                <span><small>试课</small><strong>¥{coach.trialPrice}</strong></span>
+                <span><small>常规课</small><strong>{coach.price === undefined ? "待发布" : `¥${coach.price}`}</strong></span>
+                <span><small>试课</small><strong>{coach.trialPrice === undefined ? "待发布" : `¥${coach.trialPrice}`}</strong></span>
                 <span><small>评价</small><strong>暂无</strong></span>
                 <span><small>排期</small><strong>待发布</strong></span>
               </div>
@@ -141,7 +141,7 @@ export default function HomePage() {
           <div>
             <p className="zg-eyebrow">训练咨询</p>
             <h2>把需求说清楚，再决定是否预约</h2>
-            <p>提交后只进入逐光运营工作台。徐泽瑞教练尚未发布真实时段，因此当前先提供咨询，不会生成虚假预约。</p>
+            <p>提交后只进入逐光运营工作台。未发布真实场馆与时段的教练当前只提供咨询，不会生成虚假预约。</p>
           </div>
           <ServiceLeadForm siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} />
         </section>

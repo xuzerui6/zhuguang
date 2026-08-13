@@ -57,6 +57,7 @@ export function getMatchResult(coach: MobileCoach, preferences: MatchPreferences
   const sportMatches = preferences.sport === "全部项目" || coach.sport === preferences.sport;
   const verified = coach.verified !== false;
   if (!sportMatches || !verified) return { eligible: false, reasons: [], score: 0 };
+  if (coach.profileKind === "demo") return { eligible: true, reasons: ["演示资料，不参与真实匹配"], score: 0 };
 
   let score = 0;
   const reasons: string[] = [];
@@ -89,7 +90,7 @@ export function getMatchResult(coach: MobileCoach, preferences: MatchPreferences
     reasons.push(preferences.desiredTime === "不限" ? "近期有可约时段" : `${preferences.desiredTime}可约`);
   }
 
-  if (coach.price <= preferences.budget) {
+  if (coach.price !== undefined && coach.price <= preferences.budget) {
     score += 15;
     reasons.push(`课时价在预算内`);
   }

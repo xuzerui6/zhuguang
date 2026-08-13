@@ -17,12 +17,16 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { BEIJING_DISTRICTS, SPORT_OPTIONS } from "../../shared/coach-catalog";
+import type { MobileCoach } from "../mobile/types";
 import type { CoachProfile } from "../_lib/web-platform";
-import { coaches } from "../_lib/web-platform";
+import { coaches as fallbackCoaches, mapMobileCoachToWeb } from "../_lib/web-platform";
+import { platformRequest } from "./platform-client";
 import styles from "./coach-directory.module.css";
 
 type DirectoryProps = {
   embedded?: boolean;
+  initialCoaches?: CoachProfile[];
   initialDistrict?: string;
   initialGoal?: string;
   initialSport?: string;
@@ -33,19 +37,20 @@ const ALL_DISTRICTS = "全部区域";
 const ALL_GOALS = "全部目标";
 const ALL_AUDIENCES = "全部对象";
 
-export function CoachDirectory({ embedded = false, initialDistrict = ALL_DISTRICTS, initialGoal = ALL_GOALS, initialSport = ALL_SPORTS }: DirectoryProps) {
+export function CoachDirectory({ embedded = false, initialCoaches = fallbackCoaches, initialDistrict = ALL_DISTRICTS, initialGoal = ALL_GOALS, initialSport = ALL_SPORTS }: DirectoryProps) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isNavigating, startTransition] = useTransition();
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [favorites, setFavorites] = useState<number[]>([]);
+  const [directoryCoaches, setDirectoryCoaches] = useState(initialCoaches);
   const sport = searchParams.get("sport") || initialSport;
   const district = searchParams.get("district") || initialDistrict;
   const goal = searchParams.get("goal") || initialGoal;
   const audience = searchParams.get("audience") || ALL_AUDIENCES;
   const favoritesOnly = searchParams.get("favorites") === "1";
-  const selectedId = Number(searchParams.get("coach")) || coaches[0]?.id;
+  const selectedId = Number(searchParams.get("coach")) || directoryCoaches[0]?.id;
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -57,6 +62,14 @@ export function CoachDirectory({ embedded = false, initialDistrict = ALL_DISTRIC
       }
     });
     return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void platformRequest<MobileCoach[]>("/api/v1/coaches")
+      .then((items) => { if (active) setDirectoryCoaches(items.map(mapMobileCoachToWeb)); })
+      .catch(() => { /* Keep the last server-rendered or offline-safe catalog. */ });
+    return () => { active = false; };
   }, []);
 
   function updateQuery(changes: Record<string, string | null>) {
@@ -73,14 +86,17 @@ export function CoachDirectory({ embedded = false, initialDistrict = ALL_DISTRIC
     updateQuery({ [key]: value === fallback ? null : value, coach: null });
   }
 
-  const results = useMemo(() => coaches.filter((coach) => {
+  const results = useMemo(() => directoryCoaches.filter((coach) => {
     if (sport !== ALL_SPORTS && coach.sport !== sport) return false;
     if (district !== ALL_DISTRICTS && coach.district !== district) return false;
     if (goal !== ALL_GOALS && !coach.goals.includes(goal)) return false;
     if (audience !== ALL_AUDIENCES && !coach.audience.includes(audience)) return false;
     if (favoritesOnly && !favorites.includes(coach.id)) return false;
     return true;
-  }), [audience, district, favorites, favoritesOnly, goal, sport]);
+  }), [audience, directoryCoaches, district, favorites, favoritesOnly, goal, sport]);
+
+  const goalOptions = useMemo(() => [...new Set(directoryCoaches.flatMap((coach) => coach.goals))], [directoryCoaches]);
+  const audienceOptions = useMemo(() => [...new Set(directoryCoaches.flatMap((coach) => coach.audience))], [directoryCoaches]);
 
   const selected = results.find((coach) => coach.id === selectedId) ?? results[0];
 
@@ -105,16 +121,16 @@ export function CoachDirectory({ embedded = false, initialDistrict = ALL_DISTRIC
 
       <div className={`${styles.filters} ${filtersExpanded ? styles.filtersExpanded : ""}`} aria-label="教练筛选条件">
         <button aria-expanded={filtersExpanded} className={styles.filterTitle} onClick={() => setFiltersExpanded((current) => !current)} type="button"><SlidersHorizontal aria-hidden size={18} />筛选 <ChevronDown aria-hidden className={styles.filterToggleIcon} size={15} /></button>
-        <FilterSelect label="运动项目" onChange={(value) => setFilter("sport", value, ALL_SPORTS)} options={[ALL_SPORTS, "田径"]} value={sport} />
-        <FilterSelect label="区域" onChange={(value) => setFilter("district", value, ALL_DISTRICTS)} options={[ALL_DISTRICTS, "通州区"]} value={district} />
-        <FilterSelect label="训练目标" onChange={(value) => setFilter("goal", value, ALL_GOALS)} options={[ALL_GOALS, "中考体育", "短跑专项", "跑姿纠正", "专项体能"]} value={goal} />
-        <FilterSelect label="服务对象" onChange={(value) => setFilter("audience", value, ALL_AUDIENCES)} options={[ALL_AUDIENCES, "青少年", "成人"]} value={audience} />
+        <FilterSelect label="运动项目" onChange={(value) => setFilter("sport", value, ALL_SPORTS)} options={[ALL_SPORTS, ...SPORT_OPTIONS]} value={sport} />
+        <FilterSelect label="区域" onChange={(value) => setFilter("district", value, ALL_DISTRICTS)} options={[ALL_DISTRICTS, ...BEIJING_DISTRICTS]} value={district} />
+        <FilterSelect label="训练目标" onChange={(value) => setFilter("goal", value, ALL_GOALS)} options={[ALL_GOALS, ...goalOptions]} value={goal} />
+        <FilterSelect label="服务对象" onChange={(value) => setFilter("audience", value, ALL_AUDIENCES)} options={[ALL_AUDIENCES, ...audienceOptions]} value={audience} />
         <button className={styles.resetButton} onClick={resetFilters} type="button"><RefreshCw aria-hidden size={15} />清空</button>
       </div>
 
       <div className={styles.resultsToolbar}>
         <strong>找到 {results.length} 位教练</strong>
-        <span>资料更新时间以教练详情为准</span>
+        <span>真实教练优先，演示资料有明确标识</span>
         <button aria-pressed={favoritesOnly} className={styles.favoriteFilter} onClick={() => updateQuery({ favorites: favoritesOnly ? null : "1", coach: null })} type="button"><Heart aria-hidden fill={favoritesOnly ? "currentColor" : "none"} size={17} />只看已收藏</button>
       </div>
 
@@ -138,17 +154,17 @@ function CoachResult({ active, coach, favorite, onFavorite, onSelect }: { active
     <article className={`${styles.coachResult} ${active ? styles.activeResult : ""}`}>
       <button aria-label={`查看${coach.name}教练`} className={styles.selectCoach} onClick={onSelect} type="button" />
       <Link aria-label={`打开${coach.name}教练详情`} className={styles.openCoach} href={`/coaches/${coach.id}`} />
-      <div className={styles.resultImage}><Image alt={`${coach.name}教练`} fill sizes="180px" src={coach.image} unoptimized />{active ? <span><Check aria-hidden size={16} /></span> : null}</div>
+      <div className={styles.resultImage}><Image alt={coach.profileKind === "demo" ? `${coach.sport}演示场景` : `${coach.name}教练`} fill sizes="180px" src={coach.media.cardUrl || coach.image} unoptimized />{active ? <span><Check aria-hidden size={16} /></span> : null}</div>
       <div className={styles.resultInfo}>
         <div className={styles.resultName}><h2>{coach.name}</h2><span><BadgeCheck aria-hidden size={15} />{coach.verificationLabel}</span></div>
         <p className={styles.resultTitle}>{coach.title}</p>
-        <p><ShieldCheck aria-hidden size={15} />未展示未经核验的证书或成绩</p>
+        <p><ShieldCheck aria-hidden size={15} />{coach.profileKind === "demo" ? "演示资料，不代表真实教练" : "未展示未经核验的证书或成绩"}</p>
         <p><MapPin aria-hidden size={15} />{coach.venue} <span>· {coach.district}</span></p>
         <p className={styles.nextSlot}><Clock3 aria-hidden size={15} />{coach.nextSlot}</p>
       </div>
       <div className={styles.resultCommercial}>
-        <span className={`${styles.rating} ${styles.newCoachRating}`}><Star aria-hidden size={16} />新教练<small>暂无评价</small></span>
-        <strong>¥{coach.price}<small>/课时</small></strong><span>试课 ¥{coach.trialPrice}</span>
+        <span className={`${styles.rating} ${styles.newCoachRating}`}><Star aria-hidden size={16} />{coach.profileKind === "demo" ? "演示资料" : coach.isNew ? "新教练" : coach.rating.toFixed(1)}<small>{coach.profileKind === "demo" ? "不可预约" : coach.reviewCount ? `${coach.reviewCount} 条评价` : "暂无评价"}</small></span>
+        <strong>{coach.price === undefined ? "价格待发布" : <>¥{coach.price}<small>/课时</small></>}</strong><span>{coach.trialPrice === undefined ? "暂未开放试课" : `试课 ¥${coach.trialPrice}`}</span>
         <button aria-label={favorite ? `取消收藏${coach.name}` : `收藏${coach.name}`} className={styles.heartButton} onClick={onFavorite} type="button"><Heart aria-hidden fill={favorite ? "currentColor" : "none"} size={19} />{favorite ? "已收藏" : "收藏"}</button>
       </div>
     </article>
@@ -159,11 +175,11 @@ function CoachInspector({ coach, embedded }: { coach: CoachProfile; embedded: bo
   const contactHref = embedded ? `/student/messages?coach=${coach.id}` : "/#service-inquiry";
   return (
     <aside className={styles.inspector} aria-label={`${coach.name}教练摘要`}>
-      <div className={styles.inspectorProfile}><Image alt={`${coach.name}教练`} height={120} src={coach.image} unoptimized width={120} /><div><span><BadgeCheck aria-hidden size={14} />{coach.verificationLabel}</span><h2>{coach.name}</h2><p>{coach.title}</p></div></div>
-      <div className={styles.inspectorFacts}><p><Star aria-hidden size={16} /><strong>新教练</strong><span>暂无评价</span></p><p><MapPin aria-hidden size={16} /><strong>{coach.district}</strong><span>{coach.venue}</span></p></div>
-      <section><header><h3>资料核验</h3><Link href={`/coaches/${coach.id}`}>查看档案</Link></header><ul className={styles.credentials}><li className={styles.inspectorEmpty}><ShieldCheck aria-hidden size={17} /><span>仅展示已确认的身份与服务资料</span></li></ul></section>
+      <div className={styles.inspectorProfile}><Image alt={coach.profileKind === "demo" ? `${coach.sport}演示场景` : `${coach.name}教练`} height={120} src={coach.media.avatarUrl || coach.image} unoptimized width={120} /><div><span><BadgeCheck aria-hidden size={14} />{coach.verificationLabel}</span><h2>{coach.name}</h2><p>{coach.title}</p></div></div>
+      <div className={styles.inspectorFacts}><p><Star aria-hidden size={16} /><strong>{coach.profileKind === "demo" ? "演示资料" : "新教练"}</strong><span>{coach.profileKind === "demo" ? "不参与预约" : "暂无评价"}</span></p><p><MapPin aria-hidden size={16} /><strong>{coach.district}</strong><span>{coach.venue}</span></p></div>
+      <section><header><h3>资料状态</h3><Link href={`/coaches/${coach.id}`}>查看档案</Link></header><ul className={styles.credentials}><li className={styles.inspectorEmpty}><ShieldCheck aria-hidden size={17} /><span>{coach.profileKind === "demo" ? "用于功能演示，不代表真实供给" : "仅展示已确认的身份与服务资料"}</span></li></ul></section>
       <section><header><h3>本周可约时间</h3><span>北京时间</span></header><div className={styles.availability}><div className={styles.inspectorAvailabilityEmpty}><Clock3 aria-hidden size={17} /><span>真实场馆与时段待运营发布</span></div></div></section>
-      <div className={styles.inspectorActions}><Link href={`/coaches/${coach.id}`}>查看详情</Link><Link href={contactHref}>咨询训练安排</Link></div>
+      <div className={styles.inspectorActions}><Link href={`/coaches/${coach.id}`}>查看详情</Link>{coach.canConsult ? <Link href={contactHref}>咨询训练安排</Link> : <button disabled type="button">演示资料不可咨询</button>}</div>
     </aside>
   );
 }

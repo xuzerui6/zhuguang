@@ -3,6 +3,7 @@
 import { Check, ChevronRight, Headphones, LockKeyhole, Mail, MessageCircle, ShieldCheck, Smartphone, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { removeTurnstileWidget } from "../_lib/turnstile";
+import { BEIJING_DISTRICTS, SPORT_OPTIONS } from "../../shared/coach-catalog";
 import { CoachAvatar, EmptyState, Sheet } from "./components";
 import type { LearnerProfile, MatchPreferences, MobileCoach, MobileNotification, MobileSession } from "./types";
 
@@ -21,8 +22,8 @@ export function FilterSheet({
   return (
     <Sheet onClose={onClose} title="筛选合适的教练">
       <div className="zg-filter-sheet">
-        <FilterGroup label="运动项目" options={["全部项目", "田径", "羽毛球", "游泳", "网球", "篮球"]} selected={value.sport} onSelect={(item) => update("sport", item)} />
-        <FilterGroup label="北京区域" options={["全北京", "通州区", "朝阳区", "海淀区", "东城区"]} selected={value.district} onSelect={(item) => update("district", item)} />
+        <FilterGroup label="运动项目" options={["全部项目", ...SPORT_OPTIONS]} selected={value.sport} onSelect={(item) => update("sport", item)} />
+        <FilterGroup label="北京区域" options={["全北京", ...BEIJING_DISTRICTS]} selected={value.district} onSelect={(item) => update("district", item)} />
         <FilterGroup label="训练目标" options={["全部目标", "兴趣入门", "专项提升", "比赛备战", "动作纠错", "校队选拔"]} selected={value.goal} onSelect={(item) => update("goal", item)} />
         <FilterGroup label="服务对象" options={["全部人群", "儿童", "青少年", "成人", "亲子"]} selected={value.audience} onSelect={(item) => update("audience", item)} />
         <FilterGroup label="希望时段" options={["不限", "工作日", "周末", "晚间"]} selected={value.desiredTime} onSelect={(item) => update("desiredTime", item as MatchPreferences["desiredTime"])} />
@@ -61,7 +62,7 @@ export function CitySheet({ district, onClose, onDistrict }: { district: string;
     <Sheet onClose={onClose} title="选择北京服务区域">
       <div className="zg-city-sheet">
         <p>北京为首个运营试点城市，后续将根据教练供给逐步开放更多城市。</p>
-        {["全北京", "朝阳区", "海淀区", "东城区"].map((item) => (
+        {["全北京", ...BEIJING_DISTRICTS].map((item) => (
           <button className={district === item ? "is-active" : ""} key={item} onClick={() => { onDistrict(item); onClose(); }} type="button">
             <span><strong>{item}</strong><small>{item === "全北京" ? "查看全部已核验教练" : "优先展示可就近训练的教练"}</small></span>
             {district === item ? <Check aria-hidden size={18} /> : <ChevronRight aria-hidden size={17} />}
@@ -207,7 +208,7 @@ export function CancelBookingSheet({ onCancel, onClose }: { onCancel: () => void
 export function FavoritesSheet({ coaches, onClose, onOpen }: { coaches: MobileCoach[]; onClose: () => void; onOpen: (coach: MobileCoach) => void }) {
   return (
     <Sheet onClose={onClose} title="收藏与对比">
-      {coaches.length ? <div className="zg-favorites-sheet">{coaches.map((coach) => <button key={coach.id} onClick={() => onOpen(coach)} type="button"><CoachAvatar coach={coach} size="medium" /><span><strong>{coach.name}</strong><small>{coach.sport} · {coach.level}</small></span><b>¥{coach.price}/节</b><ChevronRight size={17} /></button>)}</div> : <EmptyState description="收藏感兴趣的教练后，可以在这里快速比较。" icon="search" title="还没有收藏教练" />}
+      {coaches.length ? <div className="zg-favorites-sheet">{coaches.map((coach) => <button key={coach.id} onClick={() => onOpen(coach)} type="button"><CoachAvatar coach={coach} size="medium" /><span><strong>{coach.name}</strong><small>{coach.sport} · {coach.level}</small></span><b>{coach.price === undefined ? "价格待发布" : `¥${coach.price}/节`}</b><ChevronRight size={17} /></button>)}</div> : <EmptyState description="收藏感兴趣的教练后，可以在这里快速比较。" icon="search" title="还没有收藏教练" />}
     </Sheet>
   );
 }

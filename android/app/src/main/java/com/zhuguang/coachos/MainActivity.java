@@ -25,7 +25,9 @@ public class MainActivity extends BridgeActivity {
         splashScreen.setOnExitAnimationListener(provider -> {
             provider.getView().animate()
                 .alpha(0f)
-                .setDuration(170L)
+                .scaleX(1.015f)
+                .scaleY(1.015f)
+                .setDuration(180L)
                 .withEndAction(provider::remove)
                 .start();
         });

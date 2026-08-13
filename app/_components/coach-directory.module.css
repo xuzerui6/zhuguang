@@ -592,7 +592,8 @@
   padding: 16px 20px 20px;
 }
 
-.inspectorActions a {
+.inspectorActions a,
+.inspectorActions button {
   align-items: center;
   border: 1px solid var(--zg-brand);
   border-radius: 5px;
@@ -602,6 +603,13 @@
   font-weight: 700;
   justify-content: center;
   min-height: 44px;
+}
+
+.inspectorActions button {
+  background: #f1f3f2;
+  border-color: #d9dfdc;
+  color: #6b7770;
+  cursor: not-allowed;
 }
 
 .inspectorActions a:last-child {

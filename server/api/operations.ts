@@ -18,7 +18,7 @@ export async function getOpsOverviewD1(env: ApiEnv) {
   const [leads, bookings, coaches, users, deliveries] = await Promise.all([
     database.prepare("SELECT status, count(*) AS count FROM service_leads GROUP BY status").all<Row>(),
     database.prepare("SELECT status, count(*) AS count FROM booking_requests GROUP BY status").all<Row>(),
-    database.prepare("SELECT audit_status AS status, count(*) AS count FROM coaches GROUP BY audit_status").all<Row>(),
+    database.prepare("SELECT listing_status AS status, count(*) AS count FROM coaches WHERE audit_status = 'approved' GROUP BY listing_status").all<Row>(),
     database.prepare("SELECT status, count(*) AS count FROM users GROUP BY status").all<Row>(),
     database.prepare("SELECT status, count(*) AS count FROM push_deliveries GROUP BY status").all<Row>(),
   ]);
@@ -47,7 +47,7 @@ export async function createServiceLeadD1(input: {
   const contactEmail = normalizeEmail(input.contactEmail);
   const contactEmailEncrypted = await encryptContact(contactEmail, env.PHONE_ENCRYPTION_KEY ?? "");
   if (input.coachId) {
-    const coach = await database.prepare("SELECT id FROM coaches WHERE id = ? AND audit_status = 'approved'").bind(input.coachId).first<Row>();
+    const coach = await database.prepare("SELECT id FROM coaches WHERE id = ? AND audit_status = 'approved' AND listing_status = 'online' AND profile_kind = 'real'").bind(input.coachId).first<Row>();
     if (!coach) throw new ApiError(404, "coach_not_found", "未找到该教练");
   }
   await database.prepare(`
@@ -112,11 +112,12 @@ export async function listOpsBookingsD1(env: ApiEnv) {
 
 export async function listOpsCoachesD1(env: ApiEnv) {
   const result = await db(env).prepare(`
-    SELECT c.id, c.name, c.sport, c.city, c.district, c.title, c.audit_status, c.review_count,
-      c.lessons, c.updated_at, c.user_id,
+    SELECT c.id, c.name, c.sport, c.city, c.district, c.title, c.audit_status, c.listing_status,
+      c.listing_reason, c.listing_changed_by, c.listing_changed_at, c.profile_kind, c.pricing_status,
+      c.review_count, c.lessons, c.updated_at, c.user_id,
       (SELECT count(*) FROM coach_credentials cc WHERE cc.coach_id = c.id AND cc.status = 'pending') AS pending_credentials,
       (SELECT count(*) FROM availability_slots s WHERE s.coach_id = c.id AND s.status = 'open' AND s.starts_at > unixepoch() * 1000) AS open_slots
-    FROM coaches c ORDER BY c.updated_at DESC
+    FROM coaches c ORDER BY CASE c.profile_kind WHEN 'real' THEN 0 ELSE 1 END, c.id ASC
   `).all<Row>();
   return rows(result);
 }
@@ -126,13 +127,67 @@ export async function updateOpsCoachStatusD1(id: number, status: string, actor: 
   if (!allowed.has(status)) throw new ApiError(422, "invalid_coach_status", "教练审核状态无效");
   const database = db(env);
   const now = Date.now();
-  const result = await database.prepare("UPDATE coaches SET audit_status = ?, updated_at = ? WHERE id = ?").bind(status, now, id).run();
-  if (!result.meta.changes) throw new ApiError(404, "coach_not_found", "未找到该教练");
-  await database.prepare(`
-    INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, created_at)
-    VALUES (?, ?, 'coach.status', 'coach', ?, ?, ?)
-  `).bind(randomId("audit"), actor, String(id), JSON.stringify({ status }), now).run();
+  const coach = await database.prepare("SELECT audit_status FROM coaches WHERE id = ?").bind(id).first<Row>();
+  if (!coach) throw new ApiError(404, "coach_not_found", "未找到该教练");
+  const fromStatus = String(coach.audit_status ?? "draft");
+  await database.batch([
+    database.prepare("UPDATE coaches SET audit_status = ?, updated_at = ? WHERE id = ?").bind(status, now, id),
+    database.prepare(`
+      INSERT INTO coach_status_events (id, coach_id, event_type, from_status, to_status, reason, actor, created_at)
+      VALUES (?, ?, 'audit', ?, ?, '', ?, ?)
+    `).bind(randomId("coach_event"), id, fromStatus, status, actor, now),
+    database.prepare(`
+      INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, created_at)
+      VALUES (?, ?, 'coach.audit', 'coach', ?, ?, ?)
+    `).bind(randomId("audit"), actor, String(id), JSON.stringify({ fromStatus, status }), now),
+  ]);
   return { id, status };
+}
+
+export async function updateOpsCoachListingD1(id: number, status: string, reason: string, actor: string, env: ApiEnv) {
+  if (status !== "online" && status !== "offline") throw new ApiError(422, "invalid_listing_status", "教练展示状态无效");
+  const normalizedReason = reason.trim().slice(0, 300);
+  if (!normalizedReason) throw new ApiError(422, "listing_reason_required", "请填写上下线原因");
+  const database = db(env);
+  const coach = await database.prepare("SELECT listing_status, audit_status FROM coaches WHERE id = ?").bind(id).first<Row>();
+  if (!coach) throw new ApiError(404, "coach_not_found", "未找到该教练");
+  if (status === "online" && coach.audit_status !== "approved") {
+    throw new ApiError(409, "coach_not_approved", "只有审核通过的教练才能上线");
+  }
+  const fromStatus = String(coach.listing_status ?? "offline");
+  const now = Date.now();
+  if (fromStatus === status) return { id, status, unchanged: true };
+  await database.batch([
+    database.prepare(`
+      UPDATE coaches SET listing_status = ?, listing_reason = ?, listing_changed_by = ?, listing_changed_at = ?, updated_at = ?
+      WHERE id = ?
+    `).bind(status, normalizedReason, actor, now, now, id),
+    database.prepare(`
+      INSERT INTO coach_status_events (id, coach_id, event_type, from_status, to_status, reason, actor, created_at)
+      VALUES (?, ?, 'listing', ?, ?, ?, ?, ?)
+    `).bind(randomId("coach_event"), id, fromStatus, status, normalizedReason, actor, now),
+    database.prepare(`
+      INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, created_at)
+      VALUES (?, ?, 'coach.listing', 'coach', ?, ?, ?)
+    `).bind(randomId("audit"), actor, String(id), JSON.stringify({ fromStatus, reason: normalizedReason, status }), now),
+  ]);
+  return { id, status };
+}
+
+export async function batchUpdateOpsCoachListingD1(ids: number[], status: string, reason: string, actor: string, env: ApiEnv) {
+  const uniqueIds = [...new Set(ids)].filter((id) => Number.isInteger(id) && id > 0).slice(0, 100);
+  if (!uniqueIds.length) throw new ApiError(422, "coach_ids_required", "请选择至少一位教练");
+  const results = [];
+  for (const id of uniqueIds) results.push(await updateOpsCoachListingD1(id, status, reason, actor, env));
+  return { count: results.length, results };
+}
+
+export async function listOpsCoachStatusEventsD1(id: number, env: ApiEnv) {
+  const result = await db(env).prepare(`
+    SELECT id, event_type, from_status, to_status, reason, actor, created_at
+    FROM coach_status_events WHERE coach_id = ? ORDER BY created_at DESC LIMIT 100
+  `).bind(id).all<Row>();
+  return rows(result);
 }
 
 export async function listOpsUsersD1(env: ApiEnv) {

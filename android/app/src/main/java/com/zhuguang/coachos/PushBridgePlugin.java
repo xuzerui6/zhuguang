@@ -12,6 +12,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import java.lang.ref.WeakReference;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import cn.jiguang.api.utils.JCollectionAuth;
@@ -32,13 +33,45 @@ import com.getcapacitor.annotation.PermissionCallback;
 public class PushBridgePlugin extends Plugin {
     static final String PUSH_PREFERENCES = "zhuguang_push";
     static final String REGISTRATION_ID = "registration_id";
+    static final String PENDING_DEEP_LINK = "pending_deep_link";
+    private static WeakReference<PushBridgePlugin> activePlugin = new WeakReference<>(null);
     private static final String CHANNEL_BOOKING = "zhuguang_booking";
     private static final String CHANNEL_MESSAGE = "zhuguang_message";
     private static final String CHANNEL_UPDATE = "zhuguang_update";
 
     @Override
     public void load() {
+        activePlugin = new WeakReference<>(this);
         createNotificationChannels();
+    }
+
+    static void deliverPushOpen(android.content.Context context, String deepLink) {
+        context.getSharedPreferences(PUSH_PREFERENCES, 0)
+            .edit()
+            .putString(PENDING_DEEP_LINK, deepLink)
+            .apply();
+        PushBridgePlugin plugin = activePlugin.get();
+        if (plugin == null) return;
+        new Handler(Looper.getMainLooper()).post(() -> {
+            JSObject event = new JSObject();
+            event.put("deepLink", deepLink);
+            plugin.notifyListeners("pushOpened", event, true);
+            context.getSharedPreferences(PUSH_PREFERENCES, 0)
+                .edit()
+                .remove(PENDING_DEEP_LINK)
+                .apply();
+        });
+    }
+
+    @PluginMethod
+    public void consumePendingDeepLink(PluginCall call) {
+        SharedPreferences preferences = getContext().getSharedPreferences(PUSH_PREFERENCES, 0);
+        String deepLink = preferences.getString(PENDING_DEEP_LINK, "");
+        if (deepLink == null) deepLink = "";
+        if (!deepLink.isEmpty()) preferences.edit().remove(PENDING_DEEP_LINK).apply();
+        JSObject result = new JSObject();
+        result.put("deepLink", deepLink);
+        call.resolve(result);
     }
 
     @PluginMethod

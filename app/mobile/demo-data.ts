@@ -17,6 +17,8 @@ export const demoCoaches: MobileCoach[] = coachCatalog.map((coach, index) => ({
   availability: coach.availability.flatMap(({ day, periods }) => periods.map((period) => `${day} ${period}`)),
   avatarUrl: coach.media.avatarUrl,
   bookable: coach.bookable,
+  canConsult: coach.canConsult,
+  cardUrl: coach.media.cardUrl,
   city: coach.city,
   district: coach.district,
   distanceKm: coach.id === 5 ? undefined : 3.2 + index * 1.1,
@@ -30,7 +32,9 @@ export const demoCoaches: MobileCoach[] = coachCatalog.map((coach, index) => ({
   name: coach.name,
   note: coach.bio,
   price: coach.price,
-  proof: coach.credentials.length ? [...coach.credentials, "服务保障已开通"] : ["平台试点教练", "服务区域已确认"],
+  profileCompleteness: coach.profileCompleteness,
+  profileKind: coach.profileKind,
+  proof: coach.profileKind === "demo" ? ["演示资料", "不可预约"] : coach.credentials.length ? [...coach.credentials, "服务保障已开通"] : [coach.verificationLabel, "服务区域已确认"],
   rating: coach.rating,
   responseMinutes: coach.responseMinutes || undefined,
   reviewCount: coach.reviewCount,
@@ -43,10 +47,6 @@ export const demoCoaches: MobileCoach[] = coachCatalog.map((coach, index) => ({
 }));
 
 export const venues: CoachVenue[] = [
-  { id: "venue-chaoyang-badminton", coachId: 1, name: "朝阳体育中心羽毛球馆", address: "朝阳区安定路 1 号", district: "朝阳区" },
-  { id: "venue-haidian-badminton", coachId: 2, name: "海淀全民健身中心羽毛球馆", address: "海淀区颐和园路 12 号", district: "海淀区" },
-  { id: "venue-chaoyang-tennis", coachId: 3, name: "朝阳公园网球中心", address: "朝阳区农展南路 1 号", district: "朝阳区" },
-  { id: "venue-dongcheng-basketball", coachId: 4, name: "东单体育中心篮球馆", address: "东城区崇文门内大街 108 号", district: "东城区" },
   { id: "venue-tongzhou-track", coachId: 5, name: "通州区合作训练场", address: "通州区 · 具体场地预约后确认", district: "通州区" },
 ];
 
@@ -64,8 +64,8 @@ export const defaultLearner: LearnerProfile = {
 };
 
 export const demoNotifications: MobileNotification[] = [
-  { id: "notification-message", type: "coach_message", title: "周明教练回复了你的咨询", body: "方便确认一下学员目前的训练频率吗？", createdAt: "刚刚", read: false },
-  { id: "notification-audit", type: "credential", title: "教练履历复核完成", body: "你收藏的林悦教练已完成最新资料复核。", createdAt: "昨天", read: true },
+  { id: "notification-message", type: "coach_message", title: "平台已收到训练咨询", body: "运营人员会先核对需求，再协助联系合适的真实教练。", createdAt: "刚刚", read: false },
+  { id: "notification-audit", type: "credential", title: "教练资料状态已更新", body: "演示资料与真实教练现在会在目录中明确区分。", createdAt: "昨天", read: true },
   { id: "notification-email", type: "service", title: "预约进度会同步到账号", body: "验证邮箱后，可在逐光查看教练确认和改期通知。", createdAt: "2 天前", read: true },
 ];
 
@@ -88,6 +88,7 @@ export function createDemoSlots(coachId: number): BookingSlot[] {
     return times.map((time, timeIndex) => ({
       id: `slot-${coachId}-${parts.date}-${time.replace(":", "")}`,
       coachId,
+      venueId: coachId === 5 ? "venue-tongzhou-track" : undefined,
       date: parts.date,
       dateLabel: parts.dateLabel,
       time,
@@ -103,10 +104,10 @@ export function createDemoBooking(): MobileBooking {
   const parts = dateParts(1);
   return {
     id: "booking-demo-confirmed",
-    coachId: 2,
+    coachId: 5,
     learnerId: defaultLearner.id,
-    venueId: "venue-haidian-badminton",
-    slotId: `slot-2-${parts.date}-1100`,
+    venueId: "venue-tongzhou-track",
+    slotId: `slot-5-${parts.date}-1100`,
     date: parts.date,
     dateLabel: parts.dateLabel,
     time: "11:00",

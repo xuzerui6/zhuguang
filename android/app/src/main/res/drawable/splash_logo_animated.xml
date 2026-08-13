@@ -4,10 +4,4 @@
     <target
         android:name="brandScale"
         android:animation="@animator/splash_brand_scale" />
-    <target
-        android:name="zGlyph"
-        android:animation="@animator/splash_z_fade" />
-    <target
-        android:name="lightDot"
-        android:animation="@animator/splash_dot_fade" />
 </animated-vector>

@@ -37,6 +37,7 @@ type PushBridgePlugin = {
   setPrivacyConsent(options: { accepted: boolean }): Promise<{ initialized: boolean; provider: string; registrationId?: string; registrationReady?: boolean }>;
   getPermissionStatus(): Promise<{ granted: boolean; canAskAgain: boolean }>;
   requestPermission(): Promise<{ granted: boolean; canAskAgain: boolean }>;
+  consumePendingDeepLink(): Promise<{ deepLink: string }>;
   simulateNotification(options: {
     body: string;
     deepLink: string;
@@ -105,6 +106,10 @@ export const pushBridge = {
       return { granted: permission === "granted", canAskAgain: permission !== "denied" };
     }
     return NativePushBridge.requestPermission();
+  },
+  async consumePendingDeepLink() {
+    if (!Capacitor.isNativePlatform()) return { deepLink: "" };
+    return NativePushBridge.consumePendingDeepLink();
   },
   async simulateNotification(options: Parameters<PushBridgePlugin["simulateNotification"]>[0]) {
     if (Capacitor.isNativePlatform()) await NativePushBridge.simulateNotification(options);

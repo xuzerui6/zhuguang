@@ -217,11 +217,11 @@ export function CoachCard({
             <strong>{coach.name}</strong>
             {coach.verified !== false ? <em><ShieldCheck aria-hidden size={14} />{coach.verificationLabel ?? coach.level}</em> : null}
           </span>
-          <small>{coach.isNew ? `${coach.sport} · 新教练` : `${coach.sport} · ${coach.experienceYears ?? 8}年教学经验`}</small>
+          <small>{coach.profileKind === "demo" ? `${coach.sport} · 演示资料` : coach.isNew ? `${coach.sport} · 新教练` : `${coach.sport} · ${coach.experienceYears ?? 0}年教学经验`}</small>
           <span className="zg-coach-card-meta">
-            {coach.isNew ? <b className="is-new">新教练</b> : <b><Star aria-hidden fill="currentColor" size={14} />{coach.rating}</b>}
+            {coach.profileKind === "demo" ? <b className="is-demo">演示</b> : coach.isNew ? <b className="is-new">新教练</b> : <b><Star aria-hidden fill="currentColor" size={14} />{coach.rating}</b>}
             {coach.distanceKm ? <i>{coach.distanceKm.toFixed(1)}km</i> : <i>{coach.district}</i>}
-            <i>{coach.bookable === false ? "时段待发布" : `${coach.availability[0]}可约`}</i>
+            <i>{coach.profileKind === "demo" ? "不可预约" : coach.bookable === false ? "时段待发布" : `${coach.availability[0]}可约`}</i>
           </span>
         </span>
         <MatchScore score={match.score} />

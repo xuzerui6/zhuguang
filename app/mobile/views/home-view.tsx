@@ -9,6 +9,7 @@ import type { MatchPreferences, MobileBooking, MobileCoach } from "../types";
 const sports = [
   { symbol: "羽", label: "羽毛球" },
   { symbol: "泳", label: "游泳" },
+  { symbol: "网", label: "网球" },
   { symbol: "篮", label: "篮球" },
   { symbol: "体", label: "体能" },
   { symbol: "径", label: "田径" },
@@ -108,7 +109,7 @@ export function HomeView({
 
       <section className="zg-service-note">
         <MapPin aria-hidden size={20} />
-        <div><strong>北京试点服务</strong><p>现已覆盖朝阳、海淀、东城、丰台与通州的试点教练。</p></div>
+        <div><strong>北京试点服务</strong><p>目录覆盖北京 16 区；演示资料与真实教练始终明确区分。</p></div>
         <ArrowRight aria-hidden size={18} />
       </section>
     </div>

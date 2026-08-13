@@ -234,9 +234,66 @@
 .listIcon { align-items: center; background: #edf7f2; border-radius: 6px; color: #087a50; display: flex; height: 40px; justify-content: center; width: 40px; }
 
 .coachIdentity { align-items: center; display: flex; gap: 14px; }
+.coachIdentity > span { min-width: 0; }
+.coachIdentity input { accent-color: #087a50; height: 18px; margin: 0; width: 18px; }
+.coachIdentity .status { margin-top: 7px; }
 .coachIdentity img { border-radius: 6px; height: 56px; object-fit: cover; width: 56px; }
 .coachIdentity h3 { font-size: 16px; margin: 0; }
 .coachIdentity p { color: #66746c; font-size: 13px; margin: 4px 0 0; }
+
+.coachFilters {
+  align-items: end;
+  border-bottom: 1px solid #e7ebe8;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  padding: 16px 20px;
+}
+.coachFilters label { display: grid; gap: 6px; }
+.coachFilters label span { color: #66746c; font-size: 12px; font-weight: 650; }
+.coachFilters select { min-width: 0; width: 100%; }
+
+.selectionBar {
+  align-items: center;
+  background: #f2f8f5;
+  border-bottom: 1px solid #dce9e2;
+  display: flex;
+  gap: 10px;
+  min-height: 54px;
+  padding: 8px 20px;
+}
+.selectionBar > span { flex: 1; }
+
+.confirmOverlay {
+  align-items: center;
+  background: rgb(5 18 13 / 44%);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 20px;
+  position: fixed;
+  z-index: 80;
+}
+.confirmOverlay > section {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgb(3 20 13 / 24%);
+  max-height: min(680px, calc(100vh - 40px));
+  max-width: 560px;
+  overflow: auto;
+  padding: 24px;
+  width: 100%;
+}
+.confirmOverlay h2 { color: #173329; font-size: 20px; margin: 0; }
+.confirmOverlay > section > p { color: #64736b; line-height: 1.65; margin: 9px 0 20px; }
+.confirmOverlay > section > div:last-child { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
+.statusHistory { border-bottom: 1px solid #e6ebe8; border-top: 1px solid #e6ebe8; display: grid; }
+.statusHistory article { border-top: 1px solid #edf1ef; padding: 14px 0; }
+.statusHistory article:first-child { border-top: 0; }
+.statusHistory article > span { align-items: center; display: flex; justify-content: space-between; }
+.statusHistory article p { color: #173329; font-weight: 700; margin: 8px 0 4px; }
+.statusHistory small { color: #748078; font-size: 12px; }
 
 .form { display: grid; gap: 18px; padding: 20px; }
 .formGrid { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -300,6 +357,7 @@
   .conversationList { border-bottom: 1px solid #e4e9e6; border-right: 0; display: flex; overflow-x: auto; }
   .conversationList button { border-bottom: 0; border-right: 1px solid #edf0ee; min-width: 230px; }
   .messagePane { min-height: 460px; }
+  .coachFilters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {
@@ -317,6 +375,11 @@
   .conversation { min-height: 520px; }
   .bubble { max-width: 88%; }
   .compose { grid-template-columns: 1fr; }
+  .coachFilters { grid-template-columns: 1fr; }
+  .selectionBar { align-items: stretch; flex-direction: column; }
+  .selectionBar > span { display: none; }
+  .confirmOverlay { align-items: flex-end; padding: 0; }
+  .confirmOverlay > section { border-radius: 8px 8px 0 0; max-height: 88vh; }
 }
 
 @media (prefers-reduced-motion: reduce) {

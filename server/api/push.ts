@@ -42,37 +42,117 @@ export async function enqueuePendingPushDeliveriesD1(env: ApiEnv) {
   `).bind(now, now).run();
 }
 
+export function buildJPushPayload(row: Row) {
+  const deepLink = text(row.deep_link || row.deepLink);
+  const targetMode = text(row.target_mode || row.targetMode);
+  return {
+    audience: { registration_id: [text(row.push_registration_id)] },
+    notification: {
+      android: {
+        alert: pushLockScreenBody(text(row.type), text(row.body)),
+        channel_id: pushChannelId(text(row.type)),
+        extras: {
+          deepLink,
+          notificationId: text(row.notification_id),
+          targetMode,
+          type: text(row.type),
+        },
+        intent: { url: deepLink },
+        title: text(row.title),
+      },
+    },
+    options: { apns_production: true, time_to_live: 86_400 },
+    platform: ["android"],
+  };
+}
+
 async function sendJPush(row: Row, env: ApiEnv) {
   if (!env.JPUSH_APP_KEY || !env.JPUSH_MASTER_SECRET) {
     throw new Error("JPush credentials are not configured");
   }
   const authorization = btoa(`${env.JPUSH_APP_KEY}:${env.JPUSH_MASTER_SECRET}`);
   const response = await fetch("https://api.jpush.cn/v3/push", {
-    body: JSON.stringify({
-      audience: { registration_id: [text(row.push_registration_id)] },
-      notification: {
-        android: {
-          alert: pushLockScreenBody(text(row.type), text(row.body)),
-          channel_id: pushChannelId(text(row.type)),
-          small_icon: "ic_notification_zhuguang",
-          extras: {
-            deepLink: text(row.deep_link),
-            notificationId: text(row.notification_id),
-            targetMode: text(row.target_mode),
-            type: text(row.type),
-          },
-          title: text(row.title),
-        },
-      },
-      options: { apns_production: true, time_to_live: 86_400 },
-      platform: ["android"],
-    }),
+    body: JSON.stringify(buildJPushPayload(row)),
     headers: { authorization: `Basic ${authorization}`, "content-type": "application/json" },
     method: "POST",
   });
   const payload = await response.json().catch(() => ({})) as { msg_id?: string; error?: { message?: string } };
   if (!response.ok) throw new Error(payload.error?.message || `JPush HTTP ${response.status}`);
   return payload.msg_id ? String(payload.msg_id) : "accepted";
+}
+
+const operatorTestNotifications = {
+  booking: {
+    body: "你的预约状态已更新，请进入逐光查看。",
+    deepLink: "zhuguang://student/bookings",
+    targetMode: "student",
+    title: "预约进度",
+    type: "booking_status",
+  },
+  message: {
+    body: "你有一条新的服务消息，请进入逐光查看。",
+    deepLink: "zhuguang://student/messages",
+    targetMode: "student",
+    title: "服务消息",
+    type: "service_message",
+  },
+  update: {
+    body: "逐光有新的安全版本，请前往版本中心查看。",
+    deepLink: "zhuguang://updates/latest",
+    targetMode: "student",
+    title: "版本更新",
+    type: "version_update",
+  },
+} as const;
+
+export async function sendOperatorTestPushD1(
+  installationId: string,
+  kind: keyof typeof operatorTestNotifications,
+  actor: string,
+  requestId: string,
+  env: ApiEnv,
+) {
+  const installation = await db(env).prepare(`
+    SELECT push_registration_id FROM app_installations
+    WHERE id = ? AND status = 'active' AND push_enabled = 1 AND push_registration_id IS NOT NULL
+  `).bind(installationId).first<Row>();
+  if (!installation) throw new ApiError(404, "push_installation_not_ready", "该设备尚未完成推送注册");
+
+  const notification = operatorTestNotifications[kind];
+  let messageId: string;
+  try {
+    messageId = await sendJPush({
+      ...notification,
+      notification_id: randomId("push_test"),
+      push_registration_id: installation.push_registration_id,
+    }, env);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message.slice(0, 240) : "Unknown JPush error";
+    throw new ApiError(502, "push_provider_failed", `JPush 拒绝了测试推送：${detail}`);
+  }
+  try {
+    await db(env).prepare(`
+      INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, request_id, created_at)
+      VALUES (?, ?, 'push.test', 'app_installation', ?, ?, ?, ?)
+    `).bind(
+      randomId("audit"),
+      actor,
+      installationId,
+      JSON.stringify({ kind, messageId }),
+      requestId,
+      Date.now(),
+    ).run();
+  } catch {
+    throw new ApiError(500, "push_audit_failed", "推送已被极光接受，但运营审计日志写入失败");
+  }
+  return {
+    accepted: true,
+    channelId: pushChannelId(notification.type),
+    deepLink: notification.deepLink,
+    messageId,
+    targetMode: notification.targetMode,
+    type: kind,
+  };
 }
 
 export async function dispatchPushDeliveriesD1(env: ApiEnv) {

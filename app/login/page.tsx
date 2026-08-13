@@ -16,6 +16,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const params = await searchParams;
   const requested = typeof params.next === "string" && params.next.startsWith("/") && !params.next.startsWith("//") ? params.next : "/student";
   const session = await getWebSession();
+  const accessEnabled = process.env.CF_ACCESS_ENABLED === "true";
 
   return (
     <main className={styles.loginPage}>
@@ -35,9 +36,15 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           </div>
         ) : (
           <>
-            <EmailLoginForm returnTo={requested} siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} />
-            <div className={styles.loginDivider}><span>或</span></div>
-            <Link className={styles.secondaryLogin} href={chatGPTSignInPath(requested)}>使用已绑定身份登录 <ArrowRight aria-hidden size={18} /></Link>
+            {accessEnabled ? (
+              <Link className={styles.secondaryLogin} href={requested}>使用邮箱验证码登录 <ArrowRight aria-hidden size={18} /></Link>
+            ) : (
+              <>
+                <EmailLoginForm returnTo={requested} siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} />
+                <div className={styles.loginDivider}><span>或</span></div>
+                <Link className={styles.secondaryLogin} href={chatGPTSignInPath(requested)}>使用已绑定身份登录 <ArrowRight aria-hidden size={18} /></Link>
+              </>
+            )}
           </>
         )}
         <p className={styles.loginNote}>登录代表你已阅读并同意服务协议和隐私说明。</p>

@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MobileApiError, mobileApi, usesBundledDemoData } from "./api-client";
 import { AppHeader, BottomNav } from "./components";
 import {
-  createDemoBooking,
   createDemoConversations,
   createDemoSlots,
   defaultLearner,
@@ -39,6 +38,7 @@ import {
 } from "./sheets";
 import type {
   BookingSlot,
+  CoachVenue,
   MatchPreferences,
   MobileBooking,
   MobileCoach,
@@ -68,7 +68,7 @@ function getInitialPreferences(props: MobileStudentAppProps): MatchPreferences {
     desiredTime: "周末",
     district: "全北京",
     goal: props.goal === "全部目标" ? "专项提升" : props.goal,
-    sport: props.sport === "全部项目" ? "羽毛球" : props.sport,
+    sport: props.sport === "全部项目" ? "田径" : props.sport,
   };
 }
 
@@ -92,13 +92,14 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
   });
   const [notifications, setNotifications] = useState<MobileNotification[]>(() => demoMode ? demoNotifications : []);
   const [query, setQuery] = useState("");
-  const [selectedCoachId, setSelectedCoachId] = useState(props.selectedCoachId || 1);
+  const [selectedCoachId, setSelectedCoachId] = useState(props.selectedCoachId || 5);
   const [savedCoachIds, setSavedCoachIds] = useState<number[]>(props.savedCoachIds);
-  const [bookings, setBookings] = useState<MobileBooking[]>(() => demoMode ? [createDemoBooking()] : []);
+  const [bookings, setBookings] = useState<MobileBooking[]>([]);
   const [bookingTab, setBookingTab] = useState<BookingTab>("pending");
-  const [bookingSlots, setBookingSlots] = useState<BookingSlot[]>(() => createDemoSlots(props.selectedCoachId || 1));
-  const [selectedSlot, setSelectedSlot] = useState<BookingSlot>(() => createDemoSlots(props.selectedCoachId || 1).find((slot) => slot.available) ?? createDemoSlots(1)[0]);
-  const [bookingNote, setBookingNote] = useState("希望重点改善反手高远球稳定性，并建立每周训练计划。");
+  const [bookingSlots, setBookingSlots] = useState<BookingSlot[]>(() => createDemoSlots(props.selectedCoachId || 5));
+  const [selectedSlot, setSelectedSlot] = useState<BookingSlot>(() => createDemoSlots(props.selectedCoachId || 5).find((slot) => slot.available) ?? createDemoSlots(5)[0]);
+  const [bookingVenue, setBookingVenue] = useState<CoachVenue>(() => venues[0]);
+  const [bookingNote, setBookingNote] = useState("希望先沟通训练目标，真实场地与时段确认后再提交预约。");
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [conversations, setConversations] = useState<MobileConversation[]>(() => demoMode ? createDemoConversations() : []);
@@ -128,7 +129,6 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
   const detailScrollPosition = useRef(0);
 
   const selectedCoach = coaches.find((coach) => coach.id === selectedCoachId) ?? coaches[0] ?? demoCoaches[0];
-  const selectedVenue = venues.find((venue) => venue.coachId === selectedCoach.id) ?? venues[0];
   const unreadMessages = conversations.reduce((total, conversation) => total + conversation.unreadCount, 0);
   const activeBookingCount = bookings.filter((booking) => booking.status === "confirmed").length;
   const pendingBookingCount = bookings.filter((booking) => booking.status === "pending_coach" || booking.status === "reschedule_requested").length;
@@ -270,21 +270,45 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     if (session && online) void mobileApi.setFavorite(coachId, favorite).catch(() => undefined);
   }, [online, props, savedCoachIds, session, showFeedback]);
 
-  const openBooking = useCallback((coach = selectedCoach) => {
-    const slots = createDemoSlots(coach.id);
-    const firstAvailable = slots.find((slot) => slot.available) ?? slots[0];
-    if (coach.bookable === false || !firstAvailable) {
+  const openBooking = useCallback(async (coach = selectedCoach) => {
+    if (coach.bookable === false || coach.profileKind === "demo") {
       showFeedback("真实场地与时段发布后即可预约，可先收藏或咨询教练");
+      return;
+    }
+    let slots: BookingSlot[];
+    try {
+      slots = demoMode ? createDemoSlots(coach.id) : await mobileApi.coachSlots(coach.id);
+    } catch (error) {
+      showFeedback(error instanceof Error ? error.message : "暂时无法读取可约时段");
+      return;
+    }
+    const firstAvailable = slots.find((slot) => slot.available);
+    if (!firstAvailable?.venueId) {
+      showFeedback("真实场地与时段发布后即可预约，可先收藏或咨询教练");
+      return;
+    }
+    const venue = demoMode
+      ? venues.find((item) => item.id === firstAvailable.venueId)
+      : {
+          address: firstAvailable.venueAddress || "具体位置由平台与教练确认",
+          coachId: coach.id,
+          district: firstAvailable.venueDistrict || coach.district || "北京",
+          id: firstAvailable.venueId,
+          name: firstAvailable.venueName || "已确认训练场",
+        };
+    if (!venue) {
+      showFeedback("该时段的训练场信息尚未完成发布");
       return;
     }
     setSelectedCoachId(coach.id);
     setBookingSlots(slots);
     setSelectedSlot(firstAvailable);
+    setBookingVenue(venue);
     setAgreed(false);
     detailScrollPosition.current = window.scrollY;
     setView("booking");
     queueScroll(0);
-  }, [queueScroll, selectedCoach, showFeedback]);
+  }, [demoMode, queueScroll, selectedCoach, showFeedback]);
 
   const performBooking = useCallback(async () => {
     setSubmitting(true);
@@ -293,7 +317,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       learnerId: learner.id,
       note: bookingNote,
       slotId: selectedSlot.id,
-      venueId: selectedVenue.id,
+      venueId: bookingVenue.id,
     };
     try {
       let booking: MobileBooking;
@@ -316,7 +340,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
           id: createRequestId("booking"),
           coachId: selectedCoach.id,
           learnerId: learner.id,
-          venueId: selectedVenue.id,
+          venueId: bookingVenue.id,
           slotId: selectedSlot.id,
           date: selectedSlot.date,
           dateLabel: selectedSlot.dateLabel,
@@ -324,7 +348,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
           endTime: selectedSlot.endTime,
           status: "pending_coach",
           submittedAt: "刚刚",
-          feeFen: selectedCoach.trialPrice * 100,
+          feeFen: (selectedCoach.trialPrice ?? 0) * 100,
           paymentStatus: "offline_unpaid",
           note: bookingNote,
         };
@@ -337,7 +361,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     } finally {
       setSubmitting(false);
     }
-  }, [apiConnected, bookingNote, demoMode, learner.id, props, selectedCoach, selectedSlot, selectedVenue, showFeedback]);
+  }, [apiConnected, bookingNote, bookingVenue.id, demoMode, learner.id, props, selectedCoach, selectedSlot, showFeedback]);
 
   const submitBooking = useCallback(() => {
     if (!session) {
@@ -498,9 +522,9 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
 
       {view === "home" ? <HomeView activeBooking={activeBooking} coaches={coaches} onDiscover={() => navigateTab("discover")} onOpenBooking={() => navigateTab("bookings")} onOpenCoach={openCoach} onSearch={(value) => { setQuery(value); if (value) navigateTab("discover"); }} onSelectSport={(sport) => updatePreferences({ ...preferences, sport })} onToggleSaved={toggleSaved} preferences={preferences} query={query} savedCoachIds={savedCoachIds} /> : null}
       {view === "discover" ? <DiscoverView coaches={coaches} onFilter={() => setSheet("filters")} onOpenCoach={openCoach} onQuery={setQuery} onToggleSaved={toggleSaved} preferences={preferences} query={query} savedCoachIds={savedCoachIds} /> : null}
-      {view === "coach" ? <CoachDetailView coach={selectedCoach} isSaved={savedCoachIds.includes(selectedCoach.id)} onBack={handleBack} onBook={() => openBooking(selectedCoach)} onMessage={() => openConversationForCoach(selectedCoach.id)} onToggleSaved={() => toggleSaved(selectedCoach.id)} preferences={preferences} /> : null}
-      {view === "booking" ? <BookingView agreed={agreed} coach={selectedCoach} learner={learner} note={bookingNote} onBack={handleBack} onChangeNote={setBookingNote} onConfirm={submitBooking} onSelectSlot={setSelectedSlot} onToggleAgreement={() => setAgreed((current) => !current)} preferences={preferences} selectedSlot={selectedSlot} slots={bookingSlots} submitting={submitting} venue={selectedVenue} /> : null}
-      {view === "bookings" ? <BookingsView bookings={bookings} coaches={coaches} onCancel={(booking) => { setCancelTarget(booking); setSheet("cancel"); }} onDiscover={() => navigateTab("discover")} onMessage={openConversationForCoach} onReschedule={(booking) => openBooking(coaches.find((coach) => coach.id === booking.coachId) ?? selectedCoach)} onTab={setBookingTab} tab={bookingTab} venues={venues} /> : null}
+      {view === "coach" ? <CoachDetailView coach={selectedCoach} isSaved={savedCoachIds.includes(selectedCoach.id)} onBack={handleBack} onBook={() => void openBooking(selectedCoach)} onMessage={() => openConversationForCoach(selectedCoach.id)} onToggleSaved={() => toggleSaved(selectedCoach.id)} preferences={preferences} /> : null}
+      {view === "booking" ? <BookingView agreed={agreed} coach={selectedCoach} learner={learner} note={bookingNote} onBack={handleBack} onChangeNote={setBookingNote} onConfirm={submitBooking} onSelectSlot={setSelectedSlot} onToggleAgreement={() => setAgreed((current) => !current)} preferences={preferences} selectedSlot={selectedSlot} slots={bookingSlots} submitting={submitting} venue={bookingVenue} /> : null}
+      {view === "bookings" ? <BookingsView bookings={bookings} coaches={coaches} onCancel={(booking) => { setCancelTarget(booking); setSheet("cancel"); }} onDiscover={() => navigateTab("discover")} onMessage={openConversationForCoach} onReschedule={(booking) => void openBooking(coaches.find((coach) => coach.id === booking.coachId) ?? selectedCoach)} onTab={setBookingTab} tab={bookingTab} venues={venues} /> : null}
       {view === "messages" ? <MessagesView coaches={coaches} conversations={conversations} draft={messageDraft} onBack={() => setSelectedConversation(null)} onChangeDraft={setMessageDraft} onOpen={(conversation) => { setSelectedConversation({ ...conversation, unreadCount: 0 }); setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, unreadCount: 0 } : item)); }} onSend={sendMessage} selectedConversation={selectedConversation} /> : null}
       {view === "profile" ? <ProfileView activeBookingCount={activeBookingCount} coachSummary={session?.coach ?? props.coachSummary} completedCount={bookings.filter((booking) => booking.status === "completed").length} contactMasked={session?.contactMasked ?? session?.phoneMasked} learner={learner} onAction={profileAction} onOpenCoachMode={props.onOpenCoachMode} savedCount={savedCoachIds.length} /> : null}
 

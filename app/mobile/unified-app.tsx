@@ -56,6 +56,7 @@ function timeout<T>(promise: Promise<T>, durationMs: number) {
 export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   const demoMode = useMemo(() => usesBundledDemoData(), []);
   const [booting, setBooting] = useState(true);
+  const [showBootBrand, setShowBootBrand] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState<boolean | null>(null);
   const [mode, setMode] = useState<AccountMode>("student");
   const [studentTab, setStudentTab] = useState<MobileTab>("home");
@@ -70,6 +71,12 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   const [routeRevision, setRouteRevision] = useState(0);
 
   const hasCoachMode = identity.availableModes.includes("coach") && identity.coach?.auditStatus === "approved";
+
+  useEffect(() => {
+    if (!booting) return;
+    const timer = window.setTimeout(() => setShowBootBrand(true), 250);
+    return () => window.clearTimeout(timer);
+  }, [booting]);
 
   const applyDeepLink = useCallback((url: string) => {
     const diagnostic = demoMode ? parsePrivateQaNotification(url) : null;
@@ -110,6 +117,14 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
     }
     setSurface("app");
   }, [demoMode, hasCoachMode]);
+
+  const consumePendingPushLink = useCallback(() => {
+    void pushBridge.consumePendingDeepLink().then(({ deepLink }) => {
+      if (deepLink) applyDeepLink(deepLink);
+    }).catch(() => {
+      // A pending notification route is retried on the next app resume.
+    });
+  }, [applyDeepLink]);
 
   const checkForUpdates = useCallback(async () => {
     if (demoMode) return;
@@ -189,16 +204,18 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
     const removeUrl = listenForAppUrl(applyDeepLink);
     let pushHandle: { remove: () => Promise<void> } | undefined;
     void pushBridge.onOpen(applyDeepLink).then((handle) => { pushHandle = handle; });
+    consumePendingPushLink();
     const removeResume = listenForAppResume(() => {
       void checkForUpdates();
       if (privacyAccepted) void initializePush();
+      consumePendingPushLink();
     });
     return () => {
       removeUrl();
       removeResume();
       void pushHandle?.remove();
     };
-  }, [applyDeepLink, checkForUpdates, initializePush, privacyAccepted]);
+  }, [applyDeepLink, checkForUpdates, consumePendingPushLink, initializePush, privacyAccepted]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => window.scrollTo({ behavior: "auto", left: 0, top: 0 }));
@@ -230,8 +247,7 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   if (booting) {
     return (
       <main aria-busy="true" aria-label="正在准备逐光" className="zg-mobile-app zg-native-handoff">
-        <header><span /><i /><b /></header>
-        <section><span /><span /><div><i /><i /><i /><i /></div><span /></section>
+        {showBootBrand ? <Image alt="" className="zg-native-handoff-mark" height={72} priority src="./logo-mark.svg" unoptimized width={72} /> : null}
       </main>
     );
   }

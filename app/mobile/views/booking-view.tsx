@@ -128,9 +128,9 @@ export function BookingView({
 
       <section className="zg-fee-section">
         <h2>费用明细</h2>
-        <p><span>试课价</span><strong>{formatYuan(coach.trialPrice * 100)}</strong></p>
+        <p><span>试课价</span><strong>{coach.trialPrice === undefined ? "待发布" : formatYuan(coach.trialPrice * 100)}</strong></p>
         <p><span>支付方式</span><strong>教练确认后线下支付</strong></p>
-        <p className="is-total"><span>本次应付</span><strong>{formatYuan(coach.trialPrice * 100)} <em>待支付</em></strong></p>
+        <p className="is-total"><span>本次应付</span><strong>{coach.trialPrice === undefined ? "待发布" : formatYuan(coach.trialPrice * 100)} <em>待支付</em></strong></p>
       </section>
 
       <label className="zg-agreement-row">

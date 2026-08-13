@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "zhuguang-web",
+  "main": "./dist/server/index.js",
+  "account_id": "1f2504fb31c1cf2e43cbbc9948b689f7",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": true,
+  "routes": [
+    { "pattern": "beijingzhuguang.top", "custom_domain": true },
+    { "pattern": "www.beijingzhuguang.top", "custom_domain": true }
+  ],
+  "no_bundle": true,
+  "rules": [
+    { "type": "ESModule", "globs": ["dist/server/**/*.js", "dist/server/**/*.mjs"] }
+  ],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist/client"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "CF_ACCESS_ENABLED": "true",
+    "ZHUGUANG_COACH_EMAILS": "xuzerui6@gmail.com",
+    "ZHUGUANG_MOBILE_API_URL": "https://api.beijingzhuguang.top",
+    "ZHUGUANG_OPS_EMAILS": "xuzerui6@gmail.com"
+  }
+}

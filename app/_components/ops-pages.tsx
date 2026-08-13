@@ -7,7 +7,10 @@ import {
   CheckCircle2,
   CircleAlert,
   FileCheck2,
+  Eye,
+  EyeOff,
   HardDriveDownload,
+  History,
   LoaderCircle,
   PauseCircle,
   RefreshCw,
@@ -19,6 +22,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { BEIJING_DISTRICTS, SPORT_OPTIONS } from "../../shared/coach-catalog";
 import { formatBeijingDate, formatFen, platformRequest } from "./platform-client";
 import styles from "./platform-pages.module.css";
 
@@ -75,7 +79,7 @@ function OpsHome() {
     <section className={styles.metrics}>
       <article><span>新服务线索</span><strong>{count(state.data.leads, "new")}</strong><small>等待首次联系</small></article>
       <article><span>待确认预约</span><strong>{count(state.data.bookings, "pending_coach")}</strong><small>等待教练处理</small></article>
-      <article><span>已上线教练</span><strong>{count(state.data.coaches, "approved")}</strong><small>通过人工审核</small></article>
+      <article><span>已上线教练</span><strong>{count(state.data.coaches, "online")}</strong><small>当前公开展示</small></article>
       <article><span>推送失败</span><strong>{failedPush}</strong><small>需要检查或重试</small></article>
     </section>
     <div className={styles.split}>
@@ -107,15 +111,107 @@ function LeadCenter() {
   return <div className={styles.page}><Heading action={<div className={styles.toolbar}><input aria-label="搜索线索" onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、邮箱、项目或区域" value={query} /></div>} copy="官网提交的咨询会进入这里，由运营人员联系、确认需求并完成分流。" title="服务线索" /><section className={styles.panel}>{rows.length ? <div className={styles.table}><div className={styles.tableHead}><span>联系人</span><span>训练需求</span><span>区域与来源</span><span>状态</span><span>操作</span></div>{rows.map((lead) => <article className={styles.tableRow} key={lead.id}><span><strong>{lead.contact_name || "未填写称呼"}</strong><small>{lead.contact_email || "未提供邮箱"}</small></span><span><strong>{lead.sport || "项目待确认"}{lead.coach_name ? ` · ${lead.coach_name}教练` : ""}</strong><small>{lead.goal || "目标待补充"}</small></span><span><strong>{lead.district || "北京"}</strong><small>{lead.source || "web"} · {formatBeijingDate(lead.created_at)}</small></span><span><em className={styles.status} data-tone={lead.status === "new" ? "amber" : lead.status === "closed" ? "gray" : "green"}>{leadStatus[lead.status || "new"] || lead.status}</em></span><span className={styles.rowActions}><button className={styles.secondary} disabled={busy === lead.id} onClick={() => void update(lead.id, "contacted")} type="button">标记已联系</button><button className={styles.primary} disabled={busy === lead.id} onClick={() => void update(lead.id, "qualified")} type="button">确认需求</button><button className={styles.danger} disabled={busy === lead.id} onClick={() => void update(lead.id, "closed")} type="button">关闭</button></span></article>)}</div> : <Empty copy="官网访客提交训练咨询后，会以真实线索进入这里。" title="暂无服务线索" />}</section>{notice ? <Toast copy={notice} /> : null}</div>;
 }
 
-type OpsCoach = { id: number; name?: string; sport?: string; district?: string; title?: string; audit_status?: string; review_count?: number; lessons?: number; pending_credentials?: number; open_slots?: number; user_id?: string; updated_at?: number };
+type OpsCoach = {
+  audit_status?: string;
+  district?: string;
+  id: number;
+  lessons?: number;
+  listing_changed_at?: number;
+  listing_changed_by?: string;
+  listing_reason?: string;
+  listing_status?: "online" | "offline";
+  name?: string;
+  open_slots?: number;
+  pending_credentials?: number;
+  pricing_status?: string;
+  profile_kind?: "real" | "demo";
+  review_count?: number;
+  sport?: string;
+  title?: string;
+  updated_at?: number;
+  user_id?: string;
+};
+
+type CoachStatusEvent = { actor?: string; created_at?: number; event_type?: "audit" | "listing"; from_status?: string; id: string; reason?: string; to_status?: string };
+
 function CoachOperations() {
   const state = useOpsData<OpsCoach[]>("/api/v1/operator/coaches");
   const [busy, setBusy] = useState(0);
   const [notice, setNotice] = useState("");
+  const [filters, setFilters] = useState({ audit: "all", district: "all", kind: "all", listing: "all", sport: "all" });
+  const [selected, setSelected] = useState<number[]>([]);
+  const [pendingListing, setPendingListing] = useState<{ ids: number[]; status: "online" | "offline" } | null>(null);
+  const [reason, setReason] = useState("");
+  const [historyCoach, setHistoryCoach] = useState<OpsCoach | null>(null);
+  const [events, setEvents] = useState<CoachStatusEvent[]>([]);
   if (state.loading) return <Loading label="正在读取教练档案" />;
   if (!state.data) return <ErrorState message={state.error} onRetry={state.load} />;
-  async function setStatus(id: number, status: string) { setBusy(id); try { await platformRequest(`/api/v1/operator/coaches/${id}/status`, { body: { status }, method: "PATCH" }); setNotice("教练审核状态已更新"); await state.load(); } catch (error) { setNotice(error instanceof Error ? error.message : "更新失败"); } finally { setBusy(0); } }
-  return <div className={styles.page}><Heading copy="审核状态决定公开展示与教练权限；评价、课量和资质不会在运营端伪造。" title="教练管理" /><section className={styles.panel}>{state.data.length ? <div className={styles.table}><div className={styles.tableHead}><span>教练</span><span>服务区域</span><span>业务状态</span><span>审核状态</span><span>操作</span></div>{state.data.map((coach) => <article className={styles.tableRow} key={coach.id}><span><strong>{coach.name || `教练 #${coach.id}`}</strong><small>{coach.sport} · {coach.title}</small></span><span><strong>{coach.district || "未设置"}</strong><small>{coach.open_slots || 0} 个开放时段</small></span><span><strong>{coach.review_count || 0} 条评价</strong><small>{coach.lessons || 0} 节已完成课程</small></span><span><em className={styles.status} data-tone={coach.audit_status === "approved" ? "green" : coach.audit_status === "suspended" ? "coral" : "amber"}>{coach.audit_status === "approved" ? "已上线" : coach.audit_status === "suspended" ? "已暂停" : coach.audit_status || "待审核"}</em><small>{coach.user_id ? "已绑定账号" : "未绑定账号"}</small></span><span className={styles.rowActions}>{coach.audit_status === "approved" ? <button className={styles.danger} disabled={busy === coach.id} onClick={() => void setStatus(coach.id, "suspended")} type="button">暂停服务</button> : <button className={styles.primary} disabled={busy === coach.id} onClick={() => void setStatus(coach.id, "approved")} type="button">批准上线</button>}</span></article>)}</div> : <Empty copy="导入并审核教练档案后，数据会出现在这里。" title="暂无教练档案" />}</section>{notice ? <Toast copy={notice} /> : null}</div>;
+  const rows = state.data.filter((coach) => (
+    (filters.sport === "all" || coach.sport === filters.sport)
+    && (filters.district === "all" || coach.district === filters.district)
+    && (filters.kind === "all" || coach.profile_kind === filters.kind)
+    && (filters.audit === "all" || coach.audit_status === filters.audit)
+    && (filters.listing === "all" || coach.listing_status === filters.listing)
+  ));
+  async function setStatus(id: number, status: string) {
+    setBusy(id);
+    try {
+      await platformRequest(`/api/v1/operator/coaches/${id}/status`, { body: { status }, method: "PATCH" });
+      setNotice("教练审核状态已更新");
+      await state.load();
+    } catch (error) { setNotice(error instanceof Error ? error.message : "更新失败"); }
+    finally { setBusy(0); }
+  }
+  async function applyListing() {
+    if (!pendingListing || !reason.trim()) return;
+    setBusy(pendingListing.ids[0] ?? -1);
+    try {
+      const path = pendingListing.ids.length === 1
+        ? `/api/v1/operator/coaches/${pendingListing.ids[0]}/listing`
+        : "/api/v1/operator/coaches/listing/batch";
+      await platformRequest(path, {
+        body: { ids: pendingListing.ids, reason: reason.trim(), status: pendingListing.status },
+        method: "PATCH",
+      });
+      setNotice(`${pendingListing.ids.length} 位教练已${pendingListing.status === "online" ? "上线" : "下线"}`);
+      setPendingListing(null);
+      setReason("");
+      setSelected([]);
+      await state.load();
+    } catch (error) { setNotice(error instanceof Error ? error.message : "更新失败"); }
+    finally { setBusy(0); }
+  }
+  async function openHistory(coach: OpsCoach) {
+    setHistoryCoach(coach);
+    try { setEvents(await platformRequest<CoachStatusEvent[]>(`/api/v1/operator/coaches/${coach.id}/events`)); }
+    catch (error) { setNotice(error instanceof Error ? error.message : "读取操作记录失败"); }
+  }
+  function toggle(id: number) {
+    setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  }
+  return <div className={styles.page}>
+    <Heading copy="审核资格与公开展示相互独立。上下线不会删除档案、历史预约或教练工作台权限。" title="教练管理" />
+    <section className={styles.panel}>
+      <div className={styles.coachFilters}>
+        <label><span>运动项目</span><select onChange={(event) => setFilters({ ...filters, sport: event.target.value })} value={filters.sport}><option value="all">全部项目</option>{SPORT_OPTIONS.map((sport) => <option key={sport}>{sport}</option>)}</select></label>
+        <label><span>服务区域</span><select onChange={(event) => setFilters({ ...filters, district: event.target.value })} value={filters.district}><option value="all">北京全部区</option>{BEIJING_DISTRICTS.map((district) => <option key={district}>{district}</option>)}</select></label>
+        <label><span>资料类型</span><select onChange={(event) => setFilters({ ...filters, kind: event.target.value })} value={filters.kind}><option value="all">全部类型</option><option value="real">真实教练</option><option value="demo">演示资料</option></select></label>
+        <label><span>审核状态</span><select onChange={(event) => setFilters({ ...filters, audit: event.target.value })} value={filters.audit}><option value="all">全部审核状态</option><option value="approved">已通过</option><option value="pending">待审核</option><option value="suspended">已停权</option></select></label>
+        <label><span>展示状态</span><select onChange={(event) => setFilters({ ...filters, listing: event.target.value })} value={filters.listing}><option value="all">全部展示状态</option><option value="online">已上线</option><option value="offline">已下线</option></select></label>
+      </div>
+      {selected.length ? <div className={styles.selectionBar}><strong>已选择 {selected.length} 位</strong><span /><button className={styles.secondary} onClick={() => setPendingListing({ ids: selected, status: "online" })} type="button"><Eye aria-hidden size={16} />批量上线</button><button className={styles.danger} onClick={() => setPendingListing({ ids: selected, status: "offline" })} type="button"><EyeOff aria-hidden size={16} />批量下线</button></div> : null}
+      {rows.length ? <div className={styles.table}><div className={styles.tableHead}><span>教练</span><span>服务区域</span><span>业务数据</span><span>资格与展示</span><span>操作</span></div>{rows.map((coach) => <article className={styles.tableRow} key={coach.id}>
+        <span className={styles.coachIdentity}><input aria-label={`选择${coach.name}`} checked={selected.includes(coach.id)} onChange={() => toggle(coach.id)} type="checkbox" /><span><strong>{coach.name || `教练 #${coach.id}`}</strong><small>{coach.sport} · {coach.title}</small><em className={styles.status} data-tone={coach.profile_kind === "real" ? "green" : "gray"}>{coach.profile_kind === "real" ? "真实教练" : "演示资料"}</em></span></span>
+        <span><strong>{coach.district || "未设置"}</strong><small>{coach.open_slots || 0} 个开放时段</small></span>
+        <span><strong>{coach.review_count || 0} 条评价</strong><small>{coach.lessons || 0} 节已完成课程</small></span>
+        <span><em className={styles.status} data-tone={coach.audit_status === "approved" ? "green" : coach.audit_status === "suspended" ? "coral" : "amber"}>{coach.audit_status === "approved" ? "资格已通过" : coach.audit_status === "suspended" ? "资格已停权" : coach.audit_status || "待审核"}</em><em className={styles.status} data-tone={coach.listing_status === "online" ? "green" : "gray"}>{coach.listing_status === "online" ? "公开展示" : "已下线"}</em><small>{coach.listing_reason || (coach.user_id ? "已绑定账号" : "未绑定账号")}</small></span>
+        <span className={styles.rowActions}><button className={styles.secondary} onClick={() => void openHistory(coach)} type="button"><History aria-hidden size={15} />记录</button>{coach.listing_status === "online" ? <button className={styles.danger} disabled={busy === coach.id} onClick={() => setPendingListing({ ids: [coach.id], status: "offline" })} type="button"><EyeOff aria-hidden size={15} />下线</button> : <button className={styles.primary} disabled={busy === coach.id || coach.audit_status !== "approved"} onClick={() => setPendingListing({ ids: [coach.id], status: "online" })} type="button"><Eye aria-hidden size={15} />上线</button>}{coach.audit_status === "approved" ? <button className={styles.secondary} disabled={busy === coach.id} onClick={() => void setStatus(coach.id, "suspended")} type="button">暂停资格</button> : <button className={styles.secondary} disabled={busy === coach.id} onClick={() => void setStatus(coach.id, "approved")} type="button">审核通过</button>}</span>
+      </article>)}</div> : <Empty copy="调整筛选条件，或导入并审核新的教练档案。" title="没有符合条件的教练" />}
+    </section>
+    {pendingListing ? <div className={styles.confirmOverlay} role="presentation" onClick={() => setPendingListing(null)}><section aria-labelledby="listing-confirm-title" aria-modal="true" onClick={(event) => event.stopPropagation()} role="dialog"><h2 id="listing-confirm-title">确认{pendingListing.status === "online" ? "上线" : "下线"} {pendingListing.ids.length} 位教练</h2><p>{pendingListing.status === "online" ? "上线后会进入官网、学员网页和 App 的公开目录。" : "下线只停止公开展示与新预约，历史业务记录不会删除。"}</p><label className={styles.field}><span>操作原因</span><textarea autoFocus maxLength={300} onChange={(event) => setReason(event.target.value)} placeholder="填写本次操作原因" value={reason} /></label><div><button className={styles.secondary} onClick={() => setPendingListing(null)} type="button">取消</button><button className={pendingListing.status === "online" ? styles.primary : styles.danger} disabled={!reason.trim() || Boolean(busy)} onClick={() => void applyListing()} type="button">确认{pendingListing.status === "online" ? "上线" : "下线"}</button></div></section></div> : null}
+    {historyCoach ? <div className={styles.confirmOverlay} role="presentation" onClick={() => setHistoryCoach(null)}><section aria-labelledby="history-title" aria-modal="true" onClick={(event) => event.stopPropagation()} role="dialog"><h2 id="history-title">{historyCoach.name} · 状态记录</h2><p>审核与展示操作分别记录，最近记录优先。</p><div className={styles.statusHistory}>{events.length ? events.map((event) => <article key={event.id}><span><strong>{event.event_type === "listing" ? "公开展示" : "资格审核"}</strong><small>{formatBeijingDate(event.created_at)}</small></span><p>{event.from_status} → {event.to_status}</p><small>{event.reason || "未填写补充说明"} · {event.actor || "系统"}</small></article>) : <p>暂无状态变更记录。</p>}</div><div><button className={styles.primary} onClick={() => setHistoryCoach(null)} type="button">完成</button></div></section></div> : null}
+    {notice ? <Toast copy={notice} /> : null}
+  </div>;
 }
 
 type OpsBooking = { id: string; status?: string; fee_fen?: number; payment_status?: string; note?: string; learner_name?: string; coach_name?: string; sport?: string; venue_name?: string; starts_at?: number; ends_at?: number; created_at?: number };

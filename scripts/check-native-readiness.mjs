@@ -10,6 +10,9 @@ const files = [
   "native/mobile/vite.config.ts",
   "native/mobile/www/index.html",
   "android/app/src/main/AndroidManifest.xml",
+  "android/app/src/main/java/com/zhuguang/coachos/ZhuguangJCommonService.java",
+  "android/app/src/main/java/com/zhuguang/coachos/ZhuguangPushReceiver.java",
+  "android/app/src/main/java/com/zhuguang/coachos/PushBridgePlugin.java",
   "android/app/src/main/res/drawable/ic_notification_zhuguang.xml",
   "android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml",
   "android/app/src/main/res/mipmap-anydpi-v33/ic_launcher.xml",
@@ -25,7 +28,7 @@ for (const file of files) {
   await access(join(root, file));
 }
 
-const [capacitorConfig, nativeMobileEntry, tauriConfigRaw, packageJsonRaw, adaptiveIconV26, adaptiveIconV33, notificationIcon] = await Promise.all([
+const [capacitorConfig, nativeMobileEntry, tauriConfigRaw, packageJsonRaw, adaptiveIconV26, adaptiveIconV33, notificationIcon, androidManifest, jpushService, pushReceiver, pushBridge] = await Promise.all([
   readFile(join(root, "capacitor.config.ts"), "utf8"),
   readFile(join(root, "native/mobile/src/main.tsx"), "utf8"),
   readFile(join(root, "src-tauri/tauri.conf.json"), "utf8"),
@@ -33,6 +36,10 @@ const [capacitorConfig, nativeMobileEntry, tauriConfigRaw, packageJsonRaw, adapt
   readFile(join(root, "android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"), "utf8"),
   readFile(join(root, "android/app/src/main/res/mipmap-anydpi-v33/ic_launcher.xml"), "utf8"),
   readFile(join(root, "android/app/src/main/res/drawable/ic_notification_zhuguang.xml"), "utf8"),
+  readFile(join(root, "android/app/src/main/AndroidManifest.xml"), "utf8"),
+  readFile(join(root, "android/app/src/main/java/com/zhuguang/coachos/ZhuguangJCommonService.java"), "utf8"),
+  readFile(join(root, "android/app/src/main/java/com/zhuguang/coachos/ZhuguangPushReceiver.java"), "utf8"),
+  readFile(join(root, "android/app/src/main/java/com/zhuguang/coachos/PushBridgePlugin.java"), "utf8"),
 ]);
 
 async function digest(file) {
@@ -74,6 +81,11 @@ const checks = [
   ["Android 8 adaptive icon excludes unsupported monochrome layer", !adaptiveIconV26.includes("<monochrome")],
   ["Android 13 themed icon enabled", adaptiveIconV33.includes("<monochrome")],
   ["Android notification icon is monochrome", notificationIcon.includes("#FFFFFFFF") && !notificationIcon.includes("#FF835C")],
+  ["Android JPush common service declared", androidManifest.includes(".ZhuguangJCommonService") && androidManifest.includes("cn.jiguang.user.service.action") && androidManifest.includes('android:process=":pushcore"')],
+  ["Android JPush receiver action is correct", androidManifest.includes("cn.jpush.android.intent.RECEIVER_MESSAGE") && !androidManifest.includes("cn.jpush.android.intent.RECEIVE_MESSAGE")],
+  ["Android JPush common service implementation", jpushService.includes("extends JCommonService")],
+  ["Android push opens are persisted before activity launch", pushReceiver.includes("deliverPushOpen(context, deepLink)") && pushBridge.includes("PENDING_DEEP_LINK")],
+  ["Android pending push deep links are consumed once", pushBridge.includes("consumePendingDeepLink") && pushBridge.includes("remove(PENDING_DEEP_LINK)")],
   ["iOS branded icon synced", iosSourceIcon === iosAppIcon],
   ["Native CI workflow present", packageJson.scripts?.["native:toolchain"] === "node scripts/check-native-toolchain.mjs"],
 ];

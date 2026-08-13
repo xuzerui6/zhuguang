@@ -31,8 +31,8 @@ export type MobileCoach = {
   city: string;
   level: string;
   title: string;
-  price: number;
-  trialPrice: number;
+  price?: number;
+  trialPrice?: number;
   rating: number;
   lessons: number;
   reviewCount: number;
@@ -50,10 +50,14 @@ export type MobileCoach = {
   verified?: boolean;
   responseMinutes?: number;
   avatarUrl?: string;
+  cardUrl?: string;
   heroUrl?: string;
-  verificationLabel?: "平台试点教练" | "资料已核验";
+  verificationLabel?: "平台试点教练" | "资料已核验" | "资料待补充" | "演示资料";
   isNew?: boolean;
   bookable?: boolean;
+  canConsult?: boolean;
+  profileCompleteness?: "complete" | "partial" | "demo";
+  profileKind?: "real" | "demo";
 };
 
 export type CoachVenue = {
@@ -68,6 +72,9 @@ export type BookingSlot = {
   id: string;
   coachId: number;
   venueId?: string;
+  venueName?: string;
+  venueAddress?: string;
+  venueDistrict?: string;
   date: string;
   dateLabel: string;
   time: string;

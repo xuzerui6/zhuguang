@@ -2,7 +2,6 @@ package com.zhuguang.coachos;
 
 import android.content.Context;
 import android.content.Intent;
-import android.net.Uri;
 import cn.jpush.android.api.NotificationMessage;
 import cn.jpush.android.service.JPushMessageReceiver;
 import org.json.JSONObject;
@@ -26,7 +25,9 @@ public class ZhuguangPushReceiver extends JPushMessageReceiver {
         } catch (Exception ignored) {
             // A malformed provider payload falls back to the safe message inbox route.
         }
-        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(deepLink), context, MainActivity.class);
+        PushBridgePlugin.deliverPushOpen(context, deepLink);
+        Intent intent = new Intent(context, MainActivity.class);
+        intent.setAction("com.zhuguang.coachos.PUSH_OPEN");
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         context.startActivity(intent);
     }

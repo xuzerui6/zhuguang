@@ -8,20 +8,21 @@
         android:name="brandScale"
         android:pivotX="54"
         android:pivotY="54"
-        android:scaleX="0.94"
-        android:scaleY="0.94">
+        android:alpha="0.72"
+        android:scaleX="0.96"
+        android:scaleY="0.96">
         <path
             android:name="zGlyph"
             android:fillColor="@android:color/transparent"
             android:pathData="M30,73 H77 L31,36 H76"
-            android:strokeAlpha="0.55"
+            android:strokeAlpha="1"
             android:strokeColor="#0B5B43"
             android:strokeLineCap="round"
             android:strokeLineJoin="round"
             android:strokeWidth="10" />
         <path
             android:name="lightDot"
-            android:fillAlpha="0"
+            android:fillAlpha="1"
             android:fillColor="#FF835C"
             android:pathData="M83,36 A6,6 0,1 1,71 36 A6,6 0,1 1,83 36" />
     </group>

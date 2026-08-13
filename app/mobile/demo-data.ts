@@ -20,10 +20,12 @@ export const demoCoaches: MobileCoach[] = coachCatalog.map((coach, index) => ({
   canConsult: coach.canConsult,
   cardUrl: coach.media.cardUrl,
   city: coach.city,
+  credentials: coach.credentials,
   district: coach.district,
   distanceKm: coach.id === 5 ? undefined : 3.2 + index * 1.1,
   experienceYears: coach.experience,
   goals: coach.goals,
+  honors: coach.honors,
   heroUrl: coach.media.heroUrl,
   id: coach.id,
   isNew: coach.isNew,
@@ -31,6 +33,7 @@ export const demoCoaches: MobileCoach[] = coachCatalog.map((coach, index) => ({
   level: coach.title.split(" · ")[0],
   name: coach.name,
   note: coach.bio,
+  motto: coach.motto,
   price: coach.price,
   profileCompleteness: coach.profileCompleteness,
   profileKind: coach.profileKind,
@@ -44,10 +47,11 @@ export const demoCoaches: MobileCoach[] = coachCatalog.map((coach, index) => ({
   trialPrice: coach.trialPrice,
   verificationLabel: coach.verificationLabel,
   verified: true,
+  venue: coach.venue,
 }));
 
 export const venues: CoachVenue[] = [
-  { id: "venue-tongzhou-track", coachId: 5, name: "通州区合作训练场", address: "通州区 · 具体场地预约后确认", district: "通州区" },
+  { id: "venue-tongzhou-track", coachId: 5, name: "北京市通州区合作训练场", address: "通州区 · 具体场地预约后确认", district: "通州区" },
 ];
 
 export const defaultLearner: LearnerProfile = {

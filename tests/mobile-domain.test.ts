@@ -22,12 +22,12 @@ import { stableRolloutBucket } from "../server/api/releases";
 import { pushLockScreenBody } from "../server/api/push";
 
 const preferences: MatchPreferences = {
-  audience: "青少年",
+  audience: "青少年儿童",
   budget: 240,
   city: "北京",
   desiredTime: "周末",
   district: "通州区",
-  goal: "短跑专项",
+  goal: "体能提升",
   sport: "田径",
 };
 

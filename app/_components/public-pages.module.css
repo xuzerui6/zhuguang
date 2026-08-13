@@ -84,6 +84,16 @@
   max-width: 620px;
 }
 
+.coachMotto {
+  border-left: 2px solid var(--zg-coral);
+  color: #344139;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.65;
+  margin: -10px 0 22px;
+  padding-left: 12px;
+}
+
 .coachQuickFacts {
   display: flex;
   flex-wrap: wrap;
@@ -887,8 +897,7 @@
     font-size: 12px;
   }
 
-  .coachBio,
-  .coachQuickFacts span:nth-child(2) {
+  .coachBio {
     display: none;
   }
 

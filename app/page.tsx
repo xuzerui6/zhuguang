@@ -19,7 +19,7 @@ import { loadPublicCoaches } from "./_lib/web-platform";
 
 export default async function HomePage() {
   const catalog = await loadPublicCoaches();
-  const coach = catalog.find((item) => item.profileKind === "real") ?? catalog[0]!;
+  const featuredCoaches = catalog.filter((item) => item.profileKind === "real").slice(0, 3);
   return (
     <>
       <PublicHeader />
@@ -66,28 +66,29 @@ export default async function HomePage() {
             <div><p className="zg-eyebrow">北京试点教练</p><h2 className="zg-section-title">资料真实，比数字热闹更重要</h2></div>
             <p>平台只展示已经提供并可核验的信息。没有评价、课量或排期时，会如实说明。</p>
           </div>
-          <div className={styles.coachSpotlight}>
-            <Link className={styles.spotlightMedia} href={`/coaches/${coach.id}`}>
-              <Image alt={`${coach.name}教练`} fill sizes="(max-width: 760px) 100vw, 46vw" src={coach.image} unoptimized />
-            </Link>
-            <div className={styles.spotlightCopy}>
-              <div className={styles.coachStatus}><BadgeCheck aria-hidden size={17} />{coach.verificationLabel}<span>新教练</span></div>
-              <h3>{coach.name}</h3>
-              <p className={styles.coachTitle}>{coach.title}</p>
-              <p className={styles.coachLocation}><MapPin aria-hidden size={16} />{coach.city}{coach.district} · {coach.venue}</p>
-              <p className={styles.coachBio}>{coach.bio}</p>
-              <div className={styles.coachFacts}>
-                <span><small>常规课</small><strong>{coach.price === undefined ? "待发布" : `¥${coach.price}`}</strong></span>
-                <span><small>试课</small><strong>{coach.trialPrice === undefined ? "待发布" : `¥${coach.trialPrice}`}</strong></span>
-                <span><small>评价</small><strong>暂无</strong></span>
-                <span><small>排期</small><strong>待发布</strong></span>
-              </div>
-              <div className={styles.coachStrengths}>{coach.strengths.map((item) => <span key={item}><Check aria-hidden size={14} />{item}</span>)}</div>
-              <div className={styles.spotlightActions}>
-                <Link href={`/coaches/${coach.id}`}>查看完整档案 <ArrowRight aria-hidden size={17} /></Link>
-                <Link href="#service-inquiry">咨询训练安排</Link>
-              </div>
-            </div>
+          <div className={styles.coachSpotlightGrid}>
+            {featuredCoaches.map((coach) => (
+              <article className={styles.spotlightCard} key={coach.id}>
+                <Link className={styles.spotlightCardMedia} href={`/coaches/${coach.id}`}>
+                  <Image alt={`${coach.name}教练`} fill sizes="(max-width: 760px) 82vw, (max-width: 1100px) 46vw, 31vw" src={coach.media.cardUrl || coach.image} unoptimized />
+                  <span><BadgeCheck aria-hidden size={15} />{coach.verificationLabel}</span>
+                </Link>
+                <div className={styles.spotlightCardBody}>
+                  <div className={styles.spotlightCardIdentity}>
+                    <div><h3>{coach.name}</h3><p>{coach.title}</p></div>
+                    <strong>{coach.experience}年<small>执教</small></strong>
+                  </div>
+                  <p className={styles.coachLocation}><MapPin aria-hidden size={16} />{coach.district} · {coach.venue}</p>
+                  <p className={styles.spotlightHonor}>{coach.honors.slice(0, 2).join(" · ")}</p>
+                  <div className={styles.coachStrengths}>{coach.strengths.slice(0, 3).map((item) => <span key={item}><Check aria-hidden size={14} />{item}</span>)}</div>
+                  <div className={styles.spotlightCardFooter}>
+                    <span><small>常规课</small><strong>{coach.price === undefined ? "待发布" : `¥${coach.price}`}</strong></span>
+                    <span><small>试课</small><strong>{coach.trialPrice === undefined ? "待发布" : `¥${coach.trialPrice}`}</strong></span>
+                    <Link href={`/coaches/${coach.id}`} aria-label={`查看${coach.name}完整档案`}><ArrowRight aria-hidden size={19} /></Link>
+                  </div>
+                </div>
+              </article>
+            ))}
           </div>
         </section>
 

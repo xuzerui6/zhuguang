@@ -87,7 +87,7 @@ DELETE FROM coach_credentials WHERE coach_id IN (SELECT id FROM coaches WHERE pr
 DELETE FROM venues WHERE coach_id IN (SELECT id FROM coaches WHERE profile_kind = 'demo');
 
 INSERT INTO venues (id, coach_id, name, address, city, district, active, created_at) VALUES
-  ('venue-tongzhou-track', 5, '通州区合作训练场', '通州区 · 具体场地预约后确认', '北京', '通州区', 1, 1786219200000)
+  ('venue-tongzhou-track', 5, '北京市通州区合作训练场', '通州区 · 具体场地预约后确认', '北京', '通州区', 1, 1786219200000)
 ON CONFLICT(id) DO UPDATE SET
   coach_id = excluded.coach_id,
   name = excluded.name,
@@ -95,3 +95,39 @@ ON CONFLICT(id) DO UPDATE SET
   city = excluded.city,
   district = excluded.district,
   active = excluded.active;
+
+-- Verified public profiles. These facts were supplied and confirmed by the platform owner.
+UPDATE coaches SET
+  siwc_email = 'xuzerui6@gmail.com', level = '退役运动员', title = '田径专项训练教练',
+  bio = '退役运动员，拥有2年执教经验，面向青少年儿童与成人提供体能提升及中小学体育中高考训练。',
+  price_fen = 24000, trial_price_fen = 9900, experience_years = 2,
+  audience_json = '["青少年儿童","成人"]', goals_json = '["体能提升","中小学体育中高考"]',
+  strengths_json = '["体能提升","中小学体育中高考"]',
+  honors_json = '["北京市400米冠军","北京市800米冠军","全国中学生前八"]',
+  credentials_json = '["国家级教练证书"]', motto = '身体扛不住的时候换意志杀出重围',
+  pricing_status = 'published', audit_status = 'approved', updated_at = 1786723200000 WHERE id = 5;
+
+UPDATE coaches SET
+  level = '退役运动员', title = '田赛专项训练教练',
+  bio = '退役运动员，拥有1年执教经验，面向青少年儿童与成人提供跳远、跳高及各类田项训练。',
+  price_fen = 24000, trial_price_fen = 9900, experience_years = 1,
+  audience_json = '["青少年儿童","成人"]', goals_json = '["跳远","跳高","各类田项"]',
+  strengths_json = '["跳远","跳高","田赛专项"]', honors_json = '["全国中学生第四","北京市前三"]',
+  credentials_json = '["体适能教练"]', motto = '专业的事情交给专业的人',
+  pricing_status = 'published', audit_status = 'approved', updated_at = 1786723200000 WHERE id = 6;
+
+UPDATE coaches SET
+  level = '退役运动员', title = '田径专项训练教练',
+  bio = '退役运动员，拥有3年执教经验，面向青少年儿童与成人提供体育中高考、体能提升和专项训练。',
+  price_fen = 24000, trial_price_fen = 9900, experience_years = 3,
+  audience_json = '["青少年儿童","成人"]', goals_json = '["体育中高考","体能提升","专项训练"]',
+  strengths_json = '["体育中高考","体能提升","专项训练"]',
+  honors_json = '["北京市400米跨栏冠军","北京市400米跨栏纪录保持者"]',
+  credentials_json = '["体育教师证书","体适能证书","国家级教练员证书"]',
+  motto = '没有带不出的学生，只有不合格的教练', pricing_status = 'published', audit_status = 'approved',
+  updated_at = 1786723200000 WHERE id = 7;
+
+INSERT INTO venues (id, coach_id, name, address, city, district, active, created_at) VALUES
+  ('venue-tongzhou-track-zhang', 6, '北京市通州区合作训练场', '通州区 · 具体场地预约后确认', '北京', '通州区', 1, 1786723200000),
+  ('venue-tongzhou-track-hao', 7, '北京市通州区合作训练场', '通州区 · 具体场地预约后确认', '北京', '通州区', 1, 1786723200000)
+ON CONFLICT(id) DO UPDATE SET name = excluded.name, address = excluded.address, active = excluded.active;

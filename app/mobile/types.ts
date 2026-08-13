@@ -39,12 +39,16 @@ export type MobileCoach = {
   fit?: number;
   audience: string[];
   goals: string[];
+  honors?: string[];
   strengths: string[];
+  credentials?: string[];
   proof: string[];
   availability: string[];
   note: string;
+  motto?: string;
   accent: string;
   district?: string;
+  venue?: string;
   distanceKm?: number;
   experienceYears?: number;
   verified?: boolean;

@@ -113,16 +113,18 @@ test("signed-in accounts receive student access by default", () => {
 test("coach and operations access only come from server allowlists", () => {
   const session = createWebSession({
     displayName: "徐泽瑞",
-    email: "xuzerui@example.com",
+    email: "xuzerui6@gmail.com",
     fullName: "徐泽瑞",
     id: "account-2",
   }, {
-    coachEmails: "coach@example.com, XUZERUI@example.com",
-    opsEmails: "xuzerui@example.com",
+    coachEmails: "coach@example.com, XUZERUI6@gmail.com",
+    opsEmails: "xuzerui6@gmail.com",
   });
 
   assert.equal(session.authorizationSource, "allowlist");
   assert.deepEqual(session.availableAreas, ["student", "coach", "ops"]);
+  assert.deepEqual(session.permissions, ["student:read", "coach:work", "ops:manage", "release:read"]);
+  assert.equal(canAccessArea(session, "student"), true);
   assert.equal(canAccessArea(session, "coach"), true);
   assert.equal(canAccessArea(session, "ops"), true);
 });
@@ -151,13 +153,19 @@ test("R2 update controls are enabled and coach data remains internally consisten
     sport: trackCoach.sport,
   }, {
     bookable: false,
-    credentials: [],
+    credentials: ["国家级教练证书"],
     district: "通州区",
     isNew: true,
     name: "徐泽瑞",
     rating: 0,
     sport: "田径",
   });
+  const realCoaches = coachCatalog.filter((coach) => coach.profileKind === "real");
+  assert.deepEqual(realCoaches.map((coach) => coach.name), ["徐泽瑞", "张展祁", "郝健壮"]);
+  assert.ok(realCoaches.every((coach) => coach.verificationLabel === "资料已核验"));
+  assert.ok(realCoaches.every((coach) => coach.price === 240 && coach.trialPrice === 99));
+  assert.ok(realCoaches.every((coach) => coach.credentials.length > 0 && coach.honors.length > 0));
+  assert.ok(realCoaches.every((coach) => !coach.bookable && coach.canConsult));
 });
 
 test("coach catalog honestly covers all Beijing districts and pilot sports", () => {

@@ -283,6 +283,141 @@
   min-height: 560px;
 }
 
+.coachSpotlightGrid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.spotlightCard {
+  background: #fff;
+  border: 1px solid var(--zg-line-strong);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.spotlightCardMedia {
+  aspect-ratio: 4 / 5;
+  background: #f2f5f3;
+  display: block;
+  overflow: hidden;
+  position: relative;
+}
+
+.spotlightCardMedia img {
+  object-fit: cover;
+  object-position: center 18%;
+  transition: transform 220ms ease;
+}
+
+.spotlightCardMedia:hover img {
+  transform: scale(1.015);
+}
+
+.spotlightCardMedia > span {
+  align-items: center;
+  backdrop-filter: blur(12px);
+  background: rgb(6 19 15 / 82%);
+  bottom: 14px;
+  color: #fff;
+  display: flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+  left: 14px;
+  padding: 8px 10px;
+  position: absolute;
+}
+
+.spotlightCardBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding: 24px;
+}
+
+.spotlightCardIdentity {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.spotlightCardIdentity h3 {
+  font-size: 28px;
+  line-height: 1.15;
+  margin: 0 0 7px;
+}
+
+.spotlightCardIdentity p {
+  color: #46534c;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.spotlightCardIdentity > strong {
+  color: var(--zg-brand);
+  flex: 0 0 auto;
+  font-size: 19px;
+  line-height: 1;
+  text-align: right;
+}
+
+.spotlightCardIdentity > strong small {
+  color: var(--zg-muted);
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  margin-top: 5px;
+}
+
+.spotlightHonor {
+  border-left: 2px solid var(--zg-coral);
+  color: #26322c;
+  font-size: 13px;
+  line-height: 1.65;
+  margin: 18px 0;
+  min-height: 43px;
+  padding-left: 12px;
+}
+
+.spotlightCardFooter {
+  align-items: center;
+  border-top: 1px solid var(--zg-line);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr auto;
+  margin-top: auto;
+  padding-top: 19px;
+}
+
+.spotlightCardFooter span {
+  display: grid;
+  gap: 3px;
+}
+
+.spotlightCardFooter small {
+  color: var(--zg-muted);
+  font-size: 11px;
+}
+
+.spotlightCardFooter strong {
+  font-size: 17px;
+}
+
+.spotlightCardFooter a {
+  align-items: center;
+  background: var(--zg-brand);
+  color: #fff;
+  display: flex;
+  height: 44px;
+  justify-content: center;
+  width: 44px;
+}
+
 .spotlightMedia {
   background: #f4f5f4;
   min-height: 540px;
@@ -1030,6 +1165,35 @@
     margin-inline: calc((100vw - var(--zg-page)) / -2);
   }
 
+  .coachSpotlightGrid {
+    gap: 14px;
+    grid-auto-columns: minmax(286px, 82vw);
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    margin-inline: calc((100vw - var(--zg-page)) / -2);
+    overflow-x: auto;
+    padding: 0 max(20px, calc((100vw - var(--zg-page)) / 2)) 8px;
+    scroll-padding-inline: 20px;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+
+  .coachSpotlightGrid::-webkit-scrollbar {
+    display: none;
+  }
+
+  .spotlightCard {
+    scroll-snap-align: start;
+  }
+
+  .spotlightCardBody {
+    padding: 21px;
+  }
+
+  .spotlightCardIdentity h3 {
+    font-size: 25px;
+  }
+
   .spotlightMedia {
     aspect-ratio: 1 / 1;
   }
@@ -1133,6 +1297,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .spotlightCardMedia img,
   .spotlightMedia img,
   .enterButton,
   .cooperationSection > a,

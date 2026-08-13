@@ -85,24 +85,37 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
   const isNew = reviewCount === 0 && numberValue(row.lessons) === 0;
   const profileKind = row.profile_kind === "demo" ? "demo" : "real";
   const pricingPublished = row.pricing_status !== "unavailable";
-  const profileCompleteness = profileKind === "demo" ? "demo" : pricingPublished ? (isNew ? "partial" : "complete") : "partial";
+  const audience = jsonArray(row.audience_json);
+  const goals = jsonArray(row.goals_json);
+  const honors = jsonArray(row.honors_json);
+  const credentials = jsonArray(row.credentials_json);
+  const strengths = jsonArray(row.strengths_json);
+  const profileComplete = pricingPublished
+    && audience.length > 0
+    && goals.length > 0
+    && credentials.length > 0
+    && Boolean(stringValue(row.bio))
+    && Boolean(stringValue(row.title));
+  const profileCompleteness = profileKind === "demo" ? "demo" : profileComplete ? "complete" : "partial";
   const verificationLabel = profileKind === "demo"
     ? "演示资料"
-    : profileCompleteness === "partial"
-      ? (numberValue(row.id) === 5 ? "平台试点教练" : "资料待补充")
-      : "资料已核验";
+    : row.audit_status === "approved" && profileComplete
+      ? "资料已核验"
+      : "资料待补充";
   return {
     accent: "#087A50",
-    audience: jsonArray(row.audience_json),
+    audience,
     availability,
     avatarUrl: publicCoachMediaUrl(row, "avatar", env),
     bookable: profileKind === "real" && availability.length > 0,
     canConsult: profileKind === "real",
     cardUrl: publicCoachMediaUrl(row, "card", env),
     city: stringValue(row.city),
+    credentials,
     district: stringValue(row.district),
     experienceYears: numberValue(row.experience_years),
-    goals: jsonArray(row.goals_json),
+    goals,
+    honors,
     id: numberValue(row.id),
     heroUrl: publicCoachMediaUrl(row, "hero", env),
     isNew,
@@ -110,6 +123,7 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
     level: stringValue(row.level),
     name: stringValue(row.name),
     note: stringValue(row.bio),
+    motto: stringValue(row.motto),
     price: pricingPublished ? Math.round(numberValue(row.price_fen) / 100) : undefined,
     profileCompleteness,
     profileKind,
@@ -117,14 +131,15 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
       ? ["演示资料", "不可预约"]
       : profileCompleteness === "partial"
         ? [verificationLabel, "服务区域已确认"]
-        : [`${stringValue(row.level)}认证`, "身份与履历已核验", "服务保障已开通"],
+        : [...credentials, "运动经历与公开资料已核验", "服务保障已开通"],
     rating: numberValue(row.rating_basis_points) / 100,
     responseMinutes: numberValue(row.response_minutes),
     reviewCount,
     sport: stringValue(row.sport),
-    strengths: jsonArray(row.strengths_json),
+    strengths,
     title: stringValue(row.title),
     trialPrice: pricingPublished ? Math.round(numberValue(row.trial_price_fen) / 100) : undefined,
+    venue: stringValue(row.venue_name),
     verificationLabel,
     verified: row.audit_status === "approved",
   };
@@ -543,13 +558,13 @@ export async function listCoachesD1(env: ApiEnv, filters: URLSearchParams) {
     clauses.push("price_fen <= ?");
     values.push(maxPriceFen);
   }
-  const query = `SELECT * FROM coaches WHERE ${clauses.join(" AND ")} ORDER BY CASE profile_kind WHEN 'real' THEN 0 ELSE 1 END, rating_basis_points DESC, lessons DESC, id ASC LIMIT 100`;
+  const query = `SELECT coaches.*, (SELECT name FROM venues WHERE venues.coach_id = coaches.id AND active = 1 ORDER BY created_at LIMIT 1) AS venue_name FROM coaches WHERE ${clauses.join(" AND ")} ORDER BY CASE profile_kind WHEN 'real' THEN 0 ELSE 1 END, rating_basis_points DESC, lessons DESC, id ASC LIMIT 100`;
   const result = await db(env).prepare(query).bind(...values).all<Row>();
   return (result.results ?? []).map((row) => mapCoach(row, env));
 }
 
 export async function getCoachD1(coachId: number, env: ApiEnv) {
-  const row = await db(env).prepare("SELECT * FROM coaches WHERE id = ?").bind(coachId).first<Row>();
+  const row = await db(env).prepare("SELECT coaches.*, (SELECT name FROM venues WHERE venues.coach_id = coaches.id AND active = 1 ORDER BY created_at LIMIT 1) AS venue_name FROM coaches WHERE id = ?").bind(coachId).first<Row>();
   if (!row) throw new ApiError(404, "coach_not_found", "未找到该教练");
   if (row.audit_status !== "approved" || row.listing_status !== "online") {
     throw new ApiError(410, "coach_offline", "该教练当前未公开展示");

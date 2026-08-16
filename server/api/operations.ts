@@ -282,15 +282,232 @@ export async function createTrainingRecordD1(identity: CoachIdentity, input: { b
 }
 
 export async function createCredentialChangeRequestD1(identity: CoachIdentity, input: { field: string; value: unknown }, env: ApiEnv) {
-  const allowed = new Set(["bio", "title", "district", "venue", "price", "trialPrice", "audience", "goals", "strengths"]);
+  const allowed = new Set(["bio", "title", "district", "venue", "price", "trialPrice", "audience", "goals", "strengths", "honors", "motto"]);
   if (!allowed.has(input.field)) throw new ApiError(422, "invalid_profile_field", "该资料字段不支持在线变更");
+  const database = db(env);
+  const conflict = await database.prepare("SELECT id FROM credential_change_requests WHERE coach_id = ? AND field = ? AND status = 'pending'").bind(identity.coachId, input.field).first<Row>();
+  if (conflict) throw new ApiError(409, "profile_change_conflict", "该资料已有待审核申请，请先撤回或等待审核");
+  const coach = await database.prepare("SELECT * FROM coaches WHERE id = ?").bind(identity.coachId).first<Row>();
+  if (!coach) throw new ApiError(404, "coach_not_found", "未找到教练资料");
+  const currentValue = await currentCoachFieldValue(database, coach, input.field);
   const id = randomId("credential_change");
   const now = Date.now();
-  await db(env).prepare(`
+  await database.prepare(`
     INSERT INTO credential_change_requests (id, coach_id, field, proposed_value_json, status, created_at, updated_at)
     VALUES (?, ?, ?, ?, 'pending', ?, ?)
   `).bind(id, identity.coachId, input.field, JSON.stringify(input.value), now, now).run();
+  await database.prepare("UPDATE credential_change_requests SET current_value_json = ? WHERE id = ?").bind(JSON.stringify(currentValue), id).run();
   return { id, status: "pending" as const };
+}
+
+async function currentCoachFieldValue(database: D1Database, coach: Row, field: string) {
+  const columns: Record<string, string> = {
+    audience: "audience_json", bio: "bio", district: "district", goals: "goals_json", honors: "honors_json",
+    motto: "motto", price: "price_fen", strengths: "strengths_json", title: "title", trialPrice: "trial_price_fen",
+  };
+  if (field === "venue") {
+    const venue = await database.prepare("SELECT name, address, district FROM venues WHERE coach_id = ? AND active = 1 ORDER BY created_at LIMIT 1").bind(coach.id).first<Row>();
+    return venue ?? null;
+  }
+  const raw = coach[columns[field]];
+  if (["audience", "goals", "honors", "strengths"].includes(field)) {
+    try { return JSON.parse(String(raw ?? "[]")); } catch { return []; }
+  }
+  if (field === "price" || field === "trialPrice") return Number(raw ?? 0) / 100;
+  return raw ?? "";
+}
+
+export async function listCoachProfileChangesD1(identity: CoachIdentity, env: ApiEnv) {
+  const result = await db(env).prepare(`
+    SELECT id, field, current_value_json, proposed_value_json, status, review_note, reviewed_by, reviewed_at, created_at, updated_at
+    FROM credential_change_requests WHERE coach_id = ? ORDER BY created_at DESC LIMIT 100
+  `).bind(identity.coachId).all<Row>();
+  return rows(result);
+}
+
+export async function withdrawCoachProfileChangeD1(identity: CoachIdentity, requestId: string, env: ApiEnv) {
+  const result = await db(env).prepare(`
+    UPDATE credential_change_requests SET status = 'cancelled', updated_at = ?
+    WHERE id = ? AND coach_id = ? AND status = 'pending'
+  `).bind(Date.now(), requestId, identity.coachId).run();
+  if (!result.meta.changes) throw new ApiError(409, "profile_change_not_withdrawable", "该申请当前不能撤回");
+  return { id: requestId, status: "cancelled" as const };
+}
+
+export async function listOpsProfileChangesD1(env: ApiEnv) {
+  const result = await db(env).prepare(`
+    SELECT r.id, r.coach_id, c.name AS coach_name, r.field, r.current_value_json, r.proposed_value_json,
+      r.status, r.review_note, r.reviewed_by, r.reviewed_at, r.created_at, r.updated_at
+    FROM credential_change_requests r JOIN coaches c ON c.id = r.coach_id
+    ORDER BY CASE r.status WHEN 'pending' THEN 0 ELSE 1 END, r.created_at DESC LIMIT 200
+  `).all<Row>();
+  return rows(result);
+}
+
+export async function reviewCoachProfileChangeD1(id: string, decision: "approved" | "rejected", note: string, actor: string, env: ApiEnv) {
+  if (!note.trim()) throw new ApiError(422, "review_note_required", "请填写审核意见");
+  const database = db(env);
+  const request = await database.prepare("SELECT * FROM credential_change_requests WHERE id = ? AND status = 'pending'").bind(id).first<Row>();
+  if (!request) throw new ApiError(409, "profile_change_not_pending", "该申请已处理或不存在");
+  const now = Date.now();
+  if (decision === "rejected") {
+    await database.batch([
+      database.prepare("UPDATE credential_change_requests SET status = 'rejected', review_note = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'").bind(note.trim(), actor, now, now, id),
+      database.prepare("INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, created_at) VALUES (?, ?, 'coach.profile.reject', 'credential_change_request', ?, ?, ?)").bind(randomId("audit"), actor, id, JSON.stringify({ note: note.trim() }), now),
+    ]);
+    return { id, status: decision };
+  }
+  const field = String(request.field);
+  const coachId = Number(request.coach_id);
+  const next = JSON.parse(String(request.proposed_value_json));
+  const statements = [];
+  const scalarColumns: Record<string, string> = { bio: "bio", district: "district", motto: "motto", title: "title" };
+  const jsonColumns: Record<string, string> = { audience: "audience_json", goals: "goals_json", honors: "honors_json", strengths: "strengths_json" };
+  if (scalarColumns[field]) statements.push(database.prepare(`UPDATE coaches SET ${scalarColumns[field]} = ?, updated_at = ? WHERE id = ?`).bind(String(next).slice(0, 2000), now, coachId));
+  else if (jsonColumns[field]) statements.push(database.prepare(`UPDATE coaches SET ${jsonColumns[field]} = ?, updated_at = ? WHERE id = ?`).bind(JSON.stringify(Array.isArray(next) ? next.slice(0, 20) : []), now, coachId));
+  else if (field === "price" || field === "trialPrice") statements.push(database.prepare(`UPDATE coaches SET ${field === "price" ? "price_fen" : "trial_price_fen"} = ?, updated_at = ? WHERE id = ?`).bind(Math.max(0, Math.round(Number(next) * 100)), now, coachId));
+  else if (field === "venue") {
+    const venue = typeof next === "object" && next ? next as Record<string, unknown> : { name: String(next) };
+    statements.push(database.prepare("UPDATE venues SET name = ?, address = ?, district = ? WHERE id = (SELECT id FROM venues WHERE coach_id = ? AND active = 1 ORDER BY created_at LIMIT 1)").bind(String(venue.name ?? "").slice(0, 120), String(venue.address ?? "").slice(0, 240), String(venue.district ?? "").slice(0, 40), coachId));
+  } else throw new ApiError(422, "invalid_profile_field", "该资料字段不支持审核应用");
+  statements.push(
+    database.prepare("UPDATE credential_change_requests SET status = 'approved', review_note = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'").bind(note.trim(), actor, now, now, id),
+    database.prepare("INSERT INTO coach_profile_versions (id, coach_id, request_id, field, previous_value_json, next_value_json, approved_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(randomId("profile_version"), coachId, id, field, request.current_value_json, request.proposed_value_json, actor, now),
+    database.prepare("INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, created_at) VALUES (?, ?, 'coach.profile.approve', 'credential_change_request', ?, ?, ?)").bind(randomId("audit"), actor, id, JSON.stringify({ coachId, field }), now),
+  );
+  await database.batch(statements);
+  return { id, status: decision };
+}
+
+export async function createCoachReviewD1(identity: StudentIdentity, input: { bookingId: string; body: string; rating: number }, env: ApiEnv) {
+  const database = db(env);
+  const booking = await database.prepare("SELECT id, coach_id FROM booking_requests WHERE id = ? AND user_id = ? AND status = 'completed'").bind(input.bookingId, identity.userId).first<Row>();
+  if (!booking) throw new ApiError(409, "review_booking_ineligible", "只有已完成的本人课程可以评价");
+  if (!Number.isInteger(input.rating) || input.rating < 1 || input.rating > 5) throw new ApiError(422, "invalid_rating", "评分必须为1到5分");
+  const id = randomId("review"); const now = Date.now();
+  try {
+    await database.prepare("INSERT INTO coach_reviews (id, booking_id, user_id, coach_id, rating, body, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)").bind(id, input.bookingId, identity.userId, booking.coach_id, input.rating, input.body.trim().slice(0, 1000), now, now).run();
+  } catch { throw new ApiError(409, "review_already_exists", "该课程已经提交过评价"); }
+  return { id, status: "pending" as const };
+}
+
+export async function listPublicCoachReviewsD1(coachId: number, env: ApiEnv) {
+  const result = await db(env).prepare("SELECT id, rating, body, created_at FROM coach_reviews WHERE coach_id = ? AND status = 'approved' ORDER BY created_at DESC LIMIT 50").bind(coachId).all<Row>();
+  return rows(result);
+}
+
+export async function listOpsReviewsD1(env: ApiEnv) {
+  const result = await db(env).prepare(`SELECT r.*, c.name AS coach_name FROM coach_reviews r JOIN coaches c ON c.id = r.coach_id ORDER BY CASE r.status WHEN 'pending' THEN 0 ELSE 1 END, r.created_at DESC LIMIT 200`).all<Row>();
+  return rows(result);
+}
+
+export async function moderateReviewD1(id: string, status: "approved" | "rejected", note: string, actor: string, env: ApiEnv) {
+  const database = db(env); const now = Date.now();
+  const review = await database.prepare("SELECT coach_id, status FROM coach_reviews WHERE id = ?").bind(id).first<Row>();
+  if (!review || review.status !== "pending") throw new ApiError(409, "review_not_pending", "该评价已处理或不存在");
+  await database.batch([
+    database.prepare("UPDATE coach_reviews SET status = ?, review_note = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'").bind(status, note.trim(), actor, now, now, id),
+    database.prepare(`UPDATE coaches SET review_count = (SELECT count(*) FROM coach_reviews WHERE coach_id = ? AND status = 'approved'), rating_basis_points = coalesce((SELECT round(avg(rating) * 100) FROM coach_reviews WHERE coach_id = ? AND status = 'approved'), 0), updated_at = ? WHERE id = ?`).bind(review.coach_id, review.coach_id, now, review.coach_id),
+    database.prepare("INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, created_at) VALUES (?, ?, 'review.moderate', 'coach_review', ?, ?, ?)").bind(randomId("audit"), actor, id, JSON.stringify({ note, status }), now),
+  ]);
+  return { id, status };
+}
+
+export async function createSupportTicketD1(identity: { userId: string }, input: { bookingId?: string; body: string; category: string; subject: string }, role: "student" | "coach", env: ApiEnv) {
+  const allowed = new Set(["service", "booking", "payment", "safety", "privacy", "other"]);
+  if (!allowed.has(input.category)) throw new ApiError(422, "invalid_ticket_category", "工单分类无效");
+  const database = db(env); const id = randomId("ticket"); const now = Date.now();
+  await database.batch([
+    database.prepare("INSERT INTO support_tickets (id, booking_id, created_by_user_id, created_by_role, category, priority, subject, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)").bind(id, input.bookingId ?? null, identity.userId, role, input.category, input.category === "safety" ? "urgent" : "normal", input.subject.trim().slice(0, 120), now, now),
+    database.prepare("INSERT INTO support_ticket_messages (id, ticket_id, sender_type, sender_id, body, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind(randomId("ticket_message"), id, role, identity.userId, input.body.trim().slice(0, 3000), now),
+  ]);
+  return { id, status: "open" as const };
+}
+
+export async function listUserSupportTicketsD1(identity: { userId: string }, env: ApiEnv) {
+  const result = await db(env).prepare(`SELECT t.*, (SELECT body FROM support_ticket_messages m WHERE m.ticket_id = t.id ORDER BY created_at DESC LIMIT 1) AS latest_message FROM support_tickets t WHERE created_by_user_id = ? ORDER BY updated_at DESC LIMIT 100`).bind(identity.userId).all<Row>();
+  return rows(result);
+}
+
+export async function listOpsSupportTicketsD1(env: ApiEnv) {
+  const result = await db(env).prepare(`SELECT t.*, (SELECT body FROM support_ticket_messages m WHERE m.ticket_id = t.id ORDER BY created_at DESC LIMIT 1) AS latest_message FROM support_tickets t ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 ELSE 2 END, updated_at DESC LIMIT 200`).all<Row>();
+  return rows(result);
+}
+
+export async function updateOpsSupportTicketD1(id: string, input: { body?: string; status?: string }, actor: string, env: ApiEnv) {
+  const allowed = new Set(["open", "in_progress", "waiting_user", "resolved", "closed"]);
+  if (input.status && !allowed.has(input.status)) throw new ApiError(422, "invalid_ticket_status", "工单状态无效");
+  const database = db(env); const now = Date.now();
+  const ticket = await database.prepare("SELECT id FROM support_tickets WHERE id = ?").bind(id).first<Row>();
+  if (!ticket) throw new ApiError(404, "ticket_not_found", "未找到该工单");
+  const statements = [database.prepare("UPDATE support_tickets SET status = coalesce(?, status), assigned_to = ?, updated_at = ?, closed_at = CASE WHEN ? = 'closed' THEN ? ELSE closed_at END WHERE id = ?").bind(input.status ?? null, actor, now, input.status ?? null, now, id)];
+  if (input.body?.trim()) statements.push(database.prepare("INSERT INTO support_ticket_messages (id, ticket_id, sender_type, sender_id, body, created_at) VALUES (?, ?, 'operator', ?, ?, ?)").bind(randomId("ticket_message"), id, actor, input.body.trim().slice(0, 3000), now));
+  statements.push(database.prepare("INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, created_at) VALUES (?, ?, 'ticket.update', 'support_ticket', ?, ?, ?)").bind(randomId("audit"), actor, id, JSON.stringify(input), now));
+  await database.batch(statements);
+  return { id, status: input.status ?? "updated" };
+}
+
+export async function listOpsAuditLogsD1(env: ApiEnv) {
+  const result = await db(env).prepare("SELECT id, actor, action, entity_type, entity_id, detail_json, request_id, created_at FROM ops_audit_logs ORDER BY created_at DESC LIMIT 300").all<Row>();
+  return rows(result);
+}
+
+export async function createCoachRescheduleProposalD1(identity: CoachIdentity, input: { bookingId: string; note: string; slotId: string }, env: ApiEnv) {
+  const database = db(env); const now = Date.now();
+  const booking = await database.prepare("SELECT id, user_id, slot_id, status FROM booking_requests WHERE id = ? AND coach_id = ?").bind(input.bookingId, identity.coachId).first<Row>();
+  if (!booking || (booking.status !== "pending_coach" && booking.status !== "confirmed")) throw new ApiError(409, "booking_not_reschedulable", "该预约当前不能发起改期");
+  const slot = await database.prepare("SELECT id, venue_id, starts_at, status FROM availability_slots WHERE id = ? AND coach_id = ?").bind(input.slotId, identity.coachId).first<Row>();
+  if (!slot || slot.status !== "open" || Number(slot.starts_at) <= now) throw new ApiError(409, "reschedule_slot_unavailable", "改期时段已不可用");
+  const pending = await database.prepare("SELECT id FROM booking_reschedule_proposals WHERE booking_id = ? AND status = 'pending'").bind(input.bookingId).first<Row>();
+  if (pending) throw new ApiError(409, "reschedule_already_pending", "该预约已有待确认的改期方案");
+  const id = randomId("reschedule");
+  const result = await database.batch([
+    database.prepare("UPDATE booking_requests SET status = 'reschedule_requested', updated_at = ? WHERE id = ? AND status = ?").bind(now, input.bookingId, booking.status),
+    database.prepare("UPDATE availability_slots SET status = 'held', updated_at = ? WHERE id = ? AND status = 'open'").bind(now, input.slotId),
+    database.prepare("INSERT INTO booking_reschedule_proposals (id, booking_id, proposed_slot_id, proposed_by, previous_booking_status, status, note, created_at, updated_at) VALUES (?, ?, ?, 'coach', ?, 'pending', ?, ?, ?)").bind(id, input.bookingId, input.slotId, booking.status, input.note.trim().slice(0, 500), now, now),
+    database.prepare("INSERT INTO notifications (id, user_id, type, title, body, entity_type, entity_id, target_mode, deep_link, created_at) VALUES (?, ?, 'booking_status', '教练提出改期方案', '请查看新时段并确认或拒绝', 'booking', ?, 'student', 'zhuguang://student/bookings', ?)").bind(randomId("notification"), booking.user_id, input.bookingId, now),
+  ]);
+  if (!result[0].meta.changes || !result[1].meta.changes) throw new ApiError(409, "reschedule_concurrent_change", "预约或时段已变化，请刷新后重试");
+  return { id, status: "pending" as const };
+}
+
+export async function listStudentRescheduleProposalsD1(identity: StudentIdentity, env: ApiEnv) {
+  const result = await db(env).prepare(`
+    SELECT p.id, p.booking_id, p.proposed_slot_id, p.status, p.note, p.created_at,
+      s.starts_at, s.ends_at, v.name AS venue_name, v.address AS venue_address
+    FROM booking_reschedule_proposals p
+    JOIN booking_requests b ON b.id = p.booking_id
+    JOIN availability_slots s ON s.id = p.proposed_slot_id
+    JOIN venues v ON v.id = s.venue_id
+    WHERE b.user_id = ? ORDER BY p.created_at DESC LIMIT 100
+  `).bind(identity.userId).all<Row>();
+  return rows(result);
+}
+
+export async function respondStudentRescheduleProposalD1(identity: StudentIdentity, id: string, decision: "accepted" | "rejected", env: ApiEnv) {
+  const database = db(env); const now = Date.now();
+  const proposal = await database.prepare(`
+    SELECT p.*, b.user_id, b.slot_id AS original_slot_id FROM booking_reschedule_proposals p
+    JOIN booking_requests b ON b.id = p.booking_id
+    WHERE p.id = ? AND b.user_id = ? AND p.status = 'pending' AND b.status = 'reschedule_requested'
+  `).bind(id, identity.userId).first<Row>();
+  if (!proposal) throw new ApiError(409, "reschedule_not_pending", "该改期方案已处理或不存在");
+  const statements = [database.prepare("UPDATE booking_reschedule_proposals SET status = ?, responded_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'").bind(decision, now, now, id)];
+  if (decision === "accepted") {
+    statements.push(
+      database.prepare("UPDATE availability_slots SET status = 'open', updated_at = ? WHERE id = ?").bind(now, proposal.original_slot_id),
+      database.prepare("UPDATE availability_slots SET status = 'booked', updated_at = ? WHERE id = ? AND status = 'held'").bind(now, proposal.proposed_slot_id),
+      database.prepare("UPDATE booking_requests SET slot_id = ?, venue_id = (SELECT venue_id FROM availability_slots WHERE id = ?), status = 'confirmed', updated_at = ? WHERE id = ? AND user_id = ? AND status = 'reschedule_requested'").bind(proposal.proposed_slot_id, proposal.proposed_slot_id, now, proposal.booking_id, identity.userId),
+    );
+  } else {
+    statements.push(
+      database.prepare("UPDATE availability_slots SET status = 'open', updated_at = ? WHERE id = ? AND status = 'held'").bind(now, proposal.proposed_slot_id),
+      database.prepare("UPDATE booking_requests SET status = ?, updated_at = ? WHERE id = ? AND user_id = ? AND status = 'reschedule_requested'").bind(proposal.previous_booking_status, now, proposal.booking_id, identity.userId),
+    );
+  }
+  statements.push(database.prepare("INSERT INTO booking_events (id, booking_id, actor_type, actor_id, from_status, to_status, detail_json, created_at) VALUES (?, ?, 'student', ?, 'reschedule_requested', ?, ?, ?)").bind(randomId("event"), proposal.booking_id, identity.userId, decision === "accepted" ? "confirmed" : proposal.previous_booking_status, JSON.stringify({ decision, proposalId: id }), now));
+  await database.batch(statements);
+  return { id, status: decision };
 }
 
 export async function markNotificationReadD1(identity: StudentIdentity, id: string, env: ApiEnv) {

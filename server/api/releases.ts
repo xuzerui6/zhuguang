@@ -1,5 +1,6 @@
 import type { AppRelease } from "../../app/mobile/types";
 import { ApiError, type ApiEnv } from "./contracts";
+import { PRIMARY_OPERATOR_EMAIL } from "./repository";
 import type { StudentIdentity } from "./repository";
 import { keyedHash, randomId, sha256Hex } from "./security";
 
@@ -223,7 +224,8 @@ export async function saveNotificationPreferencesD1(
 }
 
 export function assertOperator(request: Request, env: ApiEnv) {
-  if (!env.OPERATOR_API_SECRET || request.headers.get("x-operator-secret") !== env.OPERATOR_API_SECRET) {
+  const actor = request.headers.get("x-operator-actor")?.trim().toLowerCase();
+  if (!env.OPERATOR_API_SECRET || request.headers.get("x-operator-secret") !== env.OPERATOR_API_SECRET || actor !== PRIMARY_OPERATOR_EMAIL) {
     throw new ApiError(403, "operator_access_denied", "无权执行版本运营操作");
   }
 }

@@ -20,7 +20,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { BEIJING_DISTRICTS, SPORT_OPTIONS } from "../../shared/coach-catalog";
 import type { MobileCoach } from "../mobile/types";
 import type { CoachProfile } from "../_lib/web-platform";
-import { coaches as fallbackCoaches, mapMobileCoachToWeb } from "../_lib/web-platform";
+import { mapMobileCoachToWeb, publicCoaches as fallbackCoaches } from "../_lib/web-platform";
 import { platformRequest } from "./platform-client";
 import styles from "./coach-directory.module.css";
 
@@ -65,6 +65,15 @@ export function CoachDirectory({ embedded = false, initialCoaches = fallbackCoac
   }, []);
 
   useEffect(() => {
+    if (!embedded) return;
+    let active = true;
+    void platformRequest<{ favoriteCoachIds: number[] }>("/api/v1/bootstrap")
+      .then((data) => { if (active) setFavorites(data.favoriteCoachIds); })
+      .catch(() => { /* Keep the local anonymous collection until login is available. */ });
+    return () => { active = false; };
+  }, [embedded]);
+
+  useEffect(() => {
     let active = true;
     void platformRequest<MobileCoach[]>("/api/v1/coaches")
       .then((items) => { if (active) setDirectoryCoaches(items.map(mapMobileCoachToWeb)); })
@@ -106,8 +115,10 @@ export function CoachDirectory({ embedded = false, initialCoaches = fallbackCoac
 
   function toggleFavorite(id: number) {
     setFavorites((current) => {
-      const next = current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
+      const wasFavorite = current.includes(id);
+      const next = wasFavorite ? current.filter((item) => item !== id) : [...current, id];
       localStorage.setItem("zhuguang-web-favorites", JSON.stringify(next));
+      if (embedded) void platformRequest(`/api/v1/favorites/${id}`, { method: wasFavorite ? "DELETE" : "PUT" }).catch(() => { /* Local state remains available for retry. */ });
       return next;
     });
   }
@@ -130,7 +141,7 @@ export function CoachDirectory({ embedded = false, initialCoaches = fallbackCoac
 
       <div className={styles.resultsToolbar}>
         <strong>找到 {results.length} 位教练</strong>
-        <span>真实教练优先，演示资料有明确标识</span>
+        <span>仅展示已审核并上线的真实教练</span>
         <button aria-pressed={favoritesOnly} className={styles.favoriteFilter} onClick={() => updateQuery({ favorites: favoritesOnly ? null : "1", coach: null })} type="button"><Heart aria-hidden fill={favoritesOnly ? "currentColor" : "none"} size={17} />只看已收藏</button>
       </div>
 

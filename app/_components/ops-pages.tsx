@@ -26,7 +26,7 @@ import { BEIJING_DISTRICTS, SPORT_OPTIONS } from "../../shared/coach-catalog";
 import { formatBeijingDate, formatFen, platformRequest } from "./platform-client";
 import styles from "./platform-pages.module.css";
 
-export type OpsSection = "home" | "matching" | "coaches" | "bookings" | "users" | "content" | "releases";
+export type OpsSection = "home" | "matching" | "coaches" | "profile-reviews" | "bookings" | "users" | "reviews" | "support" | "content" | "audit" | "releases";
 type Row = Record<string, unknown>;
 type Overview = { bookings: Row[]; coaches: Row[]; leads: Row[]; pushDeliveries: Row[]; users: Row[] };
 
@@ -58,9 +58,13 @@ function useOpsData<T>(path: string) {
 export function OpsPage({ section }: { section: OpsSection }) {
   if (section === "matching") return <LeadCenter />;
   if (section === "coaches") return <CoachOperations />;
+  if (section === "profile-reviews") return <ProfileReviewCenter />;
   if (section === "bookings") return <BookingOperations />;
   if (section === "users") return <UserOperations />;
+  if (section === "reviews") return <ReviewModeration />;
+  if (section === "support") return <SupportCenter />;
   if (section === "content") return <ContentOperations />;
+  if (section === "audit") return <AuditLogPage />;
   if (section === "releases") return <ReleaseCenter />;
   return <OpsHome />;
 }
@@ -241,6 +245,67 @@ function ContentOperations() {
   if (!state.data) return <ErrorState message={state.error} onRetry={state.load} />;
   async function save(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); setBusy(true); try { const result = await platformRequest<{ documentId: string; versionId: string }>("/api/v1/operator/content", { body: { audience: form.get("audience"), body: form.get("body"), slug: form.get("slug"), title: form.get("title") }, method: "POST" }); await platformRequest(`/api/v1/operator/content/${encodeURIComponent(result.documentId)}/publish`, { body: { versionId: result.versionId }, method: "POST" }); setNotice("新版本已保存并发布"); event.currentTarget.reset(); await state.load(); } catch (error) { setNotice(error instanceof Error ? error.message : "发布失败"); } finally { setBusy(false); } }
   return <div className={styles.page}><Heading copy="协议与规则使用不可变版本记录；每次发布都保留操作人和时间。" title="内容与协议" /><div className={styles.split}><section className={styles.panel}><header className={styles.panelHeader}><div><h2>已管理内容</h2><p>{state.data.length} 份文档</p></div></header>{state.data.length ? <div className={styles.list}>{state.data.map((doc) => <article className={styles.listItem} key={doc.id}><span className={styles.listIcon}><FileCheck2 aria-hidden size={19} /></span><div><h3>{doc.title || doc.slug}</h3><p>v{doc.latest_version || 0} · {doc.audience || "public"} · {formatBeijingDate(doc.updated_at)}</p></div><em className={styles.status} data-tone={doc.status === "published" ? "green" : "gray"}>{doc.status === "published" ? "已发布" : "草稿"}</em></article>)}</div> : <Empty copy="创建服务协议、隐私说明或取消规则的第一个版本。" title="暂无内容文档" />}</section><aside className={styles.panel}><header className={styles.panelHeader}><div><h2>发布新版本</h2><p>发布后立即成为当前有效版本</p></div></header><form className={styles.form} onSubmit={save}><label className={styles.field}><span>标题</span><input maxLength={120} name="title" required /></label><label className={styles.field}><span>固定标识</span><input maxLength={80} name="slug" pattern="[a-z0-9-]+" placeholder="privacy-policy" required /></label><label className={styles.field}><span>适用对象</span><select name="audience"><option value="public">公开</option><option value="student">学员</option><option value="coach">教练</option></select></label><label className={styles.field}><span>正文</span><textarea maxLength={50000} name="body" required /></label><button className={styles.primary} disabled={busy} type="submit">保存并发布</button></form></aside></div>{notice ? <Toast copy={notice} /> : null}</div>;
+}
+
+type ProfileChange = { id: string; coach_name?: string; field?: string; current_value_json?: string; proposed_value_json?: string; status?: string; review_note?: string; reviewed_by?: string; reviewed_at?: number; created_at?: number };
+
+function readableValue(value?: string) {
+  if (!value) return "未填写";
+  try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.join("、") : typeof parsed === "object" ? JSON.stringify(parsed, null, 2) : String(parsed); }
+  catch { return value; }
+}
+
+function ProfileReviewCenter() {
+  const state = useOpsData<ProfileChange[]>("/api/v1/operator/profile-change-requests");
+  const [selected, setSelected] = useState<ProfileChange | null>(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  if (state.loading) return <Loading label="正在读取资料变更申请" />;
+  if (!state.data) return <ErrorState message={state.error} onRetry={state.load} />;
+  const pending = state.data.filter((item) => item.status === "pending");
+  async function review(decision: "approved" | "rejected") {
+    if (!selected || !note.trim()) return;
+    setBusy(true);
+    try {
+      await platformRequest(`/api/v1/operator/profile-change-requests/${encodeURIComponent(selected.id)}`, { body: { decision, note: note.trim() }, method: "PATCH" });
+      setNotice(decision === "approved" ? "资料变更已审核通过并更新公开档案" : "资料变更已拒绝，公开档案保持不变");
+      setSelected(null); setNote(""); await state.load();
+    } catch (error) { setNotice(error instanceof Error ? error.message : "审核失败"); }
+    finally { setBusy(false); }
+  }
+  return <div className={styles.page}><Heading copy="逐项对照公开值与申请值。只有审核通过才会更新官网和 App，拒绝不会改变线上档案。" title="教练资料审核" />
+    <section className={styles.metrics}><article><span>待审核</span><strong>{pending.length}</strong><small>需人工核验</small></article><article><span>全部申请</span><strong>{state.data.length}</strong><small>含历史记录</small></article></section>
+    <section className={styles.panel}>{state.data.length ? <div className={styles.table}><div className={styles.tableHead}><span>教练与字段</span><span>当前公开值</span><span>申请变更为</span><span>状态</span><span>操作</span></div>{state.data.map((item) => <article className={styles.tableRow} key={item.id}><span><strong>{item.coach_name || "教练"}</strong><small>{item.field || "资料字段"} · {formatBeijingDate(item.created_at)}</small></span><span><strong>{readableValue(item.current_value_json)}</strong><small>当前线上版本</small></span><span><strong>{readableValue(item.proposed_value_json)}</strong><small>待核验内容</small></span><span><em className={styles.status} data-tone={item.status === "approved" ? "green" : item.status === "pending" ? "amber" : "gray"}>{item.status === "approved" ? "已通过" : item.status === "rejected" ? "已拒绝" : item.status === "cancelled" ? "已撤回" : "待审核"}</em><small>{item.review_note || "暂无审核意见"}</small></span><span>{item.status === "pending" ? <button className={styles.primary} onClick={() => { setSelected(item); setNote(""); }} type="button">开始审核</button> : <small>{item.reviewed_by || "系统"}</small>}</span></article>)}</div> : <Empty copy="教练提交公开资料变更后会进入这里。" title="暂无资料变更申请" />}</section>
+    {selected ? <div className={styles.confirmOverlay} role="presentation" onClick={() => setSelected(null)}><section aria-modal="true" onClick={(event) => event.stopPropagation()} role="dialog"><h2>{selected.coach_name} · {selected.field}</h2><p>确认后会记录审核人、时间和不可变版本。拒绝时公开档案保持原值。</p><div className={styles.statusHistory}><article><strong>当前公开值</strong><p>{readableValue(selected.current_value_json)}</p></article><article><strong>申请值</strong><p>{readableValue(selected.proposed_value_json)}</p></article></div><label className={styles.field}><span>审核意见（必填）</span><textarea autoFocus maxLength={1000} onChange={(event) => setNote(event.target.value)} value={note} /></label><div><button className={styles.secondary} onClick={() => setSelected(null)} type="button">取消</button><button className={styles.danger} disabled={busy || !note.trim()} onClick={() => void review("rejected")} type="button">拒绝</button><button className={styles.primary} disabled={busy || !note.trim()} onClick={() => void review("approved")} type="button">通过并发布</button></div></section></div> : null}{notice ? <Toast copy={notice} /> : null}</div>;
+}
+
+type ModeratedReview = { id: string; coach_name?: string; rating?: number; body?: string; status?: string; review_note?: string; created_at?: number };
+function ReviewModeration() {
+  const state = useOpsData<ModeratedReview[]>("/api/v1/operator/reviews");
+  const [busy, setBusy] = useState(""); const [notice, setNotice] = useState("");
+  if (state.loading) return <Loading label="正在读取学员评价" />;
+  if (!state.data) return <ErrorState message={state.error} onRetry={state.load} />;
+  async function review(item: ModeratedReview, status: "approved" | "rejected") { setBusy(item.id); try { await platformRequest(`/api/v1/operator/reviews/${encodeURIComponent(item.id)}`, { body: { note: status === "approved" ? "内容真实、表述合规" : "内容暂不符合公开展示规范", status }, method: "PATCH" }); setNotice(status === "approved" ? "评价已公开" : "评价已拒绝"); await state.load(); } catch (error) { setNotice(error instanceof Error ? error.message : "审核失败"); } finally { setBusy(""); } }
+  return <div className={styles.page}><Heading copy="仅已完成课程的学员可以提交一次评价；审核通过后才计入公开评分。" title="评价审核" /><section className={styles.panel}>{state.data.length ? <div className={styles.table}><div className={styles.tableHead}><span>教练</span><span>评分</span><span>评价内容</span><span>状态</span><span>操作</span></div>{state.data.map((item) => <article className={styles.tableRow} key={item.id}><span><strong>{item.coach_name || "教练"}</strong><small>{formatBeijingDate(item.created_at)}</small></span><span><strong>{item.rating || 0} / 5</strong><small>课程完成后提交</small></span><span><strong>{item.body || "未填写文字评价"}</strong><small>{item.review_note || "尚未填写审核意见"}</small></span><span><em className={styles.status} data-tone={item.status === "approved" ? "green" : item.status === "pending" ? "amber" : "gray"}>{item.status === "approved" ? "已公开" : item.status === "rejected" ? "已拒绝" : "待审核"}</em></span><span className={styles.rowActions}>{item.status === "pending" ? <><button className={styles.danger} disabled={busy === item.id} onClick={() => void review(item, "rejected")} type="button">拒绝</button><button className={styles.primary} disabled={busy === item.id} onClick={() => void review(item, "approved")} type="button">公开</button></> : null}</span></article>)}</div> : <Empty copy="完成课程并提交评价后，内容会进入审核队列。" title="暂无评价" />}</section>{notice ? <Toast copy={notice} /> : null}</div>;
+}
+
+type SupportTicket = { id: string; subject?: string; category?: string; priority?: string; status?: string; latest_message?: string; created_by_role?: string; created_at?: number; updated_at?: number };
+function SupportCenter() {
+  const state = useOpsData<SupportTicket[]>("/api/v1/operator/support-tickets");
+  const [replying, setReplying] = useState<SupportTicket | null>(null); const [body, setBody] = useState(""); const [status, setStatus] = useState("in_progress"); const [notice, setNotice] = useState(""); const [busy, setBusy] = useState(false);
+  if (state.loading) return <Loading label="正在读取售后工单" />;
+  if (!state.data) return <ErrorState message={state.error} onRetry={state.load} />;
+  async function update() { if (!replying) return; setBusy(true); try { await platformRequest(`/api/v1/operator/support-tickets/${encodeURIComponent(replying.id)}`, { body: { body: body.trim() || undefined, status }, method: "PATCH" }); setNotice("工单已更新并记录运营回复"); setReplying(null); setBody(""); await state.load(); } catch (error) { setNotice(error instanceof Error ? error.message : "工单更新失败"); } finally { setBusy(false); } }
+  return <div className={styles.page}><Heading copy="学员和教练可围绕真实预约发起站内售后，运营回复与处理状态会完整留痕。" title="售后工单" /><section className={styles.panel}>{state.data.length ? <div className={styles.table}><div className={styles.tableHead}><span>工单</span><span>分类</span><span>最新内容</span><span>状态</span><span>操作</span></div>{state.data.map((item) => <article className={styles.tableRow} key={item.id}><span><strong>{item.subject || `工单 #${item.id.slice(-8)}`}</strong><small>{formatBeijingDate(item.updated_at || item.created_at)}</small></span><span><strong>{item.category || "其他"}</strong><small>{item.created_by_role === "coach" ? "教练发起" : "学员发起"} · {item.priority === "urgent" ? "紧急" : "常规"}</small></span><span><strong>{item.latest_message || "暂无消息"}</strong><small>站内工单</small></span><span><em className={styles.status} data-tone={item.status === "resolved" || item.status === "closed" ? "green" : "amber"}>{item.status || "open"}</em></span><span><button className={styles.primary} onClick={() => { setReplying(item); setStatus(item.status === "open" ? "in_progress" : item.status || "in_progress"); }} type="button">处理</button></span></article>)}</div> : <Empty copy="学员或教练发起工单后会显示在这里。" title="暂无售后工单" />}</section>{replying ? <div className={styles.confirmOverlay} role="presentation" onClick={() => setReplying(null)}><section aria-modal="true" onClick={(event) => event.stopPropagation()} role="dialog"><h2>{replying.subject}</h2><p>{replying.latest_message}</p><label className={styles.field}><span>处理状态</span><select onChange={(event) => setStatus(event.target.value)} value={status}><option value="in_progress">处理中</option><option value="waiting_user">等待用户</option><option value="resolved">已解决</option><option value="closed">已关闭</option></select></label><label className={styles.field}><span>运营回复</span><textarea maxLength={3000} onChange={(event) => setBody(event.target.value)} value={body} /></label><div><button className={styles.secondary} onClick={() => setReplying(null)} type="button">取消</button><button className={styles.primary} disabled={busy} onClick={() => void update()} type="button">保存处理结果</button></div></section></div> : null}{notice ? <Toast copy={notice} /> : null}</div>;
+}
+
+type AuditRow = { id: string; actor?: string; action?: string; entity_type?: string; entity_id?: string; detail_json?: string; request_id?: string; created_at?: number };
+function AuditLogPage() {
+  const state = useOpsData<AuditRow[]>("/api/v1/operator/audit-logs");
+  if (state.loading) return <Loading label="正在读取审计日志" />;
+  if (!state.data) return <ErrorState message={state.error} onRetry={state.load} />;
+  return <div className={styles.page}><Heading copy="资料审核、上下线、评价、工单和内容发布均记录操作人、对象与时间。" title="审计日志" /><section className={styles.panel}>{state.data.length ? <div className={styles.table}><div className={styles.tableHead}><span>操作</span><span>对象</span><span>操作人</span><span>时间</span><span>请求标识</span></div>{state.data.map((item) => <article className={styles.tableRow} key={item.id}><span><strong>{item.action || "系统操作"}</strong><small>{item.detail_json || "{}"}</small></span><span><strong>{item.entity_type || "entity"}</strong><small>{item.entity_id || "-"}</small></span><span><strong>{item.actor || "system"}</strong><small>服务端校验</small></span><span><strong>{formatBeijingDate(item.created_at)}</strong><small>北京时间</small></span><span><strong>{item.request_id || "-"}</strong><small>追踪标识</small></span></article>)}</div> : <Empty copy="完成受审计操作后会生成不可变记录。" title="暂无审计记录" />}</section></div>;
 }
 
 type Release = { artifactPresent: boolean; certificateSha256: string; forced: boolean; minimumSupportedVersionCode: number; notes: string[]; publishedAt: number; rolloutPercentage: number; sha256: string; sizeBytes: number; status: "draft" | "paused" | "published"; updatedAt: number; versionCode: number; versionName: string };

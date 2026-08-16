@@ -33,6 +33,7 @@ function upstreamHeaders(contentType?: string) {
   if (!config) return null;
   const headers = new Headers({
     accept: "application/json",
+    "x-operator-actor": "xuzerui6@gmail.com",
     "x-operator-secret": config.operatorSecret,
     "x-request-id": `ops_${crypto.randomUUID()}`,
     "x-zhuguang-app-key": config.appKey,

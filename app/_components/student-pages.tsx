@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import type { BookingSlot, LearnerProfile, MobileBooking, MobileCoach, MobileConversation } from "../mobile/types";
 import { coaches as fallbackCoaches } from "../_lib/web-platform";
@@ -43,6 +44,9 @@ type TrainingRecord = {
   published_at?: number;
   created_at?: number;
 };
+
+type SupportTicket = { id: string; subject?: string; category?: string; status?: string; latest_message?: string; updated_at?: number; created_at?: number };
+type RescheduleProposal = { id: string; booking_id: string; status: string; note?: string; starts_at?: number; ends_at?: number; venue_name?: string; venue_address?: string; created_at?: number };
 
 const statusCopy: Record<MobileBooking["status"], string> = {
   cancelled_by_coach: "教练已取消",
@@ -75,6 +79,10 @@ function useStudentBootstrap() {
       setLoading(false);
     }
   }, []);
+  const refresh = useCallback(async () => {
+    try { setData(await platformRequest<BootstrapData>("/api/v1/bootstrap")); setError(""); }
+    catch { /* Keep the last successfully loaded workspace state. */ }
+  }, []);
   useEffect(() => {
     let active = true;
     void platformRequest<BootstrapData>("/api/v1/bootstrap")
@@ -83,7 +91,7 @@ function useStudentBootstrap() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
-  return { data, error, load, loading, setData };
+  return { data, error, load, loading, refresh, setData };
 }
 
 export function StudentPage({ initialCoachId, section }: { initialCoachId?: number; section: StudentSection }) {
@@ -96,8 +104,8 @@ function StudentDataPage({ initialCoachId, section }: { initialCoachId?: number;
   if (state.loading) return <LoadingState label="正在读取你的服务记录" />;
   if (!state.data) return <ErrorState message={state.error} onRetry={state.load} />;
   if (section === "bookings") return <BookingsPage data={state.data} initialCoachId={initialCoachId} reload={state.load} />;
-  if (section === "messages") return <MessagesPage conversations={state.data.conversations} reload={state.load} />;
-  if (section === "training") return <TrainingPage />;
+  if (section === "messages") return <MessagesPage conversations={state.data.conversations} reload={state.refresh} />;
+  if (section === "training") return <TrainingPage data={state.data} />;
   if (section === "profile") return <ProfilePage data={state.data} reload={state.load} />;
   return <StudentHome data={state.data} />;
 }
@@ -152,6 +160,12 @@ function BookingsPage({ data, initialCoachId, reload }: { data: BootstrapData; i
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [selectedLearnerId, setSelectedLearnerId] = useState(data.learnerProfiles[0]?.id || "");
+  const [bookingNote, setBookingNote] = useState("");
+  const [agreementAccepted, setAgreementAccepted] = useState(false);
+  const [proposals, setProposals] = useState<RescheduleProposal[]>([]);
+  const loadProposals = useCallback(async () => { try { setProposals(await platformRequest<RescheduleProposal[]>("/api/v1/reschedule-proposals")); } catch { setProposals([]); } }, []);
+  useEffect(() => { queueMicrotask(() => void loadProposals()); }, [loadProposals]);
   useEffect(() => {
     if (!selectedCoach) return;
     void platformRequest<BookingSlot[]>(`/api/v1/coaches/${selectedCoach.id}/slots`).then(setSlots).catch(() => setSlots([]));
@@ -169,11 +183,11 @@ function BookingsPage({ data, initialCoachId, reload }: { data: BootstrapData; i
   }
 
   async function book(slot: BookingSlot) {
-    if (!data.learnerProfiles[0] || !slot.venueId || !selectedCoach) return;
+    if (!selectedLearnerId || !slot.venueId || !selectedCoach || !agreementAccepted) return;
     setBusy(slot.id);
     try {
       await platformRequest("/api/v1/bookings", {
-        body: { coachId: selectedCoach.id, learnerId: data.learnerProfiles[0].id, note: "请教练根据学员档案准备试课。", slotId: slot.id, venueId: slot.venueId },
+        body: { coachId: selectedCoach.id, learnerId: selectedLearnerId, note: bookingNote, slotId: slot.id, venueId: slot.venueId },
         method: "POST",
       });
       setNotice("预约申请已提交，教练确认后生效");
@@ -183,14 +197,22 @@ function BookingsPage({ data, initialCoachId, reload }: { data: BootstrapData; i
     } finally { setBusy(""); }
   }
 
+  async function respondToReschedule(id: string, decision: "accepted" | "rejected") {
+    setBusy(id);
+    try { await platformRequest(`/api/v1/reschedule-proposals/${encodeURIComponent(id)}/respond`, { body: { decision }, method: "POST" }); setNotice(decision === "accepted" ? "已接受新时段，预约已确认" : "已拒绝改期，原预约状态已恢复"); setError(""); await Promise.all([reload(), loadProposals()]); }
+    catch (actionError) { setError(actionError instanceof Error ? actionError.message : "改期处理失败"); }
+    finally { setBusy(""); }
+  }
+
   return (
     <div className={styles.page}>
       <header className={styles.heading}><div><p className={styles.eyebrow}>预约</p><h1>我的训练安排</h1><p>费用快照、状态变化和取消结果均来自正式业务记录。</p></div><Link className={styles.primary} href="/student/coaches">选择教练</Link></header>
       {error ? <div className={styles.error} role="alert"><strong>操作没有完成</strong><p>{error}</p></div> : null}
       {selectedCoach ? <section className={styles.panel}>
         <header className={styles.panelHeader}><div><h2>{selectedCoach.name}教练的可约时间</h2><p>{selectedCoach.sport} · {selectedCoach.district || "北京"} · 试课 ¥{selectedCoach.trialPrice}</p></div></header>
-        {slots.length ? <div className={styles.list}>{slots.map((slot) => <article className={styles.listItem} key={slot.id}><span className={styles.listIcon}><Clock3 aria-hidden size={19} /></span><div><h3>{slot.dateLabel} {slot.date}</h3><p>{slot.time}–{slot.endTime} · 教练确认后生效</p></div><button className={styles.primary} disabled={!slot.venueId || busy === slot.id || !data.learnerProfiles.length} onClick={() => void book(slot)} type="button">{busy === slot.id ? "提交中" : "提交预约"}</button></article>)}</div> : <EmptyState copy="教练尚未发布真实场馆与可约时段。你仍可收藏或发起咨询，发布后这里会自动开放。" title="暂无可约时间" />}
+        {slots.length ? <><div className={styles.formGrid}><label className={styles.field}><span>训练学员</span><select onChange={(event) => setSelectedLearnerId(event.target.value)} value={selectedLearnerId}><option value="">请选择学员档案</option>{data.learnerProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.goal}</option>)}</select></label><label className={styles.field}><span>训练需求说明</span><input maxLength={500} onChange={(event) => setBookingNote(event.target.value)} placeholder="需要教练提前了解的情况" value={bookingNote} /></label></div><label className={styles.consentRow}><input checked={agreementAccepted} onChange={(event) => setAgreementAccepted(event.target.checked)} type="checkbox" /><span>我已阅读服务与取消规则，理解预约需教练确认后生效，费用采用线下支付。</span></label><div className={styles.list}>{slots.map((slot) => <article className={styles.listItem} key={slot.id}><span className={styles.listIcon}><Clock3 aria-hidden size={19} /></span><div><h3>{slot.dateLabel} {slot.date}</h3><p>{slot.time}–{slot.endTime} · 教练确认后生效</p></div><button className={styles.primary} disabled={!slot.venueId || busy === slot.id || !selectedLearnerId || !agreementAccepted} onClick={() => void book(slot)} type="button">{busy === slot.id ? "提交中" : "提交预约"}</button></article>)}</div></> : <EmptyState copy="教练尚未发布真实场馆与可约时段。你仍可收藏或发起咨询，发布后这里会自动开放。" title="暂无可约时间" />}
       </section> : null}
+      {proposals.some((item) => item.status === "pending") ? <section className={styles.panel}><header className={styles.panelHeader}><div><h2>待确认改期</h2><p>确认前请核对新时间和场馆</p></div></header><div className={styles.list}>{proposals.filter((item) => item.status === "pending").map((proposal) => <article className={styles.listItem} key={proposal.id}><span className={styles.listIcon}><Clock3 aria-hidden size={19} /></span><div><h3>{formatBeijingDate(proposal.starts_at)}</h3><p>{proposal.venue_name || "训练场馆"} · {proposal.note || "教练提出新的训练时间"}</p></div><span className={styles.rowActions}><button className={styles.danger} disabled={busy === proposal.id} onClick={() => void respondToReschedule(proposal.id, "rejected")} type="button">拒绝</button><button className={styles.primary} disabled={busy === proposal.id} onClick={() => void respondToReschedule(proposal.id, "accepted")} type="button">接受改期</button></span></article>)}</div></section> : null}
       <section className={styles.panel}>
         <header className={styles.panelHeader}><div><h2>预约记录</h2><p>共 {data.bookings.length} 条真实记录</p></div></header>
         {data.bookings.length ? <div className={styles.table}>
@@ -208,10 +230,23 @@ function BookingsPage({ data, initialCoachId, reload }: { data: BootstrapData; i
 }
 
 function MessagesPage({ conversations, reload }: { conversations: MobileConversation[]; reload: () => Promise<void> }) {
+  const searchParams = useSearchParams();
+  const requestedCoachId = Number(searchParams.get("coach"));
   const [activeId, setActiveId] = useState(conversations[0]?.id || "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const active = conversations.find((item) => item.id === activeId) ?? conversations[0];
+  useEffect(() => { const timer = window.setInterval(() => void reload(), 15_000); return () => window.clearInterval(timer); }, [reload]);
+  useEffect(() => {
+    if (!Number.isInteger(requestedCoachId) || requestedCoachId <= 0) return;
+    const existing = conversations.find((item) => item.coachId === requestedCoachId);
+    if (existing) { queueMicrotask(() => setActiveId(existing.id)); return; }
+    let activeRequest = true;
+    void platformRequest<MobileConversation>("/api/v1/conversations", { body: { coachId: requestedCoachId }, method: "POST" })
+      .then(async (created) => { if (activeRequest) { setActiveId(created.id); await reload(); } })
+      .catch((cause: unknown) => { if (activeRequest) setError(cause instanceof Error ? cause.message : "咨询会话创建失败"); });
+    return () => { activeRequest = false; };
+  }, [conversations, reload, requestedCoachId]);
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!active) return;
@@ -239,9 +274,12 @@ function MessagesPage({ conversations, reload }: { conversations: MobileConversa
   </div>;
 }
 
-function TrainingPage() {
+function TrainingPage({ data }: { data: BootstrapData }) {
   const [records, setRecords] = useState<TrainingRecord[] | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const completed = data.bookings.filter((booking) => booking.status === "completed");
   useEffect(() => {
     let active = true;
     void platformRequest<TrainingRecord[]>("/api/v1/training-records")
@@ -249,37 +287,60 @@ function TrainingPage() {
       .catch((loadError: unknown) => { if (active) { setError(loadError instanceof Error ? loadError.message : "训练记录暂时不可用"); setRecords([]); } });
     return () => { active = false; };
   }, []);
+  async function submitReview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const form = new FormData(event.currentTarget); setBusy(true);
+    try { await platformRequest("/api/v1/reviews", { body: { bookingId: form.get("bookingId"), body: form.get("body"), rating: Number(form.get("rating")) }, method: "POST" }); setNotice("评价已提交，运营审核通过后公开"); setError(""); event.currentTarget.reset(); }
+    catch (submitError) { setError(submitError instanceof Error ? submitError.message : "评价提交失败"); }
+    finally { setBusy(false); }
+  }
   return <div className={styles.page}>
     <header className={styles.heading}><div><p className={styles.eyebrow}>训练档案</p><h1>每次训练都留下清晰记录</h1><p>只有已完成课程且由教练发布的记录才会展示。</p></div></header>
     <section className={styles.panel}><header className={styles.panelHeader}><div><h2>课程记录</h2><p>{records ? `${records.length} 条已发布记录` : "正在读取"}</p></div></header>
       {records === null ? <LoadingState label="读取训练记录" /> : records.length ? <div className={styles.timeline}>{records.map((record) => <article key={record.id}><time>{formatBeijingDate(record.published_at ?? record.created_at)}</time><h3>{record.sport || "专项训练"} · {record.coach_name || "教练记录"}</h3><p>{record.summary}</p>{record.coach_notes ? <p>{record.coach_notes}</p> : null}</article>)}</div> : <EmptyState copy={error || "完成课程后，教练发布的训练总结会按时间排列在这里。"} title="暂无训练记录" />}
     </section>
+    <section className={styles.panel}><header className={styles.panelHeader}><div><h2>课程评价</h2><p>每个已完成预约只能提交一次，审核后才公开</p></div></header>{completed.length ? <form className={styles.form} onSubmit={submitReview}><div className={styles.formGrid}><label className={styles.field}><span>选择课程</span><select name="bookingId" required>{completed.map((booking) => <option key={booking.id} value={booking.id}>{booking.dateLabel} {booking.date} · #{booking.id.slice(-8)}</option>)}</select></label><label className={styles.field}><span>评分</span><select defaultValue="5" name="rating"><option value="5">5 分</option><option value="4">4 分</option><option value="3">3 分</option><option value="2">2 分</option><option value="1">1 分</option></select></label></div><label className={styles.field}><span>真实体验</span><textarea maxLength={1000} name="body" required /></label><div className={styles.formActions}>{error ? <p role="alert">{error}</p> : notice ? <p role="status">{notice}</p> : <p>请避免填写未成年人姓名和联系方式。</p>}<button className={styles.primary} disabled={busy} type="submit">提交评价</button></div></form> : <EmptyState copy="完成真实课程后即可提交一次评价。" title="暂无可评价课程" />}</section>
   </div>;
 }
 
 function ProfilePage({ data, reload }: { data: BootstrapData; reload: () => Promise<void> }) {
-  const current = data.learnerProfiles[0];
+  const [selectedProfileId, setSelectedProfileId] = useState(data.learnerProfiles[0]?.id || "");
+  const current = data.learnerProfiles.find((profile) => profile.id === selectedProfileId);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const loadTickets = useCallback(async () => { try { setTickets(await platformRequest<SupportTicket[]>("/api/v1/support-tickets")); } catch { setTickets([]); } }, []);
+  useEffect(() => { queueMicrotask(() => void loadTickets()); }, [loadTickets]);
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setBusy(true);
     try {
-      await platformRequest("/api/v1/learner-profiles", { body: {
+      const saved = await platformRequest<LearnerProfile>("/api/v1/learner-profiles", { body: {
         age: Number(form.get("age")) || undefined,
         gender: form.get("gender"), goal: form.get("goal"), id: current?.id,
         level: form.get("level"), name: form.get("name"), relation: form.get("relation"), sport: form.get("sport"),
       }, method: current ? "PUT" : "POST" });
-      setNotice("学员档案已保存"); setError(""); await reload();
+      setSelectedProfileId(saved.id); setNotice("学员档案已保存"); setError(""); await reload();
     } catch (saveError) { setError(saveError instanceof Error ? saveError.message : "档案保存失败"); }
     finally { setBusy(false); }
+  }
+  async function createTicket(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const form = new FormData(event.currentTarget); setBusy(true);
+    try { await platformRequest("/api/v1/support-tickets", { body: { bookingId: form.get("bookingId") || undefined, body: form.get("body"), category: form.get("category"), subject: form.get("subject") }, method: "POST" }); setNotice("售后工单已创建，运营回复会保留在站内"); setError(""); event.currentTarget.reset(); await loadTickets(); }
+    catch (ticketError) { setError(ticketError instanceof Error ? ticketError.message : "工单创建失败"); }
+    finally { setBusy(false); }
+  }
+  async function deleteAccount() {
+    setBusy(true);
+    try { await platformRequest("/api/v1/me", { method: "DELETE" }); window.location.assign("/"); }
+    catch (deleteError) { setError(deleteError instanceof Error ? deleteError.message : "账号注销失败"); setDeleteOpen(false); setBusy(false); }
   }
   return <div className={styles.page}>
     <header className={styles.heading}><div><p className={styles.eyebrow}>账号与档案</p><h1>把必要信息交给正确的人</h1><p>敏感资料不会出现在公开教练目录中，仅用于已确认的服务。</p></div></header>
     <div className={styles.split}>
-      <section className={styles.panel}><header className={styles.panelHeader}><div><h2>学员档案</h2><p>用于匹配与课前准备</p></div></header><form className={styles.form} onSubmit={save}>
+      <section className={styles.panel}><header className={styles.panelHeader}><div><h2>学员档案</h2><p>可为本人或孩子分别建立档案</p></div><button className={styles.secondary} onClick={() => setSelectedProfileId("")} type="button">新增档案</button></header>{data.learnerProfiles.length ? <div className={styles.toolbar}>{data.learnerProfiles.map((profile) => <button aria-pressed={profile.id === selectedProfileId} className={profile.id === selectedProfileId ? styles.primary : styles.secondary} key={profile.id} onClick={() => setSelectedProfileId(profile.id)} type="button">{profile.name}</button>)}</div> : null}<form className={styles.form} key={current?.id || "new-profile"} onSubmit={save}>
         <div className={styles.formGrid}>
           <label className={styles.field}><span>姓名或称呼</span><input defaultValue={current?.name || ""} maxLength={40} name="name" required /></label>
           <label className={styles.field}><span>服务关系</span><select defaultValue={current?.relation || "self"} name="relation"><option value="self">本人</option><option value="child">孩子</option></select></label>
@@ -295,8 +356,11 @@ function ProfilePage({ data, reload }: { data: BootstrapData; reload: () => Prom
         <div className={styles.listItem}><span className={styles.listIcon}><Heart aria-hidden size={19} /></span><div><h3>我的收藏</h3><p>{data.favoriteCoachIds.length} 位教练已同步</p></div></div>
         <Link className={styles.listItem} href="/service-guarantee"><span className={styles.listIcon}><ShieldCheck aria-hidden size={19} /></span><div><h3>协议与隐私</h3><p>查看服务保障与个人信息规则</p></div><ArrowRight aria-hidden size={17} /></Link>
         <form action="/api/auth/email/logout" method="post" className={styles.listItem}><span className={styles.listIcon}><UserRound aria-hidden size={19} /></span><div><h3>登录状态</h3><p>退出后公开教练目录仍可浏览</p></div><button className={styles.secondary} type="submit">退出登录</button></form>
+        <div className={styles.listItem}><span className={styles.listIcon}><CircleAlert aria-hidden size={19} /></span><div><h3>注销账号</h3><p>最高权限账号受保护，其他账号可提交注销</p></div><button className={styles.danger} onClick={() => setDeleteOpen(true)} type="button">注销</button></div>
       </div></aside>
     </div>
+    <section className={styles.panel}><header className={styles.panelHeader}><div><h2>售后与服务工单</h2><p>围绕预约、线下支付、隐私或安全问题联系运营</p></div></header><div className={styles.split}><form className={styles.form} onSubmit={createTicket}><label className={styles.field}><span>问题主题</span><input maxLength={120} name="subject" required /></label><div className={styles.formGrid}><label className={styles.field}><span>问题类型</span><select name="category"><option value="service">服务体验</option><option value="booking">预约安排</option><option value="payment">线下支付</option><option value="safety">安全问题</option><option value="privacy">隐私问题</option><option value="other">其他</option></select></label><label className={styles.field}><span>关联预约</span><select name="bookingId"><option value="">不关联预约</option>{data.bookings.map((booking) => <option key={booking.id} value={booking.id}>#{booking.id.slice(-8)} · {booking.dateLabel}</option>)}</select></label></div><label className={styles.field}><span>问题说明</span><textarea maxLength={3000} name="body" required /></label><button className={styles.primary} disabled={busy} type="submit">提交工单</button></form><div className={styles.list}>{tickets.length ? tickets.map((ticket) => <article className={styles.listItem} key={ticket.id}><span className={styles.listIcon}><FileText aria-hidden size={19} /></span><div><h3>{ticket.subject || `工单 #${ticket.id.slice(-8)}`}</h3><p>{ticket.latest_message || "等待运营处理"} · {formatBeijingDate(ticket.updated_at || ticket.created_at)}</p></div><em className={styles.status} data-tone={ticket.status === "resolved" || ticket.status === "closed" ? "green" : "amber"}>{ticket.status === "resolved" ? "已解决" : ticket.status === "closed" ? "已关闭" : ticket.status === "waiting_user" ? "等待回复" : "处理中"}</em></article>) : <EmptyState copy="需要帮助时可创建第一条站内工单。" title="暂无售后工单" />}</div></div></section>
+    {deleteOpen ? <div className={styles.confirmOverlay} role="presentation" onClick={() => setDeleteOpen(false)}><section aria-modal="true" onClick={(event) => event.stopPropagation()} role="dialog"><h2>确认注销账号</h2><p>登录会话、收藏和通知会被清除；争议处理所需的历史履约记录按规则保留。此操作不能在网页内撤销。</p><div><button className={styles.secondary} onClick={() => setDeleteOpen(false)} type="button">取消</button><button className={styles.danger} disabled={busy} onClick={() => void deleteAccount()} type="button">确认注销</button></div></section></div> : null}
   </div>;
 }
 

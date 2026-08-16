@@ -201,7 +201,7 @@ export type AppRelease = {
 export type CoachOverview = {
   bookings: MobileBooking[];
   coach: MobileCoach;
-  conversations: Array<Pick<MobileConversation, "id" | "title"> & { last_message_at?: number }>;
+  conversations: MobileConversation[];
   slots: BookingSlot[];
   venues?: CoachVenue[];
 };

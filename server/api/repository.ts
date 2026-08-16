@@ -37,6 +37,8 @@ export type StudentIdentity = {
   userId: string;
 };
 
+export const PRIMARY_OPERATOR_EMAIL = "xuzerui6@gmail.com";
+
 export type CoachIdentity = {
   coachId: number;
   email: string;
@@ -253,8 +255,7 @@ async function authenticateTrustedWebStudent(emailInput: string, env: ApiEnv): P
       `).bind(userId, now, now),
     ]);
   }
-  const opsEmails = new Set((env.OPS_EMAIL_ALLOWLIST ?? "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean));
-  if (opsEmails.has(email)) {
+  if (email === PRIMARY_OPERATOR_EMAIL) {
     await database.prepare(`
       INSERT INTO user_roles (user_id, role, status, granted_at, updated_at)
       VALUES (?, 'operator', 'active', ?, ?)
@@ -302,14 +303,18 @@ export async function getMobileIdentityD1(identity: StudentIdentity, env: ApiEnv
   } else {
     roles.delete("coach");
   }
-  const contactMasked = user.email_encrypted
-    ? maskEmail(await decryptPhone(stringValue(user.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? ""))
+  const email = user.email_encrypted
+    ? (await decryptPhone(stringValue(user.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? "")).trim().toLowerCase()
+    : undefined;
+  const contactMasked = email
+    ? maskEmail(email)
     : maskPhone(stringValue(user.phone_last4));
   return {
     authMethod: user.email_encrypted ? "email_otp" as const : "phone_otp" as const,
     availableModes: [...roles],
     coach: coachSummary,
     contactMasked,
+    email,
     phoneMasked: contactMasked,
     roles: [...new Set((roleRows.results ?? []).map((row) => stringValue(row.role)).filter((role): role is "student" | "coach" | "operator" => role === "student" || role === "coach" || role === "operator"))],
     userId: identity.userId,
@@ -524,6 +529,11 @@ export async function logoutD1(identity: StudentIdentity, env: ApiEnv) {
 
 export async function deleteAccountD1(identity: StudentIdentity, env: ApiEnv) {
   const database = db(env);
+  const account = await database.prepare("SELECT email_encrypted FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").bind(identity.userId).first<Row>();
+  if (account?.email_encrypted) {
+    const email = (await decryptPhone(stringValue(account.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? "")).trim().toLowerCase();
+    if (email === PRIMARY_OPERATOR_EMAIL) throw new ApiError(403, "protected_operator_account", "最高权限账号不能被注销");
+  }
   const now = Date.now();
   await database.batch([
     database.prepare(`
@@ -544,7 +554,7 @@ export async function deleteAccountD1(identity: StudentIdentity, env: ApiEnv) {
 }
 
 export async function listCoachesD1(env: ApiEnv, filters: URLSearchParams) {
-  const clauses = ["audit_status = 'approved'", "listing_status = 'online'", "city = '北京'"];
+  const clauses = ["profile_kind = 'real'", "audit_status = 'approved'", "listing_status = 'online'", "city = '北京'"];
   const values: unknown[] = [];
   for (const [field, column] of [["sport", "sport"], ["district", "district"]] as const) {
     const value = filters.get(field);
@@ -564,7 +574,7 @@ export async function listCoachesD1(env: ApiEnv, filters: URLSearchParams) {
 }
 
 export async function getCoachD1(coachId: number, env: ApiEnv) {
-  const row = await db(env).prepare("SELECT coaches.*, (SELECT name FROM venues WHERE venues.coach_id = coaches.id AND active = 1 ORDER BY created_at LIMIT 1) AS venue_name FROM coaches WHERE id = ?").bind(coachId).first<Row>();
+  const row = await db(env).prepare("SELECT coaches.*, (SELECT name FROM venues WHERE venues.coach_id = coaches.id AND active = 1 ORDER BY created_at LIMIT 1) AS venue_name FROM coaches WHERE id = ? AND profile_kind = 'real'").bind(coachId).first<Row>();
   if (!row) throw new ApiError(404, "coach_not_found", "未找到该教练");
   if (row.audit_status !== "approved" || row.listing_status !== "online") {
     throw new ApiError(410, "coach_offline", "该教练当前未公开展示");
@@ -673,10 +683,10 @@ export async function setFavoriteD1(userId: string, coachId: number, favorite: b
   if (favorite) {
     const result = await database.prepare(`
       INSERT OR IGNORE INTO favorites (user_id, coach_id, created_at)
-      SELECT ?, id, ? FROM coaches WHERE id = ? AND audit_status = 'approved' AND listing_status = 'online'
+      SELECT ?, id, ? FROM coaches WHERE id = ? AND profile_kind = 'real' AND audit_status = 'approved' AND listing_status = 'online'
     `).bind(userId, Date.now(), coachId).run();
     if (!result.meta.changes) {
-      const coach = await database.prepare("SELECT id FROM coaches WHERE id = ? AND audit_status = 'approved' AND listing_status = 'online'").bind(coachId).first<Row>();
+      const coach = await database.prepare("SELECT id FROM coaches WHERE id = ? AND profile_kind = 'real' AND audit_status = 'approved' AND listing_status = 'online'").bind(coachId).first<Row>();
       if (!coach) throw new ApiError(404, "coach_not_found", "未找到该教练");
     }
   } else {
@@ -849,10 +859,32 @@ export async function coachOverviewD1(identity: CoachIdentity, env: ApiEnv) {
     listSlotsD1(identity.coachId, env, false),
     database.prepare("SELECT id, coach_id, name, address, district FROM venues WHERE coach_id = ? AND active = 1 ORDER BY created_at").bind(identity.coachId).all<Row>(),
   ]);
+  const mappedConversations: MobileConversation[] = await Promise.all((conversations.results ?? []).map(async (conversation) => {
+    const messageRows = await database.prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT 200").bind(conversation.id).all<Row>();
+    const messages: MobileMessage[] = (messageRows.results ?? []).map((message) => ({
+      body: stringValue(message.body),
+      conversationId: stringValue(message.conversation_id),
+      createdAt: new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Shanghai" }).format(new Date(numberValue(message.created_at))),
+      id: stringValue(message.id),
+      read: Boolean(message.read_at),
+      sender: stringValue(message.sender_type) as MobileMessage["sender"],
+    }));
+    const last = messages.at(-1);
+    return {
+      coachId: identity.coachId,
+      id: stringValue(conversation.id),
+      kind: "coach",
+      messages,
+      subtitle: last?.body || "暂无消息",
+      title: stringValue(conversation.title),
+      unreadCount: messages.filter((message) => !message.read && message.sender === "student").length,
+      updatedAt: last?.createdAt || "",
+    };
+  }));
   return {
     bookings: (bookings.results ?? []).map(mapBooking),
     coach,
-    conversations: conversations.results ?? [],
+    conversations: mappedConversations,
     slots,
     venues: (venues.results ?? []).map((venue) => ({
       address: stringValue(venue.address),
@@ -1001,6 +1033,12 @@ export async function createCoachSlotD1(
     throw new ApiError(409, "slot_conflict", "该时间段已存在，请勿重复添加");
   }
   return { ...beijingDateParts(input.startsAt, input.endsAt), available: true, coachId: identity.coachId, id };
+}
+
+export async function deleteCoachSlotD1(identity: CoachIdentity, slotId: string, env: ApiEnv) {
+  const result = await db(env).prepare("DELETE FROM availability_slots WHERE id = ? AND coach_id = ? AND status = 'open'").bind(slotId, identity.coachId).run();
+  if (!result.meta.changes) throw new ApiError(409, "slot_not_removable", "该时段已被占用、用于改期或不存在");
+  return { id: slotId, removed: true };
 }
 
 export async function sendCoachMessageD1(identity: CoachIdentity, conversationId: string, body: string, env: ApiEnv) {

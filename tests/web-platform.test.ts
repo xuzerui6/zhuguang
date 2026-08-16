@@ -8,6 +8,7 @@ import {
   featureFlags,
   getRouteArea,
   opsNavigation,
+  publicCoaches,
   studentNavigation,
 } from "../app/_lib/web-platform";
 import { canAccessArea, createWebSession } from "../app/_lib/web-session";
@@ -110,7 +111,7 @@ test("signed-in accounts receive student access by default", () => {
   assert.equal(canAccessArea(session, "coach"), false);
 });
 
-test("coach and operations access only come from server allowlists", () => {
+test("coach access uses the server allowlist and operations is locked to the primary email", () => {
   const session = createWebSession({
     displayName: "徐泽瑞",
     email: "xuzerui6@gmail.com",
@@ -127,6 +128,15 @@ test("coach and operations access only come from server allowlists", () => {
   assert.equal(canAccessArea(session, "student"), true);
   assert.equal(canAccessArea(session, "coach"), true);
   assert.equal(canAccessArea(session, "ops"), true);
+
+  const accidentalOperator = createWebSession({
+    displayName: "其他账号",
+    email: "other@example.com",
+    fullName: "其他账号",
+    id: "account-3",
+  }, { opsEmails: "other@example.com" });
+  assert.equal(canAccessArea(accidentalOperator, "ops"), false);
+  assert.deepEqual(accidentalOperator.availableAreas, ["student"]);
 });
 
 test("operations release proxy performs server-side permission and origin checks", async () => {
@@ -140,6 +150,7 @@ test("operations release proxy performs server-side permission and origin checks
 test("R2 update controls are enabled and coach data remains internally consistent", () => {
   assert.equal(featureFlags.r2Updates, true);
   assert.equal(new Set(coaches.map((coach) => coach.id)).size, coaches.length);
+  assert.deepEqual(publicCoaches.map((coach) => coach.name), ["徐泽瑞", "张展祁", "郝健壮"]);
   assert.ok(coaches.every((coach) => coach.image.startsWith("/images/")));
   assert.ok(coaches.filter((coach) => !coach.isNew).every((coach) => coach.credentials.length > 0 && coach.rating > 0));
   const trackCoach = coaches.find((coach) => coach.id === 5);

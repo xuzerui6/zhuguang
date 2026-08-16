@@ -15,6 +15,7 @@ import {
 } from "./security";
 
 type Row = Record<string, unknown>;
+const PRIMARY_OPERATOR_EMAIL = "xuzerui6@gmail.com";
 
 function database(env: ApiEnv) {
   if (!env.DB) throw new ApiError(503, "database_unavailable", "业务数据库暂时不可用");
@@ -27,10 +28,6 @@ function stringValue(value: unknown) {
 
 function numberValue(value: unknown) {
   return typeof value === "number" ? value : Number(value ?? 0);
-}
-
-function configuredEmails(value: string | undefined) {
-  return new Set((value ?? "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean));
 }
 
 export async function requestEmailOtpD1(request: Request, input: { email: unknown; turnstileToken?: unknown }, env: ApiEnv) {
@@ -149,7 +146,7 @@ export async function verifyEmailOtpD1(
   `).bind(sessionId, userId, deviceId, accessTokenHash, refreshTokenHash, now + 15 * 60_000, now + 30 * 24 * 60 * 60_000, now, now));
 
   const email = await import("./security").then(({ decryptContact }) => decryptContact(stringValue(challenge.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? ""));
-  const coach = await db.prepare("SELECT id, name, sport, title FROM coaches WHERE lower(siwc_email) = ? AND audit_status = 'approved' LIMIT 1").bind(email).first<Row>();
+  const coach = await db.prepare("SELECT id, name, sport, title FROM coaches WHERE lower(siwc_email) = ? AND profile_kind = 'real' AND audit_status = 'approved' LIMIT 1").bind(email).first<Row>();
   if (coach) {
     statements.push(db.prepare("UPDATE coaches SET user_id = ?, updated_at = ? WHERE id = ? AND (user_id IS NULL OR user_id = ?)").bind(userId, now, coach.id, userId));
     statements.push(db.prepare(`
@@ -158,7 +155,7 @@ export async function verifyEmailOtpD1(
       ON CONFLICT(user_id, role) DO UPDATE SET status = 'active', updated_at = excluded.updated_at
     `).bind(userId, now, now));
   }
-  if (configuredEmails(env.OPS_EMAIL_ALLOWLIST).has(email)) {
+  if (email.trim().toLowerCase() === PRIMARY_OPERATOR_EMAIL) {
     statements.push(db.prepare(`
       INSERT INTO user_roles (user_id, role, status, granted_at, updated_at)
       VALUES (?, 'operator', 'active', ?, ?)
@@ -168,7 +165,7 @@ export async function verifyEmailOtpD1(
   for (const coachId of [...new Set(localFavoriteCoachIds)].filter((id) => Number.isInteger(id) && id > 0).slice(0, 100)) {
     statements.push(db.prepare(`
       INSERT OR IGNORE INTO favorites (user_id, coach_id, created_at)
-      SELECT ?, id, ? FROM coaches WHERE id = ? AND audit_status = 'approved'
+      SELECT ?, id, ? FROM coaches WHERE id = ? AND profile_kind = 'real' AND audit_status = 'approved' AND listing_status = 'online'
     `).bind(userId, now, coachId));
   }
   await db.batch(statements);

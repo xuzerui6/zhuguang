@@ -399,6 +399,7 @@ export const credentialChangeRequests = sqliteTable("credential_change_requests"
   id: text("id").primaryKey(),
   coachId: integer("coach_id").notNull().references(() => coaches.id, { onDelete: "cascade" }),
   field: text("field").notNull(),
+  currentValueJson: text("current_value_json").notNull().default("null"),
   proposedValueJson: text("proposed_value_json").notNull(),
   status: text("status", { enum: ["pending", "approved", "rejected", "cancelled"] }).notNull().default("pending"),
   reviewedBy: text("reviewed_by"),
@@ -407,6 +408,72 @@ export const credentialChangeRequests = sqliteTable("credential_change_requests"
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
 }, (table) => [index("credential_change_requests_queue_idx").on(table.status, table.createdAt)]);
+
+export const coachProfileVersions = sqliteTable("coach_profile_versions", {
+  id: text("id").primaryKey(),
+  coachId: integer("coach_id").notNull().references(() => coaches.id, { onDelete: "cascade" }),
+  requestId: text("request_id").references(() => credentialChangeRequests.id, { onDelete: "set null" }),
+  field: text("field").notNull(),
+  previousValueJson: text("previous_value_json").notNull(),
+  nextValueJson: text("next_value_json").notNull(),
+  approvedBy: text("approved_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [index("coach_profile_versions_coach_idx").on(table.coachId, table.createdAt)]);
+
+export const bookingRescheduleProposals = sqliteTable("booking_reschedule_proposals", {
+  id: text("id").primaryKey(),
+  bookingId: text("booking_id").notNull().references(() => bookingRequests.id, { onDelete: "cascade" }),
+  proposedSlotId: text("proposed_slot_id").notNull().references(() => availabilitySlots.id),
+  proposedBy: text("proposed_by", { enum: ["student", "coach"] }).notNull(),
+  previousBookingStatus: text("previous_booking_status", { enum: ["pending_coach", "confirmed"] }).notNull(),
+  status: text("status", { enum: ["pending", "accepted", "rejected", "cancelled"] }).notNull().default("pending"),
+  note: text("note").notNull().default(""),
+  respondedAt: integer("responded_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [index("booking_reschedule_queue_idx").on(table.bookingId, table.status, table.createdAt)]);
+
+export const coachReviews = sqliteTable("coach_reviews", {
+  id: text("id").primaryKey(),
+  bookingId: text("booking_id").notNull().references(() => bookingRequests.id, { onDelete: "cascade" }).unique(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  coachId: integer("coach_id").notNull().references(() => coaches.id, { onDelete: "cascade" }),
+  rating: integer("rating").notNull(),
+  body: text("body").notNull(),
+  status: text("status", { enum: ["pending", "approved", "rejected", "withdrawn"] }).notNull().default("pending"),
+  reviewedBy: text("reviewed_by"),
+  reviewNote: text("review_note").notNull().default(""),
+  reviewedAt: integer("reviewed_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  index("coach_reviews_public_idx").on(table.coachId, table.status, table.createdAt),
+  check("coach_reviews_rating_check", sql`${table.rating} between 1 and 5`),
+]);
+
+export const supportTickets = sqliteTable("support_tickets", {
+  id: text("id").primaryKey(),
+  bookingId: text("booking_id").references(() => bookingRequests.id, { onDelete: "set null" }),
+  createdByUserId: text("created_by_user_id").notNull().references(() => users.id),
+  createdByRole: text("created_by_role", { enum: ["student", "coach"] }).notNull(),
+  category: text("category", { enum: ["service", "booking", "payment", "safety", "privacy", "other"] }).notNull(),
+  priority: text("priority", { enum: ["normal", "high", "urgent"] }).notNull().default("normal"),
+  subject: text("subject").notNull(),
+  status: text("status", { enum: ["open", "in_progress", "waiting_user", "resolved", "closed"] }).notNull().default("open"),
+  assignedTo: text("assigned_to"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  closedAt: integer("closed_at", { mode: "timestamp_ms" }),
+}, (table) => [index("support_tickets_queue_idx").on(table.status, table.priority, table.updatedAt)]);
+
+export const supportTicketMessages = sqliteTable("support_ticket_messages", {
+  id: text("id").primaryKey(),
+  ticketId: text("ticket_id").notNull().references(() => supportTickets.id, { onDelete: "cascade" }),
+  senderType: text("sender_type", { enum: ["student", "coach", "operator", "system"] }).notNull(),
+  senderId: text("sender_id"),
+  body: text("body").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [index("support_ticket_messages_ticket_idx").on(table.ticketId, table.createdAt)]);
 
 export const contentDocuments = sqliteTable("content_documents", {
   id: text("id").primaryKey(),

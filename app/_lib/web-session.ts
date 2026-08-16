@@ -11,10 +11,13 @@ export const WEB_CONTACT_COOKIE = "zg_web_contact";
 type MobileIdentity = {
   availableModes?: Array<"student" | "coach">;
   contactMasked?: string;
+  email?: string;
   phoneMasked?: string;
   roles?: Array<"student" | "coach" | "operator">;
   userId?: string;
 };
+
+const PRIMARY_OPERATOR_EMAIL = "xuzerui6@gmail.com";
 
 function configuredEmails(value: string | undefined): Set<string> {
   return new Set((value ?? "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean));
@@ -37,14 +40,13 @@ function sessionFromChatGPT(
   }
 
   const coachEmails = configuredEmails(roleConfiguration.coachEmails);
-  const opsEmails = configuredEmails(roleConfiguration.opsEmails);
   const permissions: Permission[] = ["student:read"];
   const availableAreas: WebSession["availableAreas"] = ["student"];
   if (coachEmails.has(user.email)) {
     permissions.push("coach:work");
     availableAreas.push("coach");
   }
-  if (opsEmails.has(user.email)) {
+  if (user.email.trim().toLowerCase() === PRIMARY_OPERATOR_EMAIL) {
     permissions.push("ops:manage", "release:read");
     availableAreas.push("ops");
   }
@@ -117,7 +119,8 @@ export async function getWebSession(): Promise<WebSession> {
       availableAreas.push("coach");
       permissions.push("coach:work");
     }
-    if (roles.has("operator")) {
+    const email = identity.email?.trim().toLowerCase() || null;
+    if (roles.has("operator") && email === PRIMARY_OPERATOR_EMAIL) {
       availableAreas.push("ops");
       permissions.push("ops:manage", "release:read");
     }
@@ -126,7 +129,7 @@ export async function getWebSession(): Promise<WebSession> {
       authorizationSource: "email",
       availableAreas,
       displayName: identity.contactMasked || identity.phoneMasked || "逐光用户",
-      email: null,
+      email,
       isAuthenticated: true,
       permissions,
     };

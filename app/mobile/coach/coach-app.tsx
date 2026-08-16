@@ -79,7 +79,7 @@ export function createDemoCoachOverview(summary: CoachAccountSummary): CoachOver
   return {
     bookings: [pending, pendingTwo, pendingThree, confirmed],
     coach: { ...demoCoaches[0], id: summary.id, name: summary.name, sport: summary.sport, title: summary.title },
-    conversations: createDemoConversations().map(({ id, title }) => ({ id, title })),
+    conversations: createDemoConversations(),
     slots: createDemoSlots(summary.id).filter((slot) => slot.available),
   };
 }

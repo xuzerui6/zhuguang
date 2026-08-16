@@ -35,10 +35,13 @@ export async function verifyCloudflareAccessToken(
 ): Promise<AccessIdentity | null> {
   try {
     const teamDomain = normalizedTeamDomain(config.teamDomain);
-    const { payload } = await jwtVerify(token, verificationKey ?? remoteKeySet(teamDomain), {
+    const options = {
       audience: config.audience,
       issuer: teamDomain,
-    });
+    };
+    const { payload } = verificationKey
+      ? await jwtVerify(token, verificationKey, options)
+      : await jwtVerify(token, remoteKeySet(teamDomain), options);
     const email = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
     if (!email || !email.includes("@") || typeof payload.sub !== "string" || !payload.sub) return null;
     return {

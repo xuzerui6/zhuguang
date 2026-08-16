@@ -10,13 +10,13 @@ async function read(path) {
   return readFile(new URL(path, root), "utf8");
 }
 
-async function render(path = "/", authenticated = false) {
+async function render(path = "/", authenticated = false, email = "qa-owner@example.com") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}-${encodeURIComponent(path)}`);
   const { default: worker } = await import(workerUrl.href);
   const headers = { accept: "text/html" };
   if (authenticated) {
-    headers["oai-authenticated-user-email"] = "qa-owner@example.com";
+    headers["oai-authenticated-user-email"] = email;
     headers["oai-authenticated-user-id"] = "qa-owner-account";
   }
   return worker.fetch(
@@ -74,10 +74,18 @@ test("all public and workspace routes support direct rendering", async () => {
 
   for (const [path, copy] of routes) {
     const authenticated = path.startsWith("/student") || path.startsWith("/coach-workspace") || path.startsWith("/ops");
-    const response = await render(path, authenticated);
+    const response = await render(path, authenticated, path.startsWith("/ops") ? "xuzerui6@gmail.com" : "qa-owner@example.com");
     assert.equal(response.status, 200, path);
     assert.match(await response.text(), new RegExp(copy), path);
   }
+});
+
+test("rejects configured operator aliases that are not the primary account", async () => {
+  const response = await render("/ops", true, "qa-owner@example.com");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /当前账号暂不能进入运营工作台/);
+  assert.doesNotMatch(html, /运营工作台导航/);
 });
 
 test("keeps the native MVP and business API isolated from browser routing", async () => {

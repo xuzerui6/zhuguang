@@ -5,7 +5,7 @@ import { getWebSession, WEB_ACCESS_COOKIE } from "../../_lib/web-session";
 const fallbackApiUrl = "https://api.beijingzhuguang.top";
 
 const publicPatterns = [
-  /^\/api\/v1\/coaches(?:\/\d+\/slots|\/\d+)?(?:\?.*)?$/u,
+  /^\/api\/v1\/coaches(?:\/\d+\/(?:slots|reviews)|\/\d+)?(?:\?.*)?$/u,
   /^\/api\/v1\/health$/u,
 ];
 
@@ -14,7 +14,7 @@ function allowedForSession(path: string, method: string, permissions: string[]) 
   if (path === "/api/v1/service-leads") return method === "POST";
   if (path.startsWith("/api/v1/operator/")) return permissions.includes("ops:manage");
   if (path.startsWith("/api/v1/coach/")) return permissions.includes("coach:work");
-  return permissions.includes("student:read") && /^\/api\/v1\/(?:bootstrap|bookings|conversations|favorites|learner-profiles|me|notifications|training-records)(?:\/.*)?(?:\?.*)?$/u.test(path);
+  return permissions.includes("student:read") && /^\/api\/v1\/(?:bootstrap|bookings|conversations|favorites|learner-profiles|me|notifications|reschedule-proposals|reviews|support-tickets|training-records)(?:\/.*)?(?:\?.*)?$/u.test(path);
 }
 
 async function relay(request: Request) {

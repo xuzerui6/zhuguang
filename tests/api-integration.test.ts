@@ -25,10 +25,11 @@ test("Tencent SES sends a signed private-subject OTP email", async () => {
       TENCENT_SES_FROM_EMAIL: "no-reply@notify.beijingzhuguang.top",
       TENCENT_SES_FROM_NAME: "逐光",
       TENCENT_SES_REGION: "ap-guangzhou",
+      TENCENT_SES_TEMPLATE_ID: "57672",
     });
     const payload = JSON.parse(captured.body || "{}") as {
       FromEmailAddress: string;
-      Simple: { Html: string; Text: string };
+      Template: { TemplateData: string; TemplateID: number };
       Subject: string;
     };
     const headers = new Headers(captured.headers);
@@ -36,8 +37,8 @@ test("Tencent SES sends a signed private-subject OTP email", async () => {
     assert.equal(payload.Subject, "逐光登录验证码");
     assert.doesNotMatch(payload.Subject, /123456/u);
     assert.match(payload.FromEmailAddress, /no-reply@notify\.beijingzhuguang\.top/u);
-    assert.match(payload.Simple.Html, /123456/u);
-    assert.match(payload.Simple.Text, /123456/u);
+    assert.equal(payload.Template.TemplateID, 57672);
+    assert.deepEqual(JSON.parse(payload.Template.TemplateData), { code: "123456" });
     assert.match(headers.get("authorization") || "", /^TC3-HMAC-SHA256 Credential=test-secret-id\//u);
     assert.equal(headers.get("x-tc-region"), "ap-guangzhou");
   } finally {

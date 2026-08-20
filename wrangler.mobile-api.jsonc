@@ -45,6 +45,7 @@
     "SMS_DAILY_BUDGET": "500",
     "TENCENT_SES_FROM_EMAIL": "no-reply@notify.beijingzhuguang.top",
     "TENCENT_SES_FROM_NAME": "逐光",
-    "TENCENT_SES_REGION": "ap-guangzhou"
+    "TENCENT_SES_REGION": "ap-guangzhou",
+    "TENCENT_SES_TEMPLATE_ID": "57672"
   }
 }

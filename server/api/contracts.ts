@@ -26,6 +26,7 @@ export interface ApiEnv {
   TENCENT_SES_REGION?: string;
   TENCENT_SES_FROM_EMAIL?: string;
   TENCENT_SES_FROM_NAME?: string;
+  TENCENT_SES_TEMPLATE_ID?: string;
   TURNSTILE_SECRET_KEY?: string;
 }
 

@@ -8,6 +8,7 @@ const links = [
   { href: "/service-guarantee", label: "服务保障" },
   { href: "/#training-plans", label: "训练方案" },
   { href: "/coach-partnership", label: "教练合作" },
+  { href: "/download", label: "下载 App" },
 ];
 
 export function PublicHeader() {

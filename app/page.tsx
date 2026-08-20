@@ -13,6 +13,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { PublicFooter } from "./_components/public-footer";
 import { PublicHeader } from "./_components/public-header";
+import { AppDownloadClient } from "./_components/app-download-client";
 import { ServiceLeadForm } from "./_components/service-lead-form";
 import styles from "./_components/public-site.module.css";
 import { loadPublicCoaches } from "./_lib/web-platform";
@@ -131,6 +132,10 @@ export default async function HomePage() {
             <Link href="/coaches?goal=跑姿纠正"><span>03</span><strong>跑姿纠正</strong><p>从动作评估开始改善效率与身体控制。</p><ArrowRight aria-hidden size={19} /></Link>
             <Link href="/coaches?goal=专项体能"><span>04</span><strong>专项体能</strong><p>结合训练目标安排力量、速度和恢复。</p><ArrowRight aria-hidden size={19} /></Link>
           </div>
+        </section>
+
+        <section className={styles.downloadBand} id="app-download" aria-label="下载逐光 Android App">
+          <AppDownloadClient compact />
         </section>
 
         <section className={styles.cooperationSection}>

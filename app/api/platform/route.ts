@@ -26,7 +26,11 @@ async function relay(request: Request) {
   }
   const session = await getWebSession();
   if (!allowedForSession(path, method, session.permissions)) {
-    return NextResponse.json({ error: { code: "forbidden", message: "当前账号没有执行此操作的权限" } }, { status: session.isAuthenticated ? 403 : 401 });
+    const authenticated = session.isAuthenticated;
+    return NextResponse.json({ error: {
+      code: authenticated ? "role_forbidden" : "authentication_required",
+      message: authenticated ? "当前账号没有执行此操作的权限" : "登录状态未传递成功，请重新登录",
+    } }, { status: authenticated ? 403 : 401 });
   }
   if (method !== "GET") {
     const origin = request.headers.get("origin");

@@ -74,9 +74,9 @@ export async function sendEmailOtp(email: string, code: string, env: ApiEnv) {
     FromEmailAddress: `${fromName} <${fromEmail}>`,
     ReplyToAddresses: fromEmail,
     Simple: {
-      Html: `<div style="font-family:Arial,'PingFang SC',sans-serif;color:#10231b;line-height:1.7"><p>你正在登录逐光运动教练服务平台。</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${safeCode}</p><p>验证码 5 分钟内有效。请勿向任何人透露。</p></div>`,
-      Text: `你正在登录逐光运动教练服务平台。验证码：${safeCode}，5 分钟内有效。请勿向任何人透露。`,
+      Html: `<div style="background:#f4f7f5;padding:32px 16px;font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif;color:#10231b"><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #dfe7e2;border-radius:8px"><tr><td style="padding:30px 32px 16px"><div style="font-size:20px;font-weight:700;color:#087a46">逐光</div><div style="margin-top:4px;font-size:12px;color:#738078">运动教练服务平台</div></td></tr><tr><td style="padding:8px 32px 34px"><h1 style="margin:0 0 12px;font-size:22px;line-height:1.4">登录验证码</h1><p style="margin:0;color:#536159;font-size:14px;line-height:1.8">你正在登录逐光运动教练服务平台，请输入以下验证码完成身份验证。</p><div style="margin:24px 0;padding:18px 20px;background:#f1f8f4;border-left:3px solid #087a46;font-size:30px;font-weight:700;letter-spacing:8px;color:#10231b">${safeCode}</div><p style="margin:0;color:#536159;font-size:13px;line-height:1.8">验证码 5 分钟内有效，请勿向任何人透露。若非本人操作，可忽略此邮件，账号不会受到影响。</p></td></tr><tr><td style="border-top:1px solid #e5ebe7;padding:18px 32px;color:#849089;font-size:11px;line-height:1.7">此邮件由逐光系统自动发送，请勿直接回复。</td></tr></table></div>`,
+      Text: `逐光运动教练服务平台\n\n登录验证码：${safeCode}\n\n验证码 5 分钟内有效，请勿向任何人透露。若非本人操作，可忽略此邮件，账号不会受到影响。\n\n此邮件由逐光系统自动发送，请勿直接回复。`,
     },
-    Subject: `逐光登录验证码 ${safeCode}`,
+    Subject: "逐光登录验证码",
   }, env);
 }

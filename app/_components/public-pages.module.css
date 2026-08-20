@@ -727,7 +727,7 @@
 }
 
 .loginPage {
-  background: var(--zg-canvas);
+  background: #f3f6f4;
   min-height: 100vh;
   padding: 24px;
 }
@@ -748,14 +748,88 @@
   min-height: 44px;
 }
 
-.loginPanel {
+.loginShell {
   background: #fff;
   border: 1px solid var(--zg-line);
   border-radius: 8px;
   box-shadow: var(--zg-shadow-lg);
-  margin: 8vh auto 0;
-  max-width: 560px;
-  padding: 42px;
+  display: grid;
+  grid-template-columns: minmax(300px, 0.86fr) minmax(420px, 1.14fr);
+  margin: 7vh auto 0;
+  max-width: 980px;
+  min-height: 570px;
+  overflow: hidden;
+}
+
+.loginContext {
+  background: #0c1814;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 52px 46px;
+}
+
+.loginContext > span {
+  color: #85d0a8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.loginContext h1 {
+  font-size: 32px;
+  line-height: 1.32;
+  margin: 20px 0 16px;
+  max-width: 340px;
+}
+
+.loginContext > p {
+  color: #b9c8c0;
+  font-size: 13px;
+  line-height: 1.8;
+  margin: 0;
+  max-width: 340px;
+}
+
+.loginContext ul {
+  border-top: 1px solid rgba(255, 255, 255, 0.13);
+  display: grid;
+  gap: 18px;
+  list-style: none;
+  margin: 34px 0 0;
+  padding: 28px 0 0;
+}
+
+.loginContext li {
+  align-items: flex-start;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 20px 1fr;
+}
+
+.loginContext li > svg {
+  color: #75c99d;
+  margin-top: 2px;
+}
+
+.loginContext li span {
+  display: grid;
+  gap: 4px;
+}
+
+.loginContext li strong {
+  font-size: 13px;
+}
+
+.loginContext li small {
+  color: #9fb0a7;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.loginPanel {
+  background: #fff;
+  padding: 48px 54px;
 }
 
 .loginIntro > svg {
@@ -843,7 +917,80 @@
   text-align: center;
 }
 
+.loginFallback {
+  border-top: 1px solid var(--zg-line);
+  margin-top: 20px;
+  padding-top: 16px;
+}
+
+.loginFallback summary {
+  color: var(--zg-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  min-height: 36px;
+  padding-top: 9px;
+}
+
+.loginFallback p {
+  color: var(--zg-muted);
+  font-size: 11px;
+  line-height: 1.7;
+  margin: 5px 0 10px;
+}
+
+.loginFallback a {
+  align-items: center;
+  color: var(--zg-brand);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+  min-height: 36px;
+}
+
+.recoveryMessage {
+  background: #fff;
+  border: 1px solid var(--zg-line);
+  border-radius: 8px;
+  margin: 10vh auto 0;
+  max-width: 520px;
+  padding: 40px;
+}
+
+.recoveryMessage h1 {
+  font-size: 25px;
+  margin: 0 0 12px;
+}
+
+.recoveryMessage p {
+  color: var(--zg-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.recoveryMessage a {
+  color: var(--zg-brand);
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: 12px;
+  min-height: 44px;
+}
+
 @media (max-width: 960px) {
+  .loginShell {
+    grid-template-columns: minmax(250px, 0.78fr) minmax(400px, 1.22fr);
+  }
+
+  .loginContext {
+    padding: 42px 34px;
+  }
+
+  .loginPanel {
+    padding: 44px 40px;
+  }
+
   .coachHero {
     grid-template-columns: 210px 1fr;
   }
@@ -979,8 +1126,36 @@
     padding: 16px;
   }
 
+  .loginShell {
+    display: block;
+    margin-top: 28px;
+    min-height: 0;
+  }
+
+  .loginContext {
+    display: block;
+    padding: 24px 24px 22px;
+  }
+
+  .loginContext h1 {
+    font-size: 22px;
+    margin: 12px 0 8px;
+  }
+
+  .loginContext > p {
+    font-size: 12px;
+  }
+
+  .loginContext ul {
+    display: none;
+  }
+
   .loginPanel {
-    margin-top: 7vh;
-    padding: 26px 20px;
+    padding: 28px 24px 26px;
+  }
+
+  .loginIntro h1 {
+    font-size: 25px;
+    margin-top: 14px;
   }
 }

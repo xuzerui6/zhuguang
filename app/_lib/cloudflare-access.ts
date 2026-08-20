@@ -13,6 +13,10 @@ type AccessIdentity = {
 
 const remoteKeySets = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
+export function resolveCloudflareAccessToken(headerToken?: string | null, cookieToken?: string | null) {
+  return headerToken?.trim() || cookieToken?.trim() || null;
+}
+
 function normalizedTeamDomain(value: string) {
   const url = new URL(value);
   if (url.protocol !== "https:") throw new Error("Cloudflare Access team domain must use HTTPS");

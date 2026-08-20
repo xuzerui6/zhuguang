@@ -43,12 +43,22 @@ test("server-renders a service-first homepage without prototype claims", async (
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
 });
 
+test("production login always renders the public Turnstile integration", async () => {
+  const response = await render("/login");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  const loginForm = await read("app/login/email-login-form.tsx");
+  assert.match(html, /0x4AAAAAAEM50c0fGqXTnUvL/);
+  assert.match(loginForm, /challenges\.cloudflare\.com\/turnstile\/v0\/api\.js/);
+});
+
 test("all public and workspace routes support direct rendering", async () => {
   const routes = [
     ["/coaches", "找到适合你的教练"],
     ["/coaches/5", "资料核验状态"],
     ["/service-guarantee", "预约与履约"],
     ["/coach-partnership", "定向邀请和人工审核"],
+    ["/download", "训练服务，随时在手边"],
     ["/login", "登录逐光"],
     ["/student", "学员平台导航"],
     ["/student/coaches", "学员平台导航"],
@@ -147,4 +157,14 @@ test("keeps private Android artifacts out of the website static directory", asyn
   assert.doesNotMatch(buildScript, /path\.join\(root, "public", "downloads"\)/);
   assert.match(workflow, /outputs\/releases\/zhuguang-android-private-/);
   assert.doesNotMatch(workflow, /public\/downloads/);
+});
+
+test("renders a public Android download entry without exposing a static APK", async () => {
+  const homepage = await render("/");
+  const download = await render("/download");
+  assert.match(await homepage.text(), /下载 Android App/);
+  const html = await download.text();
+  assert.match(html, /正在读取正式版本/);
+  assert.match(html, /三步完成安装/);
+  assert.doesNotMatch(html, /href=["'][^"']+\.apk/iu);
 });

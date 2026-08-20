@@ -42,6 +42,9 @@
     "CORS_ORIGINS": "https://beijingzhuguang.top,https://www.beijingzhuguang.top,https://zhuguang-coach-platform.xuzerui6.chatgpt.site",
     "MOBILE_API_ORIGIN": "https://api.beijingzhuguang.top",
     "OPS_EMAIL_ALLOWLIST": "xuzerui6@gmail.com",
-    "SMS_DAILY_BUDGET": "500"
+    "SMS_DAILY_BUDGET": "500",
+    "TENCENT_SES_FROM_EMAIL": "no-reply@notify.beijingzhuguang.top",
+    "TENCENT_SES_FROM_NAME": "逐光",
+    "TENCENT_SES_REGION": "ap-guangzhou"
   }
 }

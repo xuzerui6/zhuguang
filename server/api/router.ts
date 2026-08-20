@@ -48,9 +48,11 @@ import {
 import {
   assertOperator,
   createDownloadTicketD1,
+  createPublicDownloadTicketD1,
   createReleaseD1,
   downloadReleaseD1,
   latestReleaseD1,
+  latestPublicReleaseD1,
   listReleasesD1,
   recordUpdateEventD1,
   registerInstallationD1,
@@ -117,7 +119,9 @@ export async function handleApiRequest(request: Request, env: ApiEnv, ctx: ApiEx
 
   try {
     const publicCoachMedia = /^\/api\/v1\/media\/coaches\/\d+\/(avatar|card|hero)$/u.test(url.pathname);
-    if (url.pathname !== "/api/v1/health" && url.pathname !== "/api/v1/app/releases/download" && !publicCoachMedia) assertPilotApp(request, env);
+    const publicRelease = url.pathname === "/api/v1/public/app/releases/latest"
+      || /^\/api\/v1\/public\/app\/releases\/\d+\/download-ticket$/u.test(url.pathname);
+    if (url.pathname !== "/api/v1/health" && url.pathname !== "/api/v1/app/releases/download" && !publicCoachMedia && !publicRelease) assertPilotApp(request, env);
     const response = await route(request, url, env, ctx, requestId);
     return withCors(response, request, env, requestId);
   } catch (error) {
@@ -151,6 +155,23 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
       ok: true,
       releases: Boolean(env.RELEASES),
     }, requestId);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/public/app/releases/latest") {
+    if (local) throw new ApiError(404, "public_release_not_available", "Android 安装包正在准备中");
+    return success(await latestPublicReleaseD1(env), requestId);
+  }
+
+  const publicReleaseTicketMatch = path.match(/^\/api\/v1\/public\/app\/releases\/(\d+)\/download-ticket$/u);
+  if (request.method === "POST" && publicReleaseTicketMatch) {
+    if (local) throw new ApiError(404, "release_artifact_missing", "Android 安装包正在准备中");
+    const body = await readJson<{ downloadId?: unknown }>(request);
+    return success(await createPublicDownloadTicketD1(
+      request,
+      Number(publicReleaseTicketMatch[1]),
+      requireString(body.downloadId, "downloadId", 160),
+      env,
+    ), requestId, undefined, 201);
   }
 
   const publicCoachMediaMatch = path.match(/^\/api\/v1\/media\/coaches\/(\d+)\/(avatar|card|hero)$/u);

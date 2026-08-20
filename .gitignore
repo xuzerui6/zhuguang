@@ -36,6 +36,7 @@ preview.log
 preview-error.log
 /artifacts/
 /backups/
+/*子用户信息*.csv
 
 # env files (can opt-in for committing if needed)
 .env*

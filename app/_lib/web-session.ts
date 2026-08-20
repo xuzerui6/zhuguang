@@ -1,7 +1,7 @@
 import { cookies, headers } from "next/headers";
 import { getChatGPTUser } from "../chatgpt-auth";
 import type { ChatGPTUser } from "../chatgpt-auth";
-import { verifyCloudflareAccessToken } from "./cloudflare-access";
+import { resolveCloudflareAccessToken, verifyCloudflareAccessToken } from "./cloudflare-access";
 import type { Permission, WebArea, WebSession } from "./web-platform";
 
 export const WEB_ACCESS_COOKIE = "zg_web_access";
@@ -90,7 +90,8 @@ async function cloudflareAccessUser(): Promise<ChatGPTUser | null> {
   const teamDomain = process.env.CF_ACCESS_TEAM_DOMAIN;
   if (!audience || !teamDomain) return null;
   const requestHeaders = await headers();
-  const token = requestHeaders.get("cf-access-jwt-assertion");
+  const cookieStore = await cookies();
+  const token = resolveCloudflareAccessToken(requestHeaders.get("cf-access-jwt-assertion"), cookieStore.get("CF_Authorization")?.value);
   if (!token) return null;
   const identity = await verifyCloudflareAccessToken(token, { audience, teamDomain });
   if (!identity) return null;

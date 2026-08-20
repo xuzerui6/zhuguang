@@ -11,5 +11,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     ...publicCoaches.map((coach) => ({ url: `${origin}/coaches/${coach.id}`, lastModified: now, changeFrequency: "weekly" as const, priority: 0.8 })),
     { url: `${origin}/service-guarantee`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
     { url: `${origin}/coach-partnership`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
+    { url: `${origin}/download`, lastModified: now, changeFrequency: "weekly", priority: 0.8 },
   ];
 }

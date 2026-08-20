@@ -5,10 +5,45 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import test from "node:test";
 import { handleApiRequest } from "../server/api/router";
 import type { ApiEnv } from "../server/api/contracts";
+import { sendEmailOtp } from "../server/api/email";
 import { buildJPushPayload } from "../server/api/push";
 import { keyedHash } from "../server/api/security";
 
 if (!globalThis.crypto) Object.defineProperty(globalThis, "crypto", { value: webcrypto });
+
+test("Tencent SES sends a signed private-subject OTP email", async () => {
+  const originalFetch = globalThis.fetch;
+  let captured: { body?: string; headers?: HeadersInit } = {};
+  globalThis.fetch = async (_input, init) => {
+    captured = { body: String(init?.body || ""), headers: init?.headers };
+    return Response.json({ Response: { MessageId: "ses-message-1", RequestId: "ses-request-1" } });
+  };
+  try {
+    const messageId = await sendEmailOtp("learner@example.com", "123456", {
+      TENCENTCLOUD_SECRET_ID: "test-secret-id",
+      TENCENTCLOUD_SECRET_KEY: "test-secret-key",
+      TENCENT_SES_FROM_EMAIL: "no-reply@notify.beijingzhuguang.top",
+      TENCENT_SES_FROM_NAME: "逐光",
+      TENCENT_SES_REGION: "ap-guangzhou",
+    });
+    const payload = JSON.parse(captured.body || "{}") as {
+      FromEmailAddress: string;
+      Simple: { Html: string; Text: string };
+      Subject: string;
+    };
+    const headers = new Headers(captured.headers);
+    assert.equal(messageId, "ses-message-1");
+    assert.equal(payload.Subject, "逐光登录验证码");
+    assert.doesNotMatch(payload.Subject, /123456/u);
+    assert.match(payload.FromEmailAddress, /no-reply@notify\.beijingzhuguang\.top/u);
+    assert.match(payload.Simple.Html, /123456/u);
+    assert.match(payload.Simple.Text, /123456/u);
+    assert.match(headers.get("authorization") || "", /^TC3-HMAC-SHA256 Credential=test-secret-id\//u);
+    assert.equal(headers.get("x-tc-region"), "ap-guangzhou");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("JPush payloads use fixed channels, private lock-screen copy and role deep links", () => {
   const payload = buildJPushPayload({
@@ -135,7 +170,7 @@ function json(body: unknown, headers: Record<string, string> = {}): RequestInit 
 
 async function migrate(database: D1Adapter) {
   const directory = new URL("../drizzle/", import.meta.url);
-  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql", "0006_verified_coach_profiles.sql", "0007_operational_closure.sql"]) {
+  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql", "0006_verified_coach_profiles.sql", "0007_operational_closure.sql", "0008_public_app_downloads.sql"]) {
     const source = await readFile(new URL(file, directory), "utf8");
     for (const statement of source.split("--> statement-breakpoint").map((item) => item.trim()).filter(Boolean)) database.sqlite.exec(statement);
   }
@@ -430,6 +465,7 @@ test("operator release flow validates artifacts, publishes and serves a ticketed
   await migrate(database);
   const env: ApiEnv = {
     APP_ENV: "test",
+    AUTH_HASH_SECRET: "public-download-hash-secret-with-adequate-length",
     DB: database,
     OPERATOR_API_SECRET: operatorSecret,
     RELEASES: releases,
@@ -498,6 +534,26 @@ test("operator release flow validates artifacts, publishes and serves a ticketed
   const releaseList = listed.payload?.data as Array<{ artifactPresent: boolean; versionCode: number }>;
   assert.deepEqual(releaseList.map((release) => [release.versionCode, release.artifactPresent]), [[6, true]]);
 
+  const publicLatest = await request(env, "/api/v1/public/app/releases/latest");
+  assert.equal(publicLatest.response.status, 200);
+  assert.deepEqual(
+    publicLatest.payload?.data && {
+      minAndroid: (publicLatest.payload.data as { minAndroid: string }).minAndroid,
+      versionCode: (publicLatest.payload.data as { versionCode: number }).versionCode,
+    },
+    { minAndroid: "7.0", versionCode: 6 },
+  );
+  const publicTicket = await request(env, "/api/v1/public/app/releases/6/download-ticket", {
+    body: JSON.stringify({ downloadId: "browser-download-device-0001" }),
+    headers: { "cf-connecting-ip": "203.0.113.12", "content-type": "application/json" },
+    method: "POST",
+  });
+  assert.equal(publicTicket.response.status, 201);
+  const publicDownloadUrl = new URL((publicTicket.payload?.data as { url: string }).url);
+  const publicDownload = await handleApiRequest(new Request(publicDownloadUrl), env, context);
+  assert.ok(publicDownload);
+  assert.equal(publicDownload.headers.get("content-disposition"), 'attachment; filename="zhuguang-android-1.2.1.apk"');
+
   const latest = await request(env, "/api/v1/app/releases/latest", { headers: { "x-app-version-code": "5", "x-device-id": "device-release-test" } });
   assert.equal((latest.payload?.data as { versionCode: number }).versionCode, 6);
   const alreadyCurrent = await request(env, "/api/v1/app/releases/latest", { headers: { "x-app-version-code": "6", "x-device-id": "device-release-test" } });
@@ -510,5 +566,47 @@ test("operator release flow validates artifacts, publishes and serves a ticketed
   assert.equal(download.status, 200);
   assert.equal(download.headers.get("x-content-sha256"), artifact.sha256);
   assert.equal(await download.text(), "signed-test-apk");
+  database.sqlite.close();
+});
+
+test("public APK downloads require a complete 100% release and rate-limit anonymous devices", async () => {
+  const database = new D1Adapter();
+  const releases = new MemoryR2();
+  await migrate(database);
+  const now = Date.now();
+  database.sqlite.prepare(`
+    INSERT INTO app_releases
+      (version_code, version_name, minimum_supported_version_code, forced, rollout_percentage, notes_json, size_bytes, sha256, certificate_sha256, package_id, object_key, status, published_at, created_at, updated_at)
+    VALUES (9, '1.2.4', 5, 0, 50, '[]', 10, 'sha', 'cert', 'com.zhuguang.coachos', 'android/1.2.4/app.apk', 'published', ?, ?, ?)
+  `).run(now, now, now);
+  const env: ApiEnv = {
+    APP_ENV: "test",
+    AUTH_HASH_SECRET: "public-download-hash-secret-with-adequate-length",
+    DB: database,
+    RELEASES: releases,
+    UPDATE_DOWNLOAD_SECRET: "download-test-secret",
+  };
+  const unavailable = await request(env, "/api/v1/public/app/releases/latest");
+  assert.equal(unavailable.response.status, 404);
+
+  await releases.put("android/1.2.4/app.apk", "apk");
+  database.sqlite.prepare("UPDATE app_releases SET rollout_percentage = 100 WHERE version_code = 9").run();
+  assert.equal((await request(env, "/api/v1/public/app/releases/latest")).response.status, 200);
+
+  for (let index = 0; index < 10; index += 1) {
+    const ticket = await request(env, "/api/v1/public/app/releases/9/download-ticket", {
+      body: JSON.stringify({ downloadId: "browser-download-device-limit" }),
+      headers: { "cf-connecting-ip": "203.0.113.20", "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(ticket.response.status, 201);
+  }
+  const limited = await request(env, "/api/v1/public/app/releases/9/download-ticket", {
+    body: JSON.stringify({ downloadId: "browser-download-device-limit" }),
+    headers: { "cf-connecting-ip": "203.0.113.20", "content-type": "application/json" },
+    method: "POST",
+  });
+  assert.equal(limited.response.status, 429);
+  assert.equal((limited.payload?.error as { code: string }).code, "download_rate_limited");
   database.sqlite.close();
 });

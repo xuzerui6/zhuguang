@@ -14,7 +14,7 @@ import {
 import { canAccessArea, createWebSession } from "../app/_lib/web-session";
 import { applyWebSecurityHeaders } from "../app/_lib/web-security";
 import { removeTurnstileWidget } from "../app/_lib/turnstile";
-import { verifyCloudflareAccessToken } from "../app/_lib/cloudflare-access";
+import { resolveCloudflareAccessToken, verifyCloudflareAccessToken } from "../app/_lib/cloudflare-access";
 import { BEIJING_DISTRICTS, coachCatalog, SPORT_OPTIONS } from "../shared/coach-catalog";
 
 const root = new URL("../", import.meta.url);
@@ -60,6 +60,12 @@ test("Cloudflare Access identity requires a valid signature, issuer and audience
     .sign(untrusted.privateKey);
   assert.equal(await verifyCloudflareAccessToken(forged, config, trusted.publicKey), null);
   assert.equal(await verifyCloudflareAccessToken(valid, { ...config, audience: "wrong-audience" }, trusted.publicKey), null);
+});
+
+test("Cloudflare Access falls back to its secure cookie for browser API requests", () => {
+  assert.equal(resolveCloudflareAccessToken("signed-header", "signed-cookie"), "signed-header");
+  assert.equal(resolveCloudflareAccessToken(null, "signed-cookie"), "signed-cookie");
+  assert.equal(resolveCloudflareAccessToken("", ""), null);
 });
 
 test("classifies each web area without viewport or device heuristics", () => {

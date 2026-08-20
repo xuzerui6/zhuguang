@@ -16,6 +16,7 @@ export function PublicFooter() {
           <Link href="/coaches">浏览教练</Link>
           <Link href="/#training-plans">训练方案</Link>
           <Link href="/service-guarantee">服务保障</Link>
+          <Link href="/download">下载 Android App</Link>
         </div>
         <div>
           <strong>平台合作</strong>

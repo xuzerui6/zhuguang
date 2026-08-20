@@ -64,6 +64,13 @@ function mapOperatorRelease(row: Row, artifactPresent: boolean) {
   };
 }
 
+function mapPublicRelease(row: Row) {
+  return {
+    ...mapRelease(row),
+    minAndroid: "7.0",
+  };
+}
+
 export async function listReleasesD1(env: ApiEnv) {
   const rows = await database(env).prepare("SELECT * FROM app_releases ORDER BY version_code DESC LIMIT 100").all<Row>();
   return Promise.all((rows.results ?? []).map(async (row) => {
@@ -109,6 +116,61 @@ export async function latestReleaseD1(installationId: string, currentVersionCode
       || bucket < asNumber(row.rollout_percentage)));
   if (!eligible) throw new ApiError(404, "release_not_available", "当前已是最新版本");
   return mapRelease(eligible);
+}
+
+export async function latestPublicReleaseD1(env: ApiEnv) {
+  if (!env.RELEASES) throw new ApiError(503, "release_storage_unavailable", "下载服务暂时不可用");
+  const rows = await database(env).prepare(`
+    SELECT * FROM app_releases
+    WHERE status = 'published' AND rollout_percentage = 100
+    ORDER BY version_code DESC LIMIT 20
+  `).all<Row>();
+  for (const row of rows.results ?? []) {
+    if (await env.RELEASES.head(asString(row.object_key))) return mapPublicRelease(row);
+  }
+  throw new ApiError(404, "public_release_not_available", "Android 安装包正在准备中");
+}
+
+export async function createPublicDownloadTicketD1(
+  request: Request,
+  versionCode: number,
+  downloadId: string,
+  env: ApiEnv,
+) {
+  if (!/^[a-zA-Z0-9_-]{20,160}$/u.test(downloadId)) {
+    throw new ApiError(422, "invalid_download_id", "下载设备标识无效");
+  }
+  if (!env.AUTH_HASH_SECRET) throw new ApiError(503, "download_service_unavailable", "下载服务暂时不可用");
+  const release = await database(env).prepare(`
+    SELECT object_key FROM app_releases
+    WHERE version_code = ? AND status = 'published' AND rollout_percentage = 100
+  `).bind(versionCode).first<Row>();
+  if (!release) throw new ApiError(404, "release_not_found", "未找到可公开下载的版本");
+  if (!env.RELEASES || !(await env.RELEASES.head(asString(release.object_key)))) {
+    throw new ApiError(404, "release_artifact_missing", "Android 安装包正在准备中");
+  }
+
+  const now = Date.now();
+  const since = now - 60 * 60_000;
+  const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const [ipHash, deviceHash] = await Promise.all([
+    keyedHash(`public-download-ip:${ip}`, env.AUTH_HASH_SECRET),
+    keyedHash(`public-download-device:${downloadId}`, env.AUTH_HASH_SECRET),
+  ]);
+  const counts = await database(env).prepare(`
+    SELECT
+      sum(CASE WHEN ip_hash = ? THEN 1 ELSE 0 END) AS ip_count,
+      sum(CASE WHEN device_hash = ? THEN 1 ELSE 0 END) AS device_count
+    FROM public_download_events WHERE created_at >= ?
+  `).bind(ipHash, deviceHash, since).first<Row>();
+  if (asNumber(counts?.ip_count) >= 20 || asNumber(counts?.device_count) >= 10) {
+    throw new ApiError(429, "download_rate_limited", "下载请求较频繁，请稍后再试");
+  }
+  await database(env).prepare(`
+    INSERT INTO public_download_events (id, version_code, ip_hash, device_hash, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(randomId("download"), versionCode, ipHash, deviceHash, now).run();
+  return createDownloadTicketD1(request, versionCode, `web-${downloadId}`, env);
 }
 
 export async function registerInstallationD1(
@@ -170,7 +232,7 @@ export async function downloadReleaseD1(url: URL, env: ApiEnv) {
   if (!Number.isInteger(versionCode) || !installationId || !signature || expiresAt <= Date.now()) {
     throw new ApiError(401, "download_ticket_invalid", "下载凭证无效或已过期");
   }
-  const release = await database(env).prepare("SELECT object_key, sha256, size_bytes FROM app_releases WHERE version_code = ? AND status = 'published'").bind(versionCode).first<Row>();
+  const release = await database(env).prepare("SELECT object_key, sha256, size_bytes, version_name FROM app_releases WHERE version_code = ? AND status = 'published'").bind(versionCode).first<Row>();
   if (!release) throw new ApiError(404, "release_not_found", "未找到可下载的版本");
   const objectKey = asString(release.object_key);
   const expected = await keyedHash(`${versionCode}:${installationId}:${expiresAt}:${objectKey}`, env.UPDATE_DOWNLOAD_SECRET ?? "");
@@ -180,7 +242,7 @@ export async function downloadReleaseD1(url: URL, env: ApiEnv) {
   return new Response(object.body, {
     headers: {
       "cache-control": "private, no-store",
-      "content-disposition": `attachment; filename="zhuguang-android-${versionCode}.apk"`,
+      "content-disposition": `attachment; filename="zhuguang-android-${asString(release.version_name)}.apk"`,
       "content-length": String(asNumber(release.size_bytes)),
       "content-type": "application/vnd.android.package-archive",
       "x-content-sha256": asString(release.sha256),

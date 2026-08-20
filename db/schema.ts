@@ -279,6 +279,17 @@ export const appUpdateEvents = sqliteTable("app_update_events", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
 }, (table) => [index("app_update_events_installation_idx").on(table.installationId, table.createdAt)]);
 
+export const publicDownloadEvents = sqliteTable("public_download_events", {
+  id: text("id").primaryKey(),
+  versionCode: integer("version_code").notNull(),
+  ipHash: text("ip_hash").notNull(),
+  deviceHash: text("device_hash").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  index("public_download_events_ip_idx").on(table.ipHash, table.createdAt),
+  index("public_download_events_device_idx").on(table.deviceHash, table.createdAt),
+]);
+
 export const notificationPreferences = sqliteTable("notification_preferences", {
   userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
   bookingEnabled: integer("booking_enabled", { mode: "boolean" }).notNull().default(true),

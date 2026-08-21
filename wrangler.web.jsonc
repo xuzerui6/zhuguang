@@ -27,6 +27,7 @@
     "CF_ACCESS_ENABLED": "true",
     "CF_ACCESS_TEAM_DOMAIN": "https://bitter-waterfall-065d.cloudflareaccess.com",
     "NEXT_PUBLIC_TURNSTILE_SITE_KEY": "0x4AAAAAAEM50c0fGqXTnUvL",
+    "PRODUCT_FILM_ENABLED": "false",
     "ZHUGUANG_COACH_EMAILS": "xuzerui6@gmail.com",
     "ZHUGUANG_MOBILE_API_URL": "https://api.beijingzhuguang.top",
     "ZHUGUANG_OPS_EMAILS": "xuzerui6@gmail.com"

@@ -5,6 +5,7 @@ import test from "node:test";
 const root = new URL("../", import.meta.url);
 process.env.ZHUGUANG_COACH_EMAILS = "qa-owner@example.com";
 process.env.ZHUGUANG_OPS_EMAILS = "qa-owner@example.com";
+process.env.PRODUCT_FILM_ENABLED = "false";
 
 async function read(path) {
   return readFile(new URL(path, root), "utf8");
@@ -43,18 +44,16 @@ test("server-renders a service-first homepage without prototype claims", async (
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
 });
 
-test("product film stays lazy, muted-first and isolated from the website bundle", async () => {
+test("product film stays disabled by default without deleting its isolated media project", async () => {
   const response = await render();
   const html = await response.text();
+  const homepage = await read("app/page.tsx");
   const manifest = await read("app/_lib/product-film.ts");
   const packageJson = await read("package.json");
 
-  assert.match(html, /从选择教练，到看见每一次进步/);
-  assert.match(html, /zhuguang-product-film-poster\.webp/);
-  assert.match(html, /zhuguang-product-film\.webm/);
-  assert.match(html, /zhuguang-product-film\.mp4/);
-  assert.match(html, /preload="metadata"/);
-  assert.doesNotMatch(html, /autoplay=""|autoplay="true"/i);
+  assert.match(homepage, /process\.env\.PRODUCT_FILM_ENABLED === "true"/);
+  assert.doesNotMatch(html, /看看逐光如何工作|从选择教练，到看见每一次进步/);
+  assert.doesNotMatch(html, /<video\b|<track\b|zhuguang-product-film-(?:poster\.)?|zhuguang-product-film\.(?:webm|mp4|vtt)/i);
   assert.ok(manifest.indexOf("video/webm") < manifest.indexOf("video/mp4"));
   assert.doesNotMatch(packageJson, /@remotion|hyperframes/);
 });

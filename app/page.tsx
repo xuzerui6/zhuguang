@@ -27,6 +27,7 @@ import { loadPublicCoaches } from "./_lib/web-platform";
 export default async function HomePage() {
   const catalog = await loadPublicCoaches();
   const featuredCoaches = catalog.filter((item) => item.profileKind === "real").slice(0, 3);
+  const productFilmEnabled = process.env.PRODUCT_FILM_ENABLED === "true";
   return (
     <>
       <PublicHeader />
@@ -45,7 +46,7 @@ export default async function HomePage() {
               <p>认真核验教练资料，把选择、沟通、预约和训练记录放进同一条清晰的服务流程。</p>
               <div className={styles.heroActions}>
                 <Link href="/coaches">寻找教练 <ArrowRight aria-hidden size={18} /></Link>
-                <ProductFilmLink>看看逐光如何工作 <PlayCircle aria-hidden size={18} /></ProductFilmLink>
+                {productFilmEnabled ? <ProductFilmLink>看看逐光如何工作 <PlayCircle aria-hidden size={18} /></ProductFilmLink> : null}
               </div>
               <div className={styles.heroTrust} aria-label="平台服务原则">
                 <span><BadgeCheck aria-hidden size={18} />人工核验</span>
@@ -100,13 +101,15 @@ export default async function HomePage() {
           </CoachSpotlightCarousel>
         </section>
 
-        <section className={styles.filmSection} data-motion id="product-film">
-          <div className={styles.filmHeading}>
-            <div><p className="zg-eyebrow">逐光如何工作</p><h2 className="zg-section-title">从选择教练，到看见每一次进步</h2></div>
-            <p>把真实需求、教练档案、服务确认和训练记录连在一起。不是一段广告，而是逐光正在使用的服务方式。</p>
-          </div>
-          <ProductFilm manifest={productFilm} />
-        </section>
+        {productFilmEnabled ? (
+          <section className={styles.filmSection} data-motion id="product-film">
+            <div className={styles.filmHeading}>
+              <div><p className="zg-eyebrow">逐光如何工作</p><h2 className="zg-section-title">从选择教练，到看见每一次进步</h2></div>
+              <p>把真实需求、教练档案、服务确认和训练记录连在一起。不是一段广告，而是逐光正在使用的服务方式。</p>
+            </div>
+            <ProductFilm manifest={productFilm} />
+          </section>
+        ) : null}
 
         <section className={styles.processSection} data-motion>
           <div className={styles.processIntro}>

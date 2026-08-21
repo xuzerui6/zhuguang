@@ -66,6 +66,7 @@ import { assertPilotApp, normalizePhone, randomId, verifyTurnstile } from "./sec
 import { requestEmailOtpD1, verifyEmailOtpD1 } from "./email-auth";
 import {
   createCoachReviewD1,
+  createOpsCoachVenueD1,
   createCoachRescheduleProposalD1,
   createCredentialChangeRequestD1,
   createSupportTicketD1,
@@ -73,6 +74,7 @@ import {
   createTrainingRecordD1,
   batchUpdateOpsCoachListingD1,
   getOpsOverviewD1,
+  getOpsCoachBusinessSettingsD1,
   listCoachProfileChangesD1,
   listContentDocumentsD1,
   listOpsAuditLogsD1,
@@ -95,7 +97,9 @@ import {
   respondStudentRescheduleProposalD1,
   saveContentDocumentD1,
   updateOpsCoachStatusD1,
+  updateOpsCoachBusinessSettingsD1,
   updateOpsCoachListingD1,
+  updateOpsCoachVenueD1,
   updateOpsLeadD1,
   updateOpsSupportTicketD1,
   withdrawCoachProfileChangeD1,
@@ -346,6 +350,49 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   if (request.method === "GET" && operatorCoachEventsMatch) {
     assertOperator(request, env);
     return success(await listOpsCoachStatusEventsD1(Number(operatorCoachEventsMatch[1]), env), requestId);
+  }
+
+  const operatorCoachBusinessMatch = path.match(/^\/api\/v1\/operator\/coaches\/(\d+)\/business-settings$/u);
+  if (request.method === "GET" && operatorCoachBusinessMatch) {
+    assertOperator(request, env);
+    return success(await getOpsCoachBusinessSettingsD1(Number(operatorCoachBusinessMatch[1]), env), requestId);
+  }
+  if (request.method === "PATCH" && operatorCoachBusinessMatch) {
+    assertOperator(request, env);
+    const body = await readJson<{ bookingEnabled?: unknown; district?: unknown; priceFen?: unknown; pricingStatus?: unknown; reason?: unknown; trialPriceFen?: unknown }>(request);
+    return success(await updateOpsCoachBusinessSettingsD1(Number(operatorCoachBusinessMatch[1]), {
+      bookingEnabled: typeof body.bookingEnabled === "boolean" ? body.bookingEnabled : undefined,
+      district: typeof body.district === "string" ? body.district : undefined,
+      priceFen: body.priceFen == null ? undefined : Number(body.priceFen),
+      pricingStatus: typeof body.pricingStatus === "string" ? body.pricingStatus : undefined,
+      reason: requireString(body.reason, "reason", 300),
+      trialPriceFen: body.trialPriceFen == null ? undefined : Number(body.trialPriceFen),
+    }, operatorActor(request), requestId, env), requestId);
+  }
+
+  const operatorCoachVenuesMatch = path.match(/^\/api\/v1\/operator\/coaches\/(\d+)\/venues$/u);
+  if (request.method === "POST" && operatorCoachVenuesMatch) {
+    assertOperator(request, env);
+    const body = await readJson<{ address?: unknown; district?: unknown; name?: unknown; reason?: unknown }>(request);
+    return success(await createOpsCoachVenueD1(Number(operatorCoachVenuesMatch[1]), {
+      address: requireString(body.address, "address", 240),
+      district: requireString(body.district, "district", 40),
+      name: requireString(body.name, "name", 120),
+      reason: requireString(body.reason, "reason", 300),
+    }, operatorActor(request), requestId, env), requestId, undefined, 201);
+  }
+
+  const operatorCoachVenueMatch = path.match(/^\/api\/v1\/operator\/coaches\/(\d+)\/venues\/([^/]+)$/u);
+  if (request.method === "PATCH" && operatorCoachVenueMatch) {
+    assertOperator(request, env);
+    const body = await readJson<{ active?: unknown; address?: unknown; district?: unknown; name?: unknown; reason?: unknown }>(request);
+    return success(await updateOpsCoachVenueD1(Number(operatorCoachVenueMatch[1]), decodeURIComponent(operatorCoachVenueMatch[2]), {
+      active: typeof body.active === "boolean" ? body.active : undefined,
+      address: typeof body.address === "string" ? body.address : undefined,
+      district: typeof body.district === "string" ? body.district : undefined,
+      name: typeof body.name === "string" ? body.name : undefined,
+      reason: requireString(body.reason, "reason", 300),
+    }, operatorActor(request), requestId, env), requestId);
   }
 
   if (request.method === "GET" && path === "/api/v1/operator/users") {

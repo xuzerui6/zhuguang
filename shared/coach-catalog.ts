@@ -40,6 +40,7 @@ export type CoachPublicProfile = {
   availability: CoachAvailability[];
   bio: string;
   bookable: boolean;
+  bookingEnabled?: boolean;
   canConsult: boolean;
   city: "北京";
   credentials: string[];
@@ -57,6 +58,7 @@ export type CoachPublicProfile = {
   price?: number;
   profileCompleteness: CoachProfileCompleteness;
   profileKind: CoachProfileKind;
+  pricingStatus?: "published" | "unavailable";
   rating: number;
   responseMinutes: number;
   reviewCount: number;
@@ -64,6 +66,7 @@ export type CoachPublicProfile = {
   strengths: string[];
   title: string;
   trialPrice?: number;
+  unavailableReason?: string;
   venue: string;
   verificationLabel: CoachVerificationLabel;
 };

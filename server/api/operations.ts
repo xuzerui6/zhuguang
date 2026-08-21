@@ -113,13 +113,141 @@ export async function listOpsBookingsD1(env: ApiEnv) {
 export async function listOpsCoachesD1(env: ApiEnv) {
   const result = await db(env).prepare(`
     SELECT c.id, c.name, c.sport, c.city, c.district, c.title, c.audit_status, c.listing_status,
-      c.listing_reason, c.listing_changed_by, c.listing_changed_at, c.profile_kind, c.pricing_status,
+      c.listing_reason, c.listing_changed_by, c.listing_changed_at, c.profile_kind, c.pricing_status, c.booking_enabled,
+      c.price_fen, c.trial_price_fen,
       c.review_count, c.lessons, c.updated_at, c.user_id,
       (SELECT count(*) FROM coach_credentials cc WHERE cc.coach_id = c.id AND cc.status = 'pending') AS pending_credentials,
       (SELECT count(*) FROM availability_slots s WHERE s.coach_id = c.id AND s.status = 'open' AND s.starts_at > unixepoch() * 1000) AS open_slots
     FROM coaches c ORDER BY CASE c.profile_kind WHEN 'real' THEN 0 ELSE 1 END, c.id ASC
   `).all<Row>();
   return rows(result);
+}
+
+export async function getOpsCoachBusinessSettingsD1(id: number, env: ApiEnv) {
+  const database = db(env);
+  const coach = await database.prepare(`
+    SELECT id, district, price_fen, trial_price_fen, pricing_status, booking_enabled
+    FROM coaches WHERE id = ?
+  `).bind(id).first<Row>();
+  if (!coach) throw new ApiError(404, "coach_not_found", "未找到该教练");
+  const venueRows = await database.prepare(`
+    SELECT id, coach_id, name, address, district, active, created_at, updated_at
+    FROM venues WHERE coach_id = ? ORDER BY active DESC, created_at ASC
+  `).bind(id).all<Row>();
+  return {
+    bookingEnabled: coach.booking_enabled !== 0,
+    coachId: id,
+    district: String(coach.district ?? ""),
+    priceFen: Number(coach.price_fen ?? 0),
+    pricingStatus: coach.pricing_status === "unavailable" ? "unavailable" : "published",
+    trialPriceFen: Number(coach.trial_price_fen ?? 0),
+    venues: rows(venueRows).map((venue) => ({
+      active: venue.active !== 0,
+      address: String(venue.address ?? ""),
+      coachId: Number(venue.coach_id),
+      district: String(venue.district ?? ""),
+      id: String(venue.id),
+      name: String(venue.name ?? ""),
+    })),
+  };
+}
+
+export async function updateOpsCoachBusinessSettingsD1(
+  id: number,
+  input: { bookingEnabled?: boolean; district?: string; priceFen?: number; pricingStatus?: string; reason: string; trialPriceFen?: number },
+  actor: string,
+  requestId: string,
+  env: ApiEnv,
+) {
+  const reason = input.reason.trim().slice(0, 300);
+  if (!reason) throw new ApiError(422, "operation_reason_required", "请填写修改原因");
+  if (input.pricingStatus != null && !["published", "unavailable"].includes(input.pricingStatus)) {
+    throw new ApiError(422, "invalid_pricing_status", "价格发布状态无效");
+  }
+  for (const [field, value] of [["priceFen", input.priceFen], ["trialPriceFen", input.trialPriceFen]] as const) {
+    if (value != null && (!Number.isInteger(value) || value < 0 || value > 10_000_000)) {
+      throw new ApiError(422, "invalid_price", "价格必须使用有效的整数分", { [field]: "请输入0至100000元之间的金额" });
+    }
+  }
+  const district = input.district?.trim().slice(0, 40);
+  if (input.district != null && !district) throw new ApiError(422, "invalid_district", "请填写服务区域");
+  const database = db(env);
+  const previous = await database.prepare(`
+    SELECT district, price_fen, trial_price_fen, pricing_status, booking_enabled FROM coaches WHERE id = ?
+  `).bind(id).first<Row>();
+  if (!previous) throw new ApiError(404, "coach_not_found", "未找到该教练");
+  const next = {
+    bookingEnabled: input.bookingEnabled ?? previous.booking_enabled !== 0,
+    district: district ?? String(previous.district ?? ""),
+    priceFen: input.priceFen ?? Number(previous.price_fen ?? 0),
+    pricingStatus: input.pricingStatus ?? String(previous.pricing_status ?? "published"),
+    trialPriceFen: input.trialPriceFen ?? Number(previous.trial_price_fen ?? 0),
+  };
+  const now = Date.now();
+  await database.batch([
+    database.prepare(`
+      UPDATE coaches SET district = ?, price_fen = ?, trial_price_fen = ?, pricing_status = ?, booking_enabled = ?, updated_at = ?
+      WHERE id = ?
+    `).bind(next.district, next.priceFen, next.trialPriceFen, next.pricingStatus, next.bookingEnabled ? 1 : 0, now, id),
+    database.prepare(`
+      INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, created_at)
+      VALUES (?, ?, 'coach.business.update', 'coach', ?, ?, ?)
+    `).bind(randomId("audit"), actor, String(id), JSON.stringify({ next, previous, reason, requestId }), now),
+  ]);
+  return getOpsCoachBusinessSettingsD1(id, env);
+}
+
+export async function createOpsCoachVenueD1(
+  coachId: number,
+  input: { address: string; district: string; name: string; reason: string },
+  actor: string,
+  requestId: string,
+  env: ApiEnv,
+) {
+  const name = input.name.trim().slice(0, 120);
+  const address = input.address.trim().slice(0, 240);
+  const district = input.district.trim().slice(0, 40);
+  const reason = input.reason.trim().slice(0, 300);
+  if (!name || !address || !district || !reason) throw new ApiError(422, "validation_failed", "请完整填写场馆和操作原因");
+  const database = db(env);
+  if (!await database.prepare("SELECT id FROM coaches WHERE id = ?").bind(coachId).first<Row>()) throw new ApiError(404, "coach_not_found", "未找到该教练");
+  const id = randomId("venue"); const now = Date.now();
+  await database.batch([
+    database.prepare(`INSERT INTO venues (id, coach_id, name, address, city, district, active, created_at, updated_at) VALUES (?, ?, ?, ?, '北京', ?, 1, ?, ?)`).bind(id, coachId, name, address, district, now, now),
+    database.prepare(`INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, created_at) VALUES (?, ?, 'coach.venue.create', 'venue', ?, ?, ?)`).bind(randomId("audit"), actor, id, JSON.stringify({ address, coachId, district, name, reason, requestId }), now),
+  ]);
+  return { active: true, address, coachId, district, id, name };
+}
+
+export async function updateOpsCoachVenueD1(
+  coachId: number,
+  venueId: string,
+  input: { active?: boolean; address?: string; district?: string; name?: string; reason: string },
+  actor: string,
+  requestId: string,
+  env: ApiEnv,
+) {
+  const reason = input.reason.trim().slice(0, 300);
+  if (!reason) throw new ApiError(422, "operation_reason_required", "请填写修改原因");
+  const database = db(env);
+  const previous = await database.prepare("SELECT * FROM venues WHERE id = ? AND coach_id = ?").bind(venueId, coachId).first<Row>();
+  if (!previous) throw new ApiError(404, "venue_not_found", "未找到该训练场馆");
+  if (input.active === false && previous.active !== 0) {
+    const linked = await database.prepare(`SELECT id FROM availability_slots WHERE venue_id = ? AND starts_at > ? AND status IN ('open', 'held', 'booked') LIMIT 1`).bind(venueId, Date.now()).first<Row>();
+    if (linked) throw new ApiError(409, "venue_has_future_slots", "该场馆仍有未来排期，请先撤销或完成相关时段");
+  }
+  const next = {
+    active: input.active ?? previous.active !== 0,
+    address: input.address?.trim().slice(0, 240) || String(previous.address ?? ""),
+    district: input.district?.trim().slice(0, 40) || String(previous.district ?? ""),
+    name: input.name?.trim().slice(0, 120) || String(previous.name ?? ""),
+  };
+  const now = Date.now();
+  await database.batch([
+    database.prepare("UPDATE venues SET name = ?, address = ?, district = ?, active = ?, updated_at = ? WHERE id = ? AND coach_id = ?").bind(next.name, next.address, next.district, next.active ? 1 : 0, now, venueId, coachId),
+    database.prepare(`INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, created_at) VALUES (?, ?, 'coach.venue.update', 'venue', ?, ?, ?)`).bind(randomId("audit"), actor, venueId, JSON.stringify({ coachId, next, previous, reason, requestId }), now),
+  ]);
+  return { ...next, coachId, id: venueId };
 }
 
 export async function updateOpsCoachStatusD1(id: number, status: string, actor: string, env: ApiEnv) {
@@ -368,7 +496,14 @@ export async function reviewCoachProfileChangeD1(id: string, decision: "approved
   else if (field === "price" || field === "trialPrice") statements.push(database.prepare(`UPDATE coaches SET ${field === "price" ? "price_fen" : "trial_price_fen"} = ?, updated_at = ? WHERE id = ?`).bind(Math.max(0, Math.round(Number(next) * 100)), now, coachId));
   else if (field === "venue") {
     const venue = typeof next === "object" && next ? next as Record<string, unknown> : { name: String(next) };
-    statements.push(database.prepare("UPDATE venues SET name = ?, address = ?, district = ? WHERE id = (SELECT id FROM venues WHERE coach_id = ? AND active = 1 ORDER BY created_at LIMIT 1)").bind(String(venue.name ?? "").slice(0, 120), String(venue.address ?? "").slice(0, 240), String(venue.district ?? "").slice(0, 40), coachId));
+    const existingVenue = await database.prepare("SELECT id FROM venues WHERE coach_id = ? AND active = 1 ORDER BY created_at LIMIT 1").bind(coachId).first<Row>();
+    const name = String(venue.name ?? "").trim().slice(0, 120);
+    const address = String(venue.address ?? "").trim().slice(0, 240);
+    const district = String(venue.district ?? "").trim().slice(0, 40);
+    if (!name || !address || !district) throw new ApiError(422, "invalid_venue", "场馆名称、地址和区域不能为空");
+    statements.push(existingVenue
+      ? database.prepare("UPDATE venues SET name = ?, address = ?, district = ?, updated_at = ? WHERE id = ?").bind(name, address, district, now, existingVenue.id)
+      : database.prepare("INSERT INTO venues (id, coach_id, name, address, city, district, active, created_at, updated_at) VALUES (?, ?, ?, ?, '北京', ?, 1, ?, ?)").bind(randomId("venue"), coachId, name, address, district, now, now));
   } else throw new ApiError(422, "invalid_profile_field", "该资料字段不支持审核应用");
   statements.push(
     database.prepare("UPDATE credential_change_requests SET status = 'approved', review_note = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'").bind(note.trim(), actor, now, now, id),

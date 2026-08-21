@@ -20,6 +20,7 @@ import {
 } from "../app/mobile/update/update-domain";
 import { stableRolloutBucket } from "../server/api/releases";
 import { pushLockScreenBody } from "../server/api/push";
+import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal, validateScheduleDraft } from "../shared/scheduling";
 
 const preferences: MatchPreferences = {
   audience: "青少年儿童",
@@ -30,6 +31,17 @@ const preferences: MatchPreferences = {
   goal: "体能提升",
   sport: "田径",
 };
+
+test("Beijing schedule input is timezone-stable and validates duration fields", () => {
+  const startsAt = parseBeijingDateTimeLocal("2026-09-12T09:30");
+  const endsAt = parseBeijingDateTimeLocal("2026-09-12T11:00");
+  assert.equal(startsAt, Date.parse("2026-09-12T09:30:00+08:00"));
+  assert.equal(formatBeijingDateTimeLocal(startsAt), "2026-09-12T09:30");
+  assert.deepEqual(validateScheduleDraft({ endsAt, startsAt, venueId: "venue-1" }, Date.parse("2026-09-01T00:00:00+08:00")), {});
+  assert.equal(validateScheduleDraft({ endsAt: startsAt + 15 * 60_000, startsAt, venueId: "venue-1" }, Date.parse("2026-09-01T00:00:00+08:00")).endsAt, "训练时长不能少于30分钟");
+  assert.equal(validateScheduleDraft({ endsAt: startsAt + 5 * 60 * 60_000, startsAt, venueId: "venue-1" }, Date.parse("2026-09-01T00:00:00+08:00")).endsAt, "训练时长不能超过4小时");
+  assert.ok(Number.isNaN(parseBeijingDateTimeLocal("2026-02-30T09:30")));
+});
 
 test("matching applies the locked 30/25/25/15/5 weights", () => {
   const availableCoach = { ...demoCoaches[0], availability: ["周六 10:00"] };

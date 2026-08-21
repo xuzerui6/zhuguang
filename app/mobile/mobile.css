@@ -3103,6 +3103,21 @@
 .zg-slot-list article > span small { color: var(--zg-muted); font-size: 10px; margin-top: 3px; }
 .zg-slot-list article > div { align-items: center; color: #4a5751; display: flex; font-size: 12px; gap: 5px; }
 .zg-slot-list article > em { color: var(--zg-brand); font-size: 11px; font-style: normal; }
+.zg-coach-slot-backdrop { z-index: 80; }
+.zg-coach-slot-sheet { background: #fff; border-radius: 8px 8px 0 0; bottom: 0; display: grid; gap: 16px; left: 50%; max-height: 88dvh; max-width: 430px; overflow: auto; padding: 9px 18px calc(22px + env(safe-area-inset-bottom)); position: fixed; transform: translateX(-50%); width: 100%; }
+.zg-coach-slot-sheet > header { align-items: center; display: flex; justify-content: space-between; }
+.zg-coach-slot-sheet header small { color: var(--zg-brand); font-size: 11px; font-weight: 700; }
+.zg-coach-slot-sheet h2 { font-size: 21px; margin: 3px 0 0; }
+.zg-coach-slot-sheet header button { background: #f1f4f2; border: 0; border-radius: 50%; height: 44px; width: 44px; }
+.zg-coach-slot-sheet label { display: grid; gap: 7px; }
+.zg-coach-slot-sheet label > span { color: #4d5b54; font-size: 12px; font-weight: 700; }
+.zg-coach-slot-sheet input, .zg-coach-slot-sheet select { background: #fff; border: 1px solid var(--zg-line-strong); border-radius: 7px; min-height: 48px; padding: 0 11px; width: 100%; }
+.zg-coach-slot-sheet label > small { color: #b64133; font-size: 11px; }
+.zg-coach-slot-time-grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
+.zg-coach-slot-durations { align-items: center; display: flex; flex-wrap: wrap; gap: 7px; }
+.zg-coach-slot-durations > span { color: var(--zg-muted); font-size: 12px; margin-right: 3px; }
+.zg-coach-slot-durations button { background: #f1f5f3; border: 1px solid var(--zg-line); border-radius: 6px; min-height: 40px; padding: 0 10px; }
+.zg-coach-slot-submit { background: var(--zg-brand); border: 0; border-radius: 7px; color: #fff; min-height: 50px; font-weight: 700; }
 .zg-coach-conversation { align-items: center; background: #fff; border: 0; border-bottom: 1px solid var(--zg-line); color: var(--zg-ink); display: grid; gap: 10px; grid-template-columns: 44px minmax(0,1fr) auto auto 17px; min-height: 72px; padding: 10px 9px; text-align: left; width: 100%; }
 .zg-coach-conversation > span { align-items: center; background: #e9efec; border-radius: 50%; display: flex; font-weight: 700; height: 44px; justify-content: center; width: 44px; }
 .zg-coach-conversation div { min-width: 0; }

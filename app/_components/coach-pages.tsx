@@ -19,8 +19,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { formatBeijingDateTimeLocal, nextBeijingSlotDefaults, parseBeijingDateTimeLocal, validateScheduleDraft } from "../../shared/scheduling";
 import type { BookingStatus, CoachOverview, MobileBooking } from "../mobile/types";
-import { formatBeijingDate, formatFen, platformRequest } from "./platform-client";
+import { formatBeijingDate, formatFen, PlatformRequestError, platformRequest } from "./platform-client";
 import styles from "./platform-pages.module.css";
 
 export type CoachSection = "home" | "bookings" | "schedule" | "messages" | "courses" | "payments" | "credentials" | "support";
@@ -80,7 +81,7 @@ export function CoachPage({ section }: { section: CoachSection }) {
 
   let content: React.ReactNode;
   if (section === "bookings") content = <BookingManager bookings={state.data.bookings} busy={busy} mutate={mutate} slots={state.data.slots} />;
-  else if (section === "schedule") content = <ScheduleManager busy={busy} overview={state.data} mutate={mutate} />;
+  else if (section === "schedule") content = <ScheduleManager overview={state.data} refresh={state.load} />;
   else if (section === "messages") content = <CoachMessages busy={busy} overview={state.data} mutate={mutate} refresh={state.refresh} />;
   else if (section === "courses") content = <CourseRecords busy={busy} overview={state.data} mutate={mutate} />;
   else if (section === "payments") content = <PaymentManager busy={busy} overview={state.data} mutate={mutate} />;
@@ -142,17 +143,43 @@ function BookingManager({ bookings, busy, mutate, slots }: { bookings: MobileBoo
   </div>;
 }
 
-function ScheduleManager({ busy, mutate, overview }: { busy: string; mutate: (path: string, body: unknown, success: string, method?: "DELETE" | "POST") => Promise<boolean>; overview: CoachOverview }) {
+function ScheduleManager({ overview, refresh }: { overview: CoachOverview; refresh: () => Promise<void> }) {
+  const defaults = useMemo(() => nextBeijingSlotDefaults(), []);
+  const [startsAt, setStartsAt] = useState(defaults.startsAt);
+  const [endsAt, setEndsAt] = useState(defaults.endsAt);
+  const [venueId, setVenueId] = useState(overview.venues[0]?.id || "");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [notice, setNotice] = useState("");
+  function applyDuration(minutes: number) {
+    const start = parseBeijingDateTimeLocal(startsAt);
+    if (Number.isFinite(start)) setEndsAt(formatBeijingDateTimeLocal(start + minutes * 60_000));
+  }
+  async function remove(slotId: string) {
+    setSubmitting(true); setNotice("");
+    try { await platformRequest(`/api/v1/coach/slots/${encodeURIComponent(slotId)}`, { method: "DELETE" }); setNotice("可约时段已撤销"); await refresh(); }
+    catch (error) { setNotice(error instanceof Error ? error.message : "时段撤销失败"); }
+    finally { setSubmitting(false); }
+  }
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = new FormData(event.currentTarget);
-    const startsAt = new Date(String(form.get("startsAt"))).getTime();
-    const endsAt = new Date(String(form.get("endsAt"))).getTime();
-    const ok = await mutate("/api/v1/coach/slots", { endsAt, startsAt, venueId: form.get("venueId") }, "可约时间已发布");
-    if (ok) event.currentTarget.reset();
+    event.preventDefault();
+    const draft = { endsAt: parseBeijingDateTimeLocal(endsAt), startsAt: parseBeijingDateTimeLocal(startsAt), venueId };
+    const errors = validateScheduleDraft(draft);
+    if (Object.keys(errors).length) { setFieldErrors(errors); return; }
+    setSubmitting(true); setFieldErrors({}); setNotice("");
+    try {
+      await platformRequest("/api/v1/coach/slots", { body: draft, method: "POST" });
+      setNotice("可约时间已发布");
+      const next = nextBeijingSlotDefaults(); setStartsAt(next.startsAt); setEndsAt(next.endsAt);
+      await refresh();
+    } catch (error) {
+      if (error instanceof PlatformRequestError && error.fieldErrors) setFieldErrors(error.fieldErrors);
+      else setNotice(error instanceof Error ? error.message : "时段发布失败");
+    } finally { setSubmitting(false); }
   }
   return <div className={styles.page}><Heading copy="时段发布后才会出现在学员预约页；已被占用的时段不能重复创建。" title="排期与场馆" />
-    <div className={styles.split}><section className={styles.panel}><header className={styles.panelHeader}><div><h2>已开放时段</h2><p>共 {overview.slots.length} 个未来时段</p></div></header>{overview.slots.length ? <div className={styles.list}>{overview.slots.map((slot) => <article className={styles.listItem} key={slot.id}><span className={styles.listIcon}><CalendarCheck2 aria-hidden size={19} /></span><div><h3>{slot.dateLabel} {slot.date}</h3><p>{slot.time}–{slot.endTime} · {overview.venues?.find((venue) => venue.id === slot.venueId)?.name || "合作训练场"}</p></div><span className={styles.rowActions}><em className={styles.status}>可预约</em><button className={styles.danger} disabled={Boolean(busy)} onClick={() => void mutate(`/api/v1/coach/slots/${encodeURIComponent(slot.id)}`, undefined, "可约时段已撤销", "DELETE")} type="button">撤销</button></span></article>)}</div> : <Empty copy="发布第一个真实场馆时段后，学员端会自动开放预约入口。" title="暂无可约时段" />}</section>
-      <aside className={styles.panel}><header className={styles.panelHeader}><div><h2>发布时段</h2><p>按北京时间填写</p></div></header>{overview.venues?.length ? <form className={styles.form} onSubmit={submit}><label className={styles.field}><span>训练场馆</span><select name="venueId" required>{overview.venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}</option>)}</select></label><label className={styles.field}><span>开始时间</span><input name="startsAt" required type="datetime-local" /></label><label className={styles.field}><span>结束时间</span><input name="endsAt" required type="datetime-local" /></label><button className={styles.primary} disabled={Boolean(busy)} type="submit"><CalendarPlus aria-hidden size={16} />发布时段</button></form> : <Empty copy="请先由运营人员审核并发布合作训练场。" title="场馆资料尚未就绪" />}</aside>
+    <div className={styles.split}><section className={styles.panel}><header className={styles.panelHeader}><div><h2>已开放时段</h2><p>共 {overview.slots.length} 个未来时段</p></div></header>{overview.slots.length ? <div className={styles.list}>{overview.slots.map((slot) => <article className={styles.listItem} key={slot.id}><span className={styles.listIcon}><CalendarCheck2 aria-hidden size={19} /></span><div><h3>{slot.dateLabel} {slot.date}</h3><p>{slot.time}–{slot.endTime} · {overview.venues.find((venue) => venue.id === slot.venueId)?.name || slot.venueName || "合作训练场"}</p></div><span className={styles.rowActions}><em className={styles.status}>可预约</em><button className={styles.danger} disabled={submitting} onClick={() => void remove(slot.id)} type="button">撤销</button></span></article>)}</div> : <Empty copy="发布第一个真实场馆时段后，学员端会自动开放预约入口。" title="暂无可约时段" />}</section>
+      <aside className={styles.panel}><header className={styles.panelHeader}><div><h2>发布时段</h2><p>统一按北京时间保存与展示</p></div></header>{overview.venues.length ? <form className={styles.form} onSubmit={submit}><label className={styles.field}><span>训练场馆</span><select aria-invalid={Boolean(fieldErrors.venueId)} onChange={(event) => setVenueId(event.target.value)} required value={venueId}>{overview.venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}</option>)}</select>{fieldErrors.venueId ? <small className={styles.fieldError}>{fieldErrors.venueId}</small> : null}</label><div className={styles.formGrid}><label className={styles.field}><span>开始时间</span><input aria-invalid={Boolean(fieldErrors.startsAt)} min={defaults.min} onChange={(event) => setStartsAt(event.target.value)} required type="datetime-local" value={startsAt} />{fieldErrors.startsAt ? <small className={styles.fieldError}>{fieldErrors.startsAt}</small> : null}</label><label className={styles.field}><span>结束时间</span><input aria-invalid={Boolean(fieldErrors.endsAt)} min={startsAt || defaults.min} onChange={(event) => setEndsAt(event.target.value)} required type="datetime-local" value={endsAt} />{fieldErrors.endsAt ? <small className={styles.fieldError}>{fieldErrors.endsAt}</small> : null}</label></div><div className={styles.durationOptions} aria-label="快捷设置训练时长"><span>训练时长</span>{[60, 90, 120].map((minutes) => <button key={minutes} onClick={() => applyDuration(minutes)} type="button">{minutes}分钟</button>)}</div><button className={styles.primary} disabled={submitting} type="submit"><CalendarPlus aria-hidden size={16} />{submitting ? "正在发布" : "发布时段"}</button>{notice ? <p className={styles.formNotice} role="status">{notice}</p> : null}</form> : <Empty copy="请先由运营人员审核并发布合作训练场。" title="场馆资料尚未就绪" />}</aside>
     </div></div>;
 }
 

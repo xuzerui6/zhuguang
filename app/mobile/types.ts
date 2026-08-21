@@ -59,7 +59,10 @@ export type MobileCoach = {
   verificationLabel?: "平台试点教练" | "资料已核验" | "资料待补充" | "演示资料";
   isNew?: boolean;
   bookable?: boolean;
+  bookingEnabled?: boolean;
   canConsult?: boolean;
+  pricingStatus?: "published" | "unavailable";
+  unavailableReason?: string;
   profileCompleteness?: "complete" | "partial" | "demo";
   profileKind?: "real" | "demo";
 };
@@ -70,6 +73,7 @@ export type CoachVenue = {
   name: string;
   address: string;
   district: string;
+  active?: boolean;
 };
 
 export type BookingSlot = {
@@ -103,7 +107,11 @@ export type MobileBooking = {
   id: string;
   coachId: number;
   learnerId: string;
+  learnerName?: string;
+  coachName?: string;
+  sport?: string;
   venueId: string;
+  venueName?: string;
   slotId: string;
   date: string;
   dateLabel: string;
@@ -203,7 +211,17 @@ export type CoachOverview = {
   coach: MobileCoach;
   conversations: MobileConversation[];
   slots: BookingSlot[];
-  venues?: CoachVenue[];
+  venues: CoachVenue[];
+};
+
+export type OperatorCoachBusinessSettings = {
+  bookingEnabled: boolean;
+  coachId: number;
+  district: string;
+  priceFen: number;
+  pricingStatus: "published" | "unavailable";
+  trialPriceFen: number;
+  venues: CoachVenue[];
 };
 
 export type MobileStudentAppProps = {

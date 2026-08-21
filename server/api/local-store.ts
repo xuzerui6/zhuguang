@@ -169,6 +169,7 @@ export function localCoachOverview() {
     coach: demoCoaches[0],
     conversations: localConversations.filter((conversation) => conversation.coachId === 1),
     slots: createDemoSlots(1),
+    venues: venues.filter((venue) => venue.coachId === 1),
   };
 }
 

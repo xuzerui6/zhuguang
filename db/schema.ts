@@ -84,6 +84,7 @@ export const coaches = sqliteTable("coaches", {
   listingChangedBy: text("listing_changed_by"),
   listingChangedAt: integer("listing_changed_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
   pricingStatus: text("pricing_status", { enum: ["published", "unavailable"] }).notNull().default("published"),
+  bookingEnabled: integer("booking_enabled", { mode: "boolean" }).notNull().default(true),
   auditStatus: text("audit_status", { enum: ["draft", "pending", "approved", "rejected", "suspended"] }).notNull().default("draft"),
   avatarObjectKey: text("avatar_object_key"),
   cardObjectKey: text("card_object_key"),
@@ -133,6 +134,7 @@ export const venues = sqliteTable("venues", {
   district: text("district").notNull(),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
 }, (table) => [index("venues_coach_idx").on(table.coachId, table.active)]);
 
 export const availabilitySlots = sqliteTable("availability_slots", {

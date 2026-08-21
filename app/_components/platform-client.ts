@@ -1,11 +1,15 @@
 "use client";
 
 export class PlatformRequestError extends Error {
+  code?: string;
+  fieldErrors?: Record<string, string>;
   status: number;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string, fieldErrors?: Record<string, string>) {
     super(message);
     this.name = "PlatformRequestError";
+    this.code = code;
+    this.fieldErrors = fieldErrors;
     this.status = status;
   }
 }
@@ -21,9 +25,9 @@ export async function platformRequest<T>(
     headers: options.body === undefined ? undefined : { "content-type": "application/json" },
     method,
   });
-  const payload = await response.json() as { data?: T; error?: { message?: string } };
+  const payload = await response.json() as { data?: T; error?: { code?: string; fieldErrors?: Record<string, string>; message?: string } };
   if (!response.ok || payload.data === undefined) {
-    throw new PlatformRequestError(payload.error?.message || "服务暂时不可用，请稍后重试", response.status);
+    throw new PlatformRequestError(payload.error?.message || "服务暂时不可用，请稍后重试", response.status, payload.error?.code, payload.error?.fieldErrors);
   }
   return payload.data;
 }

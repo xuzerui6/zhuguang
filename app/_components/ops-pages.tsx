@@ -12,7 +12,9 @@ import {
   HardDriveDownload,
   History,
   LoaderCircle,
+  MapPin,
   PauseCircle,
+  Plus,
   RefreshCw,
   Send,
   Sparkles,
@@ -23,6 +25,7 @@ import {
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { BEIJING_DISTRICTS, SPORT_OPTIONS } from "../../shared/coach-catalog";
+import type { CoachVenue, OperatorCoachBusinessSettings } from "../mobile/types";
 import { formatBeijingDate, formatFen, platformRequest } from "./platform-client";
 import styles from "./platform-pages.module.css";
 
@@ -128,6 +131,9 @@ type OpsCoach = {
   open_slots?: number;
   pending_credentials?: number;
   pricing_status?: string;
+  booking_enabled?: number;
+  price_fen?: number;
+  trial_price_fen?: number;
   profile_kind?: "real" | "demo";
   review_count?: number;
   sport?: string;
@@ -147,6 +153,7 @@ function CoachOperations() {
   const [pendingListing, setPendingListing] = useState<{ ids: number[]; status: "online" | "offline" } | null>(null);
   const [reason, setReason] = useState("");
   const [historyCoach, setHistoryCoach] = useState<OpsCoach | null>(null);
+  const [businessCoach, setBusinessCoach] = useState<OpsCoach | null>(null);
   const [events, setEvents] = useState<CoachStatusEvent[]>([]);
   if (state.loading) return <Loading label="正在读取教练档案" />;
   if (!state.data) return <ErrorState message={state.error} onRetry={state.load} />;
@@ -209,13 +216,54 @@ function CoachOperations() {
         <span><strong>{coach.district || "未设置"}</strong><small>{coach.open_slots || 0} 个开放时段</small></span>
         <span><strong>{coach.review_count || 0} 条评价</strong><small>{coach.lessons || 0} 节已完成课程</small></span>
         <span><em className={styles.status} data-tone={coach.audit_status === "approved" ? "green" : coach.audit_status === "suspended" ? "coral" : "amber"}>{coach.audit_status === "approved" ? "资格已通过" : coach.audit_status === "suspended" ? "资格已停权" : coach.audit_status || "待审核"}</em><em className={styles.status} data-tone={coach.listing_status === "online" ? "green" : "gray"}>{coach.listing_status === "online" ? "公开展示" : "已下线"}</em><small>{coach.listing_reason || (coach.user_id ? "已绑定账号" : "未绑定账号")}</small></span>
-        <span className={styles.rowActions}><button className={styles.secondary} onClick={() => void openHistory(coach)} type="button"><History aria-hidden size={15} />记录</button>{coach.listing_status === "online" ? <button className={styles.danger} disabled={busy === coach.id} onClick={() => setPendingListing({ ids: [coach.id], status: "offline" })} type="button"><EyeOff aria-hidden size={15} />下线</button> : <button className={styles.primary} disabled={busy === coach.id || coach.audit_status !== "approved"} onClick={() => setPendingListing({ ids: [coach.id], status: "online" })} type="button"><Eye aria-hidden size={15} />上线</button>}{coach.audit_status === "approved" ? <button className={styles.secondary} disabled={busy === coach.id} onClick={() => void setStatus(coach.id, "suspended")} type="button">暂停资格</button> : <button className={styles.secondary} disabled={busy === coach.id} onClick={() => void setStatus(coach.id, "approved")} type="button">审核通过</button>}</span>
+        <span className={styles.rowActions}><button className={styles.primary} onClick={() => setBusinessCoach(coach)} type="button">经营设置</button><button className={styles.secondary} onClick={() => void openHistory(coach)} type="button"><History aria-hidden size={15} />记录</button>{coach.listing_status === "online" ? <button className={styles.danger} disabled={busy === coach.id} onClick={() => setPendingListing({ ids: [coach.id], status: "offline" })} type="button"><EyeOff aria-hidden size={15} />下线</button> : <button className={styles.primary} disabled={busy === coach.id || coach.audit_status !== "approved"} onClick={() => setPendingListing({ ids: [coach.id], status: "online" })} type="button"><Eye aria-hidden size={15} />上线</button>}{coach.audit_status === "approved" ? <button className={styles.secondary} disabled={busy === coach.id} onClick={() => void setStatus(coach.id, "suspended")} type="button">暂停资格</button> : <button className={styles.secondary} disabled={busy === coach.id} onClick={() => void setStatus(coach.id, "approved")} type="button">审核通过</button>}</span>
       </article>)}</div> : <Empty copy="调整筛选条件，或导入并审核新的教练档案。" title="没有符合条件的教练" />}
     </section>
     {pendingListing ? <div className={styles.confirmOverlay} role="presentation" onClick={() => setPendingListing(null)}><section aria-labelledby="listing-confirm-title" aria-modal="true" onClick={(event) => event.stopPropagation()} role="dialog"><h2 id="listing-confirm-title">确认{pendingListing.status === "online" ? "上线" : "下线"} {pendingListing.ids.length} 位教练</h2><p>{pendingListing.status === "online" ? "上线后会进入官网、学员网页和 App 的公开目录。" : "下线只停止公开展示与新预约，历史业务记录不会删除。"}</p><label className={styles.field}><span>操作原因</span><textarea autoFocus maxLength={300} onChange={(event) => setReason(event.target.value)} placeholder="填写本次操作原因" value={reason} /></label><div><button className={styles.secondary} onClick={() => setPendingListing(null)} type="button">取消</button><button className={pendingListing.status === "online" ? styles.primary : styles.danger} disabled={!reason.trim() || Boolean(busy)} onClick={() => void applyListing()} type="button">确认{pendingListing.status === "online" ? "上线" : "下线"}</button></div></section></div> : null}
     {historyCoach ? <div className={styles.confirmOverlay} role="presentation" onClick={() => setHistoryCoach(null)}><section aria-labelledby="history-title" aria-modal="true" onClick={(event) => event.stopPropagation()} role="dialog"><h2 id="history-title">{historyCoach.name} · 状态记录</h2><p>审核与展示操作分别记录，最近记录优先。</p><div className={styles.statusHistory}>{events.length ? events.map((event) => <article key={event.id}><span><strong>{event.event_type === "listing" ? "公开展示" : "资格审核"}</strong><small>{formatBeijingDate(event.created_at)}</small></span><p>{event.from_status} → {event.to_status}</p><small>{event.reason || "未填写补充说明"} · {event.actor || "系统"}</small></article>) : <p>暂无状态变更记录。</p>}</div><div><button className={styles.primary} onClick={() => setHistoryCoach(null)} type="button">完成</button></div></section></div> : null}
+    {businessCoach ? <BusinessSettingsDialog coach={businessCoach} onClose={() => setBusinessCoach(null)} onUpdated={state.load} /> : null}
     {notice ? <Toast copy={notice} /> : null}
   </div>;
+}
+
+function BusinessSettingsDialog({ coach, onClose, onUpdated }: { coach: OpsCoach; onClose: () => void; onUpdated: () => Promise<void> }) {
+  const [settings, setSettings] = useState<OperatorCoachBusinessSettings | null>(null);
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { void platformRequest<OperatorCoachBusinessSettings>(`/api/v1/operator/coaches/${coach.id}/business-settings`).then(setSettings).catch((error) => setNotice(error instanceof Error ? error.message : "经营设置加载失败")); }, [coach.id]);
+  async function saveSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!settings) return;
+    const form = new FormData(event.currentTarget); setBusy(true); setNotice("");
+    try {
+      const result = await platformRequest<OperatorCoachBusinessSettings>(`/api/v1/operator/coaches/${coach.id}/business-settings`, { body: {
+        bookingEnabled: form.get("bookingEnabled") === "on",
+        district: form.get("district"),
+        priceFen: Math.round(Number(form.get("price")) * 100),
+        pricingStatus: form.get("pricingStatus"),
+        reason: form.get("reason"),
+        trialPriceFen: Math.round(Number(form.get("trialPrice")) * 100),
+      }, method: "PATCH" });
+      setSettings(result); setNotice("经营设置已更新，已有预约价格保持不变"); await onUpdated();
+    } catch (error) { setNotice(error instanceof Error ? error.message : "经营设置更新失败"); }
+    finally { setBusy(false); }
+  }
+  async function saveVenue(venue: CoachVenue, form: HTMLFormElement) {
+    const data = new FormData(form); setBusy(true); setNotice("");
+    try {
+      await platformRequest(`/api/v1/operator/coaches/${coach.id}/venues/${encodeURIComponent(venue.id)}`, { body: { active: data.get("active") === "on", address: data.get("address"), district: data.get("district"), name: data.get("name"), reason: data.get("reason") }, method: "PATCH" });
+      setSettings(await platformRequest<OperatorCoachBusinessSettings>(`/api/v1/operator/coaches/${coach.id}/business-settings`)); setNotice("场馆资料已更新");
+    } catch (error) { setNotice(error instanceof Error ? error.message : "场馆更新失败"); }
+    finally { setBusy(false); }
+  }
+  async function createVenue(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); setBusy(true); setNotice("");
+    try {
+      await platformRequest(`/api/v1/operator/coaches/${coach.id}/venues`, { body: { address: data.get("address"), district: data.get("district"), name: data.get("name"), reason: data.get("reason") }, method: "POST" });
+      setSettings(await platformRequest<OperatorCoachBusinessSettings>(`/api/v1/operator/coaches/${coach.id}/business-settings`)); form.reset(); setNotice("新场馆已创建并启用");
+    } catch (error) { setNotice(error instanceof Error ? error.message : "场馆创建失败"); }
+    finally { setBusy(false); }
+  }
+  return <div className={styles.confirmOverlay} role="presentation" onClick={onClose}><section aria-labelledby="business-title" aria-modal="true" className={styles.businessDialog} onClick={(event) => event.stopPropagation()} role="dialog"><h2 id="business-title">{coach.name} · 经营设置</h2><p>运营直改只用于经营字段，每次操作必须填写原因并进入审计日志。</p>{settings ? <><form className={styles.form} onSubmit={saveSettings}><div className={styles.formGrid}><label className={styles.field}><span>常规课价格（元）</span><input defaultValue={(settings.priceFen / 100).toFixed(0)} min="0" name="price" required step="0.01" type="number" /></label><label className={styles.field}><span>试课价格（元）</span><input defaultValue={(settings.trialPriceFen / 100).toFixed(0)} min="0" name="trialPrice" required step="0.01" type="number" /></label><label className={styles.field}><span>价格状态</span><select defaultValue={settings.pricingStatus} name="pricingStatus"><option value="published">公开价格</option><option value="unavailable">价格暂不可用</option></select></label><label className={styles.field}><span>服务区域</span><select defaultValue={settings.district} name="district">{BEIJING_DISTRICTS.map((district) => <option key={district}>{district}</option>)}</select></label></div><label className={styles.switchField}><input defaultChecked={settings.bookingEnabled} name="bookingEnabled" type="checkbox" /><span><strong>接受新预约</strong><small>关闭后保留公开资料和历史预约，但不能创建新预约。</small></span></label><label className={styles.field}><span>修改原因</span><textarea maxLength={300} name="reason" required /></label><button className={styles.primary} disabled={busy} type="submit">保存经营设置</button></form><div className={styles.venueSection}><header><div><h3>训练场馆</h3><p>停用前必须先处理该场馆的未来排期。</p></div><MapPin aria-hidden /></header>{settings.venues.map((venue) => <form className={styles.venueEditor} key={venue.id} onSubmit={(event) => { event.preventDefault(); void saveVenue(venue, event.currentTarget); }}><div className={styles.formGrid}><label className={styles.field}><span>场馆名称</span><input defaultValue={venue.name} name="name" required /></label><label className={styles.field}><span>所在区域</span><select defaultValue={venue.district} name="district">{BEIJING_DISTRICTS.map((district) => <option key={district}>{district}</option>)}</select></label></div><label className={styles.field}><span>详细地址</span><input defaultValue={venue.address} name="address" required /></label><label className={styles.switchField}><input defaultChecked={venue.active !== false} name="active" type="checkbox" /><span><strong>启用场馆</strong><small>{venue.active === false ? "当前已停用" : "当前可用于新排期"}</small></span></label><label className={styles.field}><span>修改原因</span><input maxLength={300} name="reason" required /></label><button className={styles.secondary} disabled={busy} type="submit">保存场馆</button></form>)}<form className={styles.venueEditor} onSubmit={createVenue}><h4><Plus aria-hidden size={16} />新增场馆</h4><div className={styles.formGrid}><label className={styles.field}><span>场馆名称</span><input name="name" required /></label><label className={styles.field}><span>所在区域</span><select defaultValue={settings.district} name="district">{BEIJING_DISTRICTS.map((district) => <option key={district}>{district}</option>)}</select></label></div><label className={styles.field}><span>详细地址</span><input name="address" required /></label><label className={styles.field}><span>创建原因</span><input maxLength={300} name="reason" required /></label><button className={styles.secondary} disabled={busy} type="submit"><Plus aria-hidden size={16} />创建场馆</button></form></div></> : <Loading label="正在读取经营设置" />}{notice ? <p className={styles.dialogNotice} role="status">{notice}</p> : null}<div><button className={styles.secondary} onClick={onClose} type="button">关闭</button></div></section></div>;
 }
 
 type OpsBooking = { id: string; status?: string; fee_fen?: number; payment_status?: string; note?: string; learner_name?: string; coach_name?: string; sport?: string; venue_name?: string; starts_at?: number; ends_at?: number; created_at?: number };

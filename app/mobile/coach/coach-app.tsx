@@ -25,8 +25,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { mobileApi, usesBundledDemoData } from "../api-client";
 import { createDemoBooking, createDemoConversations, createDemoSlots, demoCoaches } from "../demo-data";
 import { impact, listenForAppResume } from "../device";
+import { formatBeijingDateTimeLocal, nextBeijingSlotDefaults, parseBeijingDateTimeLocal, validateScheduleDraft } from "../../../shared/scheduling";
 import type {
-  BookingSlot,
   BookingStatus,
   CoachAccountSummary,
   CoachOverview,
@@ -81,6 +81,7 @@ export function createDemoCoachOverview(summary: CoachAccountSummary): CoachOver
     coach: { ...demoCoaches[0], id: summary.id, name: summary.name, sport: summary.sport, title: summary.title },
     conversations: createDemoConversations(),
     slots: createDemoSlots(summary.id).filter((slot) => slot.available),
+    venues: [{ active: true, address: "北京市通州区合作训练场", coachId: summary.id, district: "通州区", id: "venue_demo", name: "合作训练场" }],
   };
 }
 
@@ -88,19 +89,21 @@ function BookingRow({
   booking,
   compact = false,
   onAction,
+  sport,
 }: {
   booking: MobileBooking;
   compact?: boolean;
   onAction: (booking: MobileBooking, status: BookingStatus | "paid") => void;
+  sport: string;
 }) {
   const pending = booking.status === "pending_coach";
   return (
     <article className="zg-coach-booking-row">
       <span className="zg-coach-student-avatar">{booking.learnerId.slice(-2).toUpperCase()}</span>
       <div className="zg-coach-booking-copy">
-        <div><strong>{booking.learnerId.includes("demo") ? "张乐" : "预约学员"}</strong><small>{statusCopy[booking.status]}</small></div>
+        <div><strong>{booking.learnerName || "预约学员"}</strong><small>{statusCopy[booking.status]}</small></div>
         <p><CalendarDays aria-hidden size={14} />{booking.dateLabel} {booking.time}-{booking.endTime}</p>
-        <p><Clock3 aria-hidden size={14} />羽毛球 · {booking.note || "体验训练"}</p>
+        <p><Clock3 aria-hidden size={14} />{booking.sport || sport} · {booking.note || "体验训练"}</p>
       </div>
       {!compact && pending ? (
         <div className="zg-coach-row-actions">
@@ -129,6 +132,12 @@ export function CoachApp({ initialTab, onOpenUpdates, onSwitchStudent, onTabChan
   const [toast, setToast] = useState("");
   const [busyBookingId, setBusyBookingId] = useState<string | null>(null);
   const [appointmentFilter, setAppointmentFilter] = useState<AppointmentFilter>("pending");
+  const slotDefaults = useMemo(() => nextBeijingSlotDefaults(), []);
+  const [slotFormOpen, setSlotFormOpen] = useState(false);
+  const [slotStartsAt, setSlotStartsAt] = useState(slotDefaults.startsAt);
+  const [slotEndsAt, setSlotEndsAt] = useState(slotDefaults.endsAt);
+  const [slotVenueId, setSlotVenueId] = useState("");
+  const [slotErrors, setSlotErrors] = useState<Record<string, string>>({});
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -171,14 +180,14 @@ export function CoachApp({ initialTab, onOpenUpdates, onSwitchStudent, onTabChan
     setBusyBookingId(booking.id);
     try {
       if (action === "paid") {
-        if (!booking.id.startsWith("booking_")) await mobileApi.coachMarkOfflinePaid(booking.id, true);
+        if (!demoMode) await mobileApi.coachMarkOfflinePaid(booking.id, true);
         setOverview((current) => ({
           ...current,
           bookings: current.bookings.map((item) => item.id === booking.id ? { ...item, paymentStatus: "offline_paid" } : item),
         }));
         showToast("线下收款状态已记录");
       } else {
-        if (!booking.id.startsWith("booking_")) await mobileApi.coachSetBookingStatus(booking.id, action);
+        if (!demoMode) await mobileApi.coachSetBookingStatus(booking.id, action);
         setOverview((current) => ({
           ...current,
           bookings: current.bookings.map((item) => item.id === booking.id ? { ...item, status: action } : item),
@@ -191,28 +200,25 @@ export function CoachApp({ initialTab, onOpenUpdates, onSwitchStudent, onTabChan
     } finally {
       setBusyBookingId(null);
     }
-  }, [showToast]);
+  }, [demoMode, showToast]);
 
   const addSlot = useCallback(async () => {
-    const startsAt = Date.now() + 3 * 24 * 60 * 60_000;
-    const endsAt = startsAt + 90 * 60_000;
-    const slot: BookingSlot = {
-      available: true,
-      coachId: summary.id,
-      date: new Date(startsAt).toISOString().slice(0, 10),
-      dateLabel: "3天后",
-      endTime: new Date(endsAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }),
-      id: `slot_${Date.now()}`,
-      time: new Date(startsAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }),
-    };
+    const startsAt = parseBeijingDateTimeLocal(slotStartsAt);
+    const endsAt = parseBeijingDateTimeLocal(slotEndsAt);
+    const venueId = slotVenueId || overview.venues[0]?.id || "";
+    const errors = validateScheduleDraft({ endsAt, startsAt, venueId });
+    if (Object.keys(errors).length) { setSlotErrors(errors); return; }
     try {
-      if (!demoMode) await mobileApi.coachCreateSlot({ endsAt, startsAt, venueId: "venue_bj_cy_01" });
-      setOverview((current) => ({ ...current, slots: [...current.slots, slot] }));
+      if (!demoMode) await mobileApi.coachCreateSlot({ endsAt, startsAt, venueId });
+      if (demoMode) setOverview((current) => ({ ...current, slots: [...current.slots, { available: true, coachId: summary.id, date: slotStartsAt.slice(0, 10), dateLabel: "新排期", endTime: slotEndsAt.slice(11), id: `slot_${Date.now()}`, time: slotStartsAt.slice(11), venueId }] }));
+      else await refresh();
+      setSlotErrors({}); setSlotFormOpen(false);
+      const next = nextBeijingSlotDefaults(); setSlotStartsAt(next.startsAt); setSlotEndsAt(next.endsAt);
       showToast("可约时段已添加");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "时段添加失败");
     }
-  }, [demoMode, showToast, summary.id]);
+  }, [demoMode, overview.venues, refresh, showToast, slotEndsAt, slotStartsAt, slotVenueId, summary.id]);
 
   const pending = overview.bookings.filter((booking) => booking.status === "pending_coach" || booking.status === "reschedule_requested");
   const active = overview.bookings.filter((booking) => booking.status === "confirmed");
@@ -243,12 +249,12 @@ export function CoachApp({ initialTab, onOpenUpdates, onSwitchStudent, onTabChan
           <section className="zg-coach-section">
             <header><h2>待处理预约</h2><button onClick={() => openAppointments("pending")} type="button">全部({pending.length})<ChevronRight aria-hidden size={15} /></button></header>
             <div className={busyBookingId ? "is-busy" : ""}>
-              {pending.length ? pending.map((booking) => <BookingRow booking={booking} key={booking.id} onAction={updateBooking} />) : <p className="zg-coach-empty">所有预约都已处理</p>}
+              {pending.length ? pending.map((booking) => <BookingRow booking={booking} key={booking.id} onAction={updateBooking} sport={overview.coach.sport} />) : <p className="zg-coach-empty">所有预约都已处理</p>}
             </div>
           </section>
           <section className="zg-coach-section">
             <header><h2>近期课程</h2><button onClick={() => openAppointments("active")} type="button">全部({active.length})<ChevronRight aria-hidden size={15} /></button></header>
-            {active.map((booking) => <BookingRow booking={booking} compact key={booking.id} onAction={updateBooking} />)}
+            {active.map((booking) => <BookingRow booking={booking} compact key={booking.id} onAction={updateBooking} sport={overview.coach.sport} />)}
           </section>
         </div>
       ) : null}
@@ -262,17 +268,18 @@ export function CoachApp({ initialTab, onOpenUpdates, onSwitchStudent, onTabChan
             <button aria-selected={appointmentFilter === "completed"} className={appointmentFilter === "completed" ? "is-active" : ""} onClick={() => setAppointmentFilter("completed")} role="tab" type="button">已完成 {completed.length}</button>
           </div>
           <section className="zg-coach-appointment-list">
-            {filteredBookings.length ? filteredBookings.map((booking) => <BookingRow booking={booking} key={booking.id} onAction={updateBooking} />) : <p className="zg-coach-empty">该分组暂无预约</p>}
+            {filteredBookings.length ? filteredBookings.map((booking) => <BookingRow booking={booking} key={booking.id} onAction={updateBooking} sport={overview.coach.sport} />) : <p className="zg-coach-empty">该分组暂无预约</p>}
           </section>
         </div>
       ) : null}
 
       {tab === "schedule" ? (
         <div className="zg-coach-page">
-          <div className="zg-coach-page-title"><div><small>教练模式</small><h1>可约排期</h1></div><button aria-label="添加时段" onClick={() => void addSlot()} type="button"><Plus aria-hidden /></button></div>
+          <div className="zg-coach-page-title"><div><small>教练模式</small><h1>可约排期</h1></div><button aria-label="添加时段" disabled={!overview.venues.length} onClick={() => { setSlotVenueId(overview.venues[0]?.id || ""); setSlotFormOpen(true); }} type="button"><Plus aria-hidden /></button></div>
           <section className="zg-schedule-summary"><div><strong>{overview.slots.length}</strong><span>未来可约时段</span></div><p>时段由你管理，已被预约的时间不会重复开放。</p></section>
           <section className="zg-coach-section zg-slot-list">
-            <header><h2>未来 14 天</h2><button onClick={() => void addSlot()} type="button"><Plus aria-hidden size={15} />添加</button></header>
+            <header><h2>未来 14 天</h2><button disabled={!overview.venues.length} onClick={() => { setSlotVenueId(overview.venues[0]?.id || ""); setSlotFormOpen(true); }} type="button"><Plus aria-hidden size={15} />添加</button></header>
+            {!overview.venues.length ? <p className="zg-coach-empty">场馆尚未发布，请先在资料页提交场馆并等待运营审核。</p> : null}
             {overview.slots.map((slot) => (
               <article key={slot.id}><span><strong>{slot.dateLabel}</strong><small>{slot.date}</small></span><div><Clock3 aria-hidden size={16} />{slot.time}-{slot.endTime}</div><em>可预约</em></article>
             ))}
@@ -329,6 +336,7 @@ export function CoachApp({ initialTab, onOpenUpdates, onSwitchStudent, onTabChan
           return <button aria-current={tab === item.tab ? "page" : undefined} className={tab === item.tab ? "is-active" : ""} key={item.tab} onClick={() => navigate(item.tab)} type="button"><span><Icon aria-hidden size={22} />{count ? <em>{count}</em> : null}</span><small>{item.label}</small></button>;
         })}
       </nav>
+      {slotFormOpen ? <div className="zg-sheet-backdrop zg-coach-slot-backdrop" role="presentation" onClick={() => setSlotFormOpen(false)}><form aria-labelledby="zg-slot-form-title" aria-modal="true" className="zg-coach-slot-sheet" onClick={(event) => event.stopPropagation()} onSubmit={(event) => { event.preventDefault(); void addSlot(); }} role="dialog"><i className="zg-sheet-handle" /><header><div><small>北京时间</small><h2 id="zg-slot-form-title">发布可约时段</h2></div><button aria-label="关闭" onClick={() => setSlotFormOpen(false)} type="button"><X aria-hidden /></button></header><label><span>训练场馆</span><select aria-invalid={Boolean(slotErrors.venueId)} onChange={(event) => setSlotVenueId(event.target.value)} value={slotVenueId}>{overview.venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}</option>)}</select>{slotErrors.venueId ? <small>{slotErrors.venueId}</small> : null}</label><div className="zg-coach-slot-time-grid"><label><span>开始时间</span><input aria-invalid={Boolean(slotErrors.startsAt)} min={slotDefaults.min} onChange={(event) => setSlotStartsAt(event.target.value)} required type="datetime-local" value={slotStartsAt} />{slotErrors.startsAt ? <small>{slotErrors.startsAt}</small> : null}</label><label><span>结束时间</span><input aria-invalid={Boolean(slotErrors.endsAt)} min={slotStartsAt} onChange={(event) => setSlotEndsAt(event.target.value)} required type="datetime-local" value={slotEndsAt} />{slotErrors.endsAt ? <small>{slotErrors.endsAt}</small> : null}</label></div><div className="zg-coach-slot-durations"><span>快捷时长</span>{[60, 90, 120].map((minutes) => <button key={minutes} onClick={() => { const start = parseBeijingDateTimeLocal(slotStartsAt); if (Number.isFinite(start)) setSlotEndsAt(formatBeijingDateTimeLocal(start + minutes * 60_000)); }} type="button">{minutes}分钟</button>)}</div><button className="zg-coach-slot-submit" type="submit">发布时段</button></form></div> : null}
       {toast ? <div className="zg-toast" role="status"><Check aria-hidden size={17} />{toast}</div> : null}
     </main>
   );

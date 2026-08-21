@@ -1414,7 +1414,14 @@
   }
 
   .coachSpotlight {
-    margin-inline: calc((100vw - var(--zg-page)) / -2);
+    margin-inline: -16px;
+  }
+
+  .coachCarouselShell {
+    margin-inline: -16px;
+    max-width: none;
+    overflow: hidden;
+    width: calc(100% + 32px);
   }
 
   .coachSpotlightGrid {
@@ -1422,9 +1429,8 @@
     grid-auto-columns: minmax(286px, 82vw);
     grid-auto-flow: column;
     grid-template-columns: none;
-    margin-inline: calc((100vw - var(--zg-page)) / -2);
     overflow-x: auto;
-    padding: 0 max(20px, calc((100vw - var(--zg-page)) / 2)) 8px;
+    padding: 0 20px 8px;
     scroll-padding-inline: 20px;
     scroll-snap-type: x mandatory;
     scrollbar-width: none;
@@ -1437,6 +1443,7 @@
     font-size: 11px;
     justify-content: space-between;
     margin-top: 13px;
+    padding-inline: 20px;
   }
 
   .coachCarouselProgress > div { display: flex; gap: 5px; }

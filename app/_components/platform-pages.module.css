@@ -300,6 +300,26 @@
 .field { display: grid; gap: 7px; }
 .field > span { color: #526159; font-size: 13px; font-weight: 650; }
 .field textarea { min-height: 110px; resize: vertical; }
+.fieldError { color: #b83f2a; font-size: 12px; }
+.durationOptions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.durationOptions > span { color: #526159; font-size: 13px; font-weight: 650; margin-right: 4px; }
+.durationOptions button { background: #f4f7f5; border: 1px solid var(--zg-line); border-radius: 5px; color: #294238; min-height: 38px; padding: 0 12px; }
+.durationOptions button:active { transform: scale(.98); }
+.formNotice { color: var(--zg-brand); font-size: 13px; margin: 0; }
+.businessDialog { max-width: 760px !important; }
+.businessDialog .form { border: 1px solid #e3e9e5; border-radius: 7px; margin-top: 16px; }
+.switchField { align-items: flex-start; display: flex; gap: 11px; }
+.switchField input { height: 18px; margin-top: 2px; width: 18px; }
+.switchField span { display: grid; gap: 3px; }
+.switchField strong { font-size: 14px; }
+.switchField small { color: #6b7971; font-size: 12px; }
+.venueSection { border-top: 1px solid #e4e9e6; display: grid; gap: 12px; margin-top: 22px; padding-top: 20px; }
+.venueSection > header { align-items: center; display: flex; justify-content: space-between; }
+.venueSection h3, .venueSection h4 { margin: 0; }
+.venueSection header p { color: #6b7971; font-size: 12px; margin: 4px 0 0; }
+.venueEditor { background: #f8faf9; border: 1px solid #e1e7e3; border-radius: 7px; display: grid; gap: 13px; padding: 16px; }
+.venueEditor h4 { align-items: center; display: flex; font-size: 14px; gap: 7px; }
+.dialogNotice { background: #edf7f2; border-radius: 6px; color: #087a50; font-size: 13px; padding: 11px 13px; }
 .formActions { align-items: center; display: flex; gap: 12px; justify-content: flex-end; }
 .formActions p { color: #637169; font-size: 13px; margin: 0 auto 0 0; }
 .panel > .formGrid { padding: 18px 20px 0; }

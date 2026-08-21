@@ -1,4 +1,5 @@
 import { canTransitionBooking } from "../../app/mobile/domain";
+import { validateScheduleDraft } from "../../shared/scheduling";
 import type {
   AccountMode,
   BookingStatus,
@@ -87,6 +88,8 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
   const isNew = reviewCount === 0 && numberValue(row.lessons) === 0;
   const profileKind = row.profile_kind === "demo" ? "demo" : "real";
   const pricingPublished = row.pricing_status !== "unavailable";
+  const bookingEnabled = row.booking_enabled !== 0;
+  const hasOpenSlots = numberValue(row.open_slot_count) > 0 || availability.length > 0;
   const audience = jsonArray(row.audience_json);
   const goals = jsonArray(row.goals_json);
   const honors = jsonArray(row.honors_json);
@@ -109,7 +112,8 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
     audience,
     availability,
     avatarUrl: publicCoachMediaUrl(row, "avatar", env),
-    bookable: profileKind === "real" && availability.length > 0,
+    bookable: profileKind === "real" && bookingEnabled && pricingPublished && hasOpenSlots,
+    bookingEnabled,
     canConsult: profileKind === "real",
     cardUrl: publicCoachMediaUrl(row, "card", env),
     city: stringValue(row.city),
@@ -129,6 +133,7 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
     price: pricingPublished ? Math.round(numberValue(row.price_fen) / 100) : undefined,
     profileCompleteness,
     profileKind,
+    pricingStatus: pricingPublished ? "published" : "unavailable",
     proof: profileKind === "demo"
       ? ["演示资料", "不可预约"]
       : profileCompleteness === "partial"
@@ -141,6 +146,15 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
     strengths,
     title: stringValue(row.title),
     trialPrice: pricingPublished ? Math.round(numberValue(row.trial_price_fen) / 100) : undefined,
+    unavailableReason: profileKind !== "real"
+      ? "演示资料不可预约"
+      : !bookingEnabled
+        ? "教练暂时停止接受新预约"
+        : !pricingPublished
+          ? "课程价格尚未发布"
+          : !hasOpenSlots
+            ? "可约时段待发布"
+            : undefined,
     venue: stringValue(row.venue_name),
     verificationLabel,
     verified: row.audit_status === "approved",
@@ -173,12 +187,16 @@ function mapBooking(row: Row): MobileBooking {
     feeFen: numberValue(row.fee_fen),
     id: stringValue(row.id),
     learnerId: stringValue(row.learner_profile_id),
+    learnerName: row.learner_name ? stringValue(row.learner_name) : undefined,
+    coachName: row.coach_name ? stringValue(row.coach_name) : undefined,
+    sport: row.sport ? stringValue(row.sport) : undefined,
     note: stringValue(row.note),
     paymentStatus: stringValue(row.payment_status) as MobileBooking["paymentStatus"],
     slotId: stringValue(row.slot_id),
     status: stringValue(row.status) as BookingStatus,
     submittedAt: "已提交",
     venueId: stringValue(row.venue_id),
+    venueName: row.venue_name ? stringValue(row.venue_name) : undefined,
   };
 }
 
@@ -568,13 +586,19 @@ export async function listCoachesD1(env: ApiEnv, filters: URLSearchParams) {
     clauses.push("price_fen <= ?");
     values.push(maxPriceFen);
   }
-  const query = `SELECT coaches.*, (SELECT name FROM venues WHERE venues.coach_id = coaches.id AND active = 1 ORDER BY created_at LIMIT 1) AS venue_name FROM coaches WHERE ${clauses.join(" AND ")} ORDER BY CASE profile_kind WHEN 'real' THEN 0 ELSE 1 END, rating_basis_points DESC, lessons DESC, id ASC LIMIT 100`;
+  const query = `SELECT coaches.*,
+    (SELECT name FROM venues WHERE venues.coach_id = coaches.id AND active = 1 ORDER BY created_at LIMIT 1) AS venue_name,
+    (SELECT count(*) FROM availability_slots slots WHERE slots.coach_id = coaches.id AND slots.status = 'open' AND slots.starts_at > unixepoch() * 1000) AS open_slot_count
+    FROM coaches WHERE ${clauses.join(" AND ")} ORDER BY CASE profile_kind WHEN 'real' THEN 0 ELSE 1 END, rating_basis_points DESC, lessons DESC, id ASC LIMIT 100`;
   const result = await db(env).prepare(query).bind(...values).all<Row>();
   return (result.results ?? []).map((row) => mapCoach(row, env));
 }
 
 export async function getCoachD1(coachId: number, env: ApiEnv) {
-  const row = await db(env).prepare("SELECT coaches.*, (SELECT name FROM venues WHERE venues.coach_id = coaches.id AND active = 1 ORDER BY created_at LIMIT 1) AS venue_name FROM coaches WHERE id = ? AND profile_kind = 'real'").bind(coachId).first<Row>();
+  const row = await db(env).prepare(`SELECT coaches.*,
+    (SELECT name FROM venues WHERE venues.coach_id = coaches.id AND active = 1 ORDER BY created_at LIMIT 1) AS venue_name,
+    (SELECT count(*) FROM availability_slots slots WHERE slots.coach_id = coaches.id AND slots.status = 'open' AND slots.starts_at > unixepoch() * 1000) AS open_slot_count
+    FROM coaches WHERE id = ? AND profile_kind = 'real'`).bind(coachId).first<Row>();
   if (!row) throw new ApiError(404, "coach_not_found", "未找到该教练");
   if (row.audit_status !== "approved" || row.listing_status !== "online") {
     throw new ApiError(410, "coach_offline", "该教练当前未公开展示");
@@ -709,11 +733,11 @@ export async function createBookingD1(
   `).bind(identity.userId, idempotencyKey).first<Row>();
   if (existing) return mapBooking(existing);
   const slot = await database.prepare(`
-    SELECT s.*, c.trial_price_fen, c.audit_status, c.listing_status, c.profile_kind, c.pricing_status FROM availability_slots s
+    SELECT s.*, c.trial_price_fen, c.audit_status, c.listing_status, c.profile_kind, c.pricing_status, c.booking_enabled FROM availability_slots s
     JOIN coaches c ON c.id = s.coach_id
     WHERE s.id = ? AND s.coach_id = ? AND s.venue_id = ?
   `).bind(input.slotId, input.coachId, input.venueId).first<Row>();
-  if (!slot || slot.audit_status !== "approved" || slot.listing_status !== "online" || slot.profile_kind !== "real" || slot.pricing_status !== "published") {
+  if (!slot || slot.audit_status !== "approved" || slot.listing_status !== "online" || slot.profile_kind !== "real" || slot.pricing_status !== "published" || slot.booking_enabled === 0) {
     throw new ApiError(404, "slot_not_found", "未找到该可约时段");
   }
   if (slot.status !== "open") throw new ApiError(409, "slot_unavailable", "该时段刚刚被预约，请选择其他时间");
@@ -852,7 +876,11 @@ export async function coachOverviewD1(identity: CoachIdentity, env: ApiEnv) {
   const [coach, bookings, conversations, slots, venues] = await Promise.all([
     Promise.resolve(mapCoach(coachRow, env)),
     database.prepare(`
-      SELECT b.*, s.starts_at, s.ends_at FROM booking_requests b JOIN availability_slots s ON s.id = b.slot_id
+      SELECT b.*, s.starts_at, s.ends_at, l.name AS learner_name, v.name AS venue_name, c.name AS coach_name, c.sport
+      FROM booking_requests b JOIN availability_slots s ON s.id = b.slot_id
+      JOIN learner_profiles l ON l.id = b.learner_profile_id
+      JOIN venues v ON v.id = b.venue_id
+      JOIN coaches c ON c.id = b.coach_id
       WHERE b.coach_id = ? ORDER BY b.created_at DESC LIMIT 100
     `).bind(identity.coachId).all<Row>(),
     database.prepare("SELECT id, title, last_message_at FROM conversations WHERE coach_id = ? ORDER BY last_message_at DESC LIMIT 50").bind(identity.coachId).all<Row>(),
@@ -1016,12 +1044,17 @@ export async function createCoachSlotD1(
   input: { endsAt: number; startsAt: number; venueId: string },
   env: ApiEnv,
 ) {
-  if (!Number.isFinite(input.startsAt) || !Number.isFinite(input.endsAt) || input.startsAt <= Date.now() || input.endsAt <= input.startsAt || input.endsAt - input.startsAt > 4 * 60 * 60_000) {
-    throw new ApiError(422, "invalid_slot_time", "请选择有效的未来训练时段");
-  }
+  const fieldErrors = validateScheduleDraft(input);
+  if (Object.keys(fieldErrors).length) throw new ApiError(422, "invalid_slot_time", "请检查训练时间", fieldErrors);
   const database = db(env);
   const venue = await database.prepare("SELECT id FROM venues WHERE id = ? AND coach_id = ? AND active = 1").bind(input.venueId, identity.coachId).first<Row>();
   if (!venue) throw new ApiError(404, "venue_not_found", "未找到该训练场馆");
+  const overlap = await database.prepare(`
+    SELECT id FROM availability_slots
+    WHERE coach_id = ? AND status IN ('open', 'held', 'booked') AND starts_at < ? AND ends_at > ?
+    LIMIT 1
+  `).bind(identity.coachId, input.endsAt, input.startsAt).first<Row>();
+  if (overlap) throw new ApiError(409, "slot_conflict", "该时间与已有排期冲突，请选择其他时间");
   const id = randomId("slot");
   const now = Date.now();
   try {

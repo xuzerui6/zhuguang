@@ -171,7 +171,7 @@ function json(body: unknown, headers: Record<string, string> = {}): RequestInit 
 
 async function migrate(database: D1Adapter) {
   const directory = new URL("../drizzle/", import.meta.url);
-  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql", "0006_verified_coach_profiles.sql", "0007_operational_closure.sql", "0008_public_app_downloads.sql"]) {
+  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql", "0006_verified_coach_profiles.sql", "0007_operational_closure.sql", "0008_public_app_downloads.sql", "0009_business_scheduling.sql"]) {
     const source = await readFile(new URL(file, directory), "utf8");
     for (const statement of source.split("--> statement-breakpoint").map((item) => item.trim()).filter(Boolean)) database.sqlite.exec(statement);
   }
@@ -408,6 +408,58 @@ test("operator listing controls hide public discovery without changing audit sta
   });
   assert.equal(restored.response.status, 200);
   assert.equal((await request(env, "/api/v1/coaches")).response.status, 200);
+  database.sqlite.close();
+});
+
+test("coach scheduling uses approved venues while operator business changes remain audited", async () => {
+  const database = new D1Adapter();
+  await migrate(database);
+  seedSupply(database);
+  database.sqlite.exec("DELETE FROM availability_slots; DELETE FROM venues;");
+  const operatorSecret = "operator-business-secret";
+  const env: ApiEnv = {
+    APP_ENV: "test",
+    AUTH_HASH_SECRET: "test-auth-hash-secret-with-adequate-length",
+    DB: database,
+    OPERATOR_API_SECRET: operatorSecret,
+    PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 18).toString("base64"),
+  };
+  const session = await authenticate(env, "13800000018");
+  const me = await request(env, "/api/v1/me", { headers: { authorization: `Bearer ${session.accessToken}`, "x-device-id": "device-test" } });
+  const userId = (me.payload?.data as { userId: string }).userId;
+  const now = Date.now();
+  database.sqlite.prepare("UPDATE coaches SET user_id = ? WHERE id = 1").run(userId);
+  database.sqlite.prepare("INSERT INTO user_roles (user_id, role, status, granted_at, updated_at) VALUES (?, 'coach', 'active', ?, ?)").run(userId, now, now);
+  const coachHeaders = { authorization: `Bearer ${session.accessToken}`, "content-type": "application/json", "x-device-id": "device-test" };
+  const operatorHeaders = { "content-type": "application/json", "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": operatorSecret };
+
+  const submitted = await request(env, "/api/v1/coach/profile-change-requests", { body: JSON.stringify({ field: "venue", value: { address: "通州区运河东大街1号", district: "通州区", name: "通州合作训练场" } }), headers: coachHeaders, method: "POST" });
+  assert.equal(submitted.response.status, 201);
+  const changeId = (submitted.payload?.data as { id: string }).id;
+  const reviewed = await request(env, `/api/v1/operator/profile-change-requests/${changeId}`, { body: JSON.stringify({ decision: "approved", note: "场馆资料核验通过" }), headers: operatorHeaders, method: "PATCH" });
+  assert.equal(reviewed.response.status, 200);
+  const venue = database.sqlite.prepare("SELECT id, name FROM venues WHERE coach_id = 1 AND active = 1").get() as { id: string; name: string };
+  assert.equal(venue.name, "通州合作训练场");
+
+  const startsAt = Date.now() + 3 * 24 * 60 * 60_000;
+  const validSlot = await request(env, "/api/v1/coach/slots", { body: JSON.stringify({ endsAt: startsAt + 90 * 60_000, startsAt, venueId: venue.id }), headers: coachHeaders, method: "POST" });
+  assert.equal(validSlot.response.status, 201);
+  const overlap = await request(env, "/api/v1/coach/slots", { body: JSON.stringify({ endsAt: startsAt + 120 * 60_000, startsAt: startsAt + 30 * 60_000, venueId: venue.id }), headers: coachHeaders, method: "POST" });
+  assert.equal(overlap.response.status, 409);
+  assert.equal((overlap.payload?.error as { code: string }).code, "slot_conflict");
+  const tooShort = await request(env, "/api/v1/coach/slots", { body: JSON.stringify({ endsAt: startsAt + 15 * 60_000, startsAt: startsAt + 5 * 60 * 60_000, venueId: venue.id }), headers: coachHeaders, method: "POST" });
+  assert.equal(tooShort.response.status, 422);
+  assert.equal(((tooShort.payload?.error as { fieldErrors: Record<string, string> }).fieldErrors).endsAt, "训练时长不能少于30分钟");
+
+  const settings = await request(env, "/api/v1/operator/coaches/1/business-settings", { body: JSON.stringify({ bookingEnabled: false, district: "通州区", priceFen: 28000, pricingStatus: "published", reason: "试点价格调整", trialPriceFen: 12900 }), headers: operatorHeaders, method: "PATCH" });
+  assert.equal(settings.response.status, 200);
+  assert.equal((settings.payload?.data as { bookingEnabled: boolean; priceFen: number }).bookingEnabled, false);
+  assert.equal((settings.payload?.data as { priceFen: number }).priceFen, 28000);
+  const audit = database.sqlite.prepare("SELECT detail_json FROM ops_audit_logs WHERE action = 'coach.business.update' ORDER BY created_at DESC LIMIT 1").get() as { detail_json: string };
+  assert.match(audit.detail_json, /试点价格调整/u);
+  const publicCoach = await request(env, "/api/v1/coaches/1");
+  assert.equal((publicCoach.payload?.data as { bookable: boolean; unavailableReason: string }).bookable, false);
+  assert.equal((publicCoach.payload?.data as { unavailableReason: string }).unavailableReason, "教练暂时停止接受新预约");
   database.sqlite.close();
 });
 

@@ -6,6 +6,7 @@ import test from "node:test";
 import { handleApiRequest } from "../server/api/router";
 import type { ApiEnv } from "../server/api/contracts";
 import { sendEmailOtp } from "../server/api/email";
+import { requestEmailOtpD1 } from "../server/api/email-auth";
 import { buildJPushPayload } from "../server/api/push";
 import { keyedHash } from "../server/api/security";
 
@@ -177,6 +178,65 @@ async function migrate(database: D1Adapter) {
   }
   database.sqlite.exec("PRAGMA foreign_keys = ON");
 }
+
+test("registered code 16 Android devices can request email OTP when Turnstile is unreachable", async () => {
+  const database = new D1Adapter();
+  await migrate(database);
+  const deviceId = "device_123e4567-e89b-42d3-a456-426614174000";
+  const now = Date.now();
+  const env: ApiEnv = {
+    APP_ENV: "test",
+    AUTH_HASH_SECRET: "test-auth-hash-secret-with-adequate-length",
+    DB: database,
+    PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
+    PILOT_APP_KEY: "test-app-key",
+    TENCENTCLOUD_SECRET_ID: "test-secret-id",
+    TENCENTCLOUD_SECRET_KEY: "test-secret-key",
+    TENCENT_SES_FROM_EMAIL: "no-reply@notify.beijingzhuguang.top",
+    TENCENT_SES_REGION: "ap-guangzhou",
+    TURNSTILE_SECRET_KEY: "test-turnstile-secret",
+  };
+  const nativeHeaders = {
+    "x-app-platform": "android",
+    "x-app-version-code": "16",
+    "x-device-id": deviceId,
+    "x-zhuguang-app-key": "test-app-key",
+  };
+
+  await assert.rejects(
+    () => requestEmailOtpD1(new Request("https://api.local/api/v1/auth/email/request"), { email: "learner@example.com" }, env),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "turnstile_required",
+  );
+  await assert.rejects(
+    () => requestEmailOtpD1(new Request("https://api.local/api/v1/auth/email/request", { headers: nativeHeaders }), { email: "learner@example.com" }, env),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "turnstile_required",
+  );
+
+  database.sqlite.prepare(`
+    INSERT INTO app_installations
+      (id, platform, app_version_code, app_version_name, status, last_seen_at, created_at, updated_at)
+    VALUES (?, 'android', 16, '1.3.1', 'active', ?, ?, ?)
+  `).run(deviceId, now, now, now);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ Response: { MessageId: "native-otp-message", RequestId: "native-otp-request" } });
+  try {
+    const result = await requestEmailOtpD1(
+      new Request("https://api.local/api/v1/auth/email/request", { headers: nativeHeaders }),
+      { email: "learner@example.com" },
+      env,
+    );
+    assert.equal(result.expiresIn, 300);
+    assert.equal(database.sqlite.prepare("SELECT status FROM email_deliveries LIMIT 1").get()?.status, "sent");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  database.sqlite.prepare("UPDATE app_installations SET status = 'revoked' WHERE id = ?").run(deviceId);
+  await assert.rejects(
+    () => requestEmailOtpD1(new Request("https://api.local/api/v1/auth/email/request", { headers: nativeHeaders }), { email: "second@example.com" }, env),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "turnstile_required",
+  );
+});
 
 function seedSupply(database: D1Adapter) {
   const now = Date.now();

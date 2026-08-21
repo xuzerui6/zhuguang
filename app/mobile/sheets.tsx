@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { removeTurnstileWidget } from "../_lib/turnstile";
 import { BEIJING_DISTRICTS, SPORT_OPTIONS } from "../../shared/coach-catalog";
 import { CoachAvatar, EmptyState, Sheet } from "./components";
+import { showNativeKeyboard } from "./device";
 import type { LearnerProfile, MatchPreferences, MobileCoach, MobileNotification, MobileSession } from "./types";
 
 export function FilterSheet({
@@ -102,6 +103,7 @@ export function AuthSheet({
   onClose,
   onRequestCode,
   onVerify,
+  nativeSecurity,
   showLocalCode,
   turnstileSiteKey,
   turnstileToken,
@@ -117,6 +119,7 @@ export function AuthSheet({
   onClose: () => void;
   onRequestCode: () => void;
   onVerify: () => void;
+  nativeSecurity: boolean;
   showLocalCode: boolean;
   turnstileSiteKey: string;
   turnstileToken: string;
@@ -124,7 +127,7 @@ export function AuthSheet({
   const turnstileHost = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (challengeSent || showLocalCode || !turnstileSiteKey) return;
+    if (challengeSent || nativeSecurity || showLocalCode || !turnstileSiteKey) return;
     let active = true;
     let widgetId = "";
     const mount = () => {
@@ -154,25 +157,25 @@ export function AuthSheet({
       removeTurnstileWidget(window.turnstile, widgetId || null);
       onChangeTurnstileToken("");
     };
-  }, [challengeSent, onChangeTurnstileToken, showLocalCode, turnstileSiteKey]);
+  }, [challengeSent, nativeSecurity, onChangeTurnstileToken, showLocalCode, turnstileSiteKey]);
 
   const emailReady = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email);
-  const securityReady = showLocalCode || Boolean(turnstileToken);
+  const securityReady = nativeSecurity || showLocalCode || Boolean(turnstileToken);
   return (
     <Sheet onClose={onClose} title="验证邮箱后继续">
       <div className="zg-auth-sheet">
         <span className="zg-auth-icon"><Mail aria-hidden size={29} /></span>
         <h3>用于同步收藏与预约进度</h3>
         <p>仅在提交预约和同步个人服务记录时需要登录，浏览教练无需注册。</p>
-        <label><span>邮箱地址</span><input autoCapitalize="none" autoComplete="email" inputMode="email" maxLength={254} onChange={(event) => onChangeEmail(event.target.value.trim())} placeholder="name@example.com" value={email} /></label>
-        {!challengeSent && !showLocalCode ? <div className="zg-turnstile-host" ref={turnstileHost} /> : null}
-        {challengeSent ? <label><span>验证码</span><input autoComplete="one-time-code" inputMode="numeric" maxLength={6} onChange={(event) => onChangeCode(event.target.value.replace(/\D/g, ""))} placeholder="请输入 6 位验证码" value={code} /></label> : null}
+        <label><span>邮箱地址</span><input autoCapitalize="none" autoComplete="email" inputMode="email" maxLength={254} onChange={(event) => onChangeEmail(event.target.value.trim())} onFocus={() => void showNativeKeyboard()} placeholder="name@example.com" value={email} /></label>
+        {!challengeSent && !nativeSecurity && !showLocalCode ? <div className="zg-turnstile-host" ref={turnstileHost} /> : null}
+        {challengeSent ? <label><span>验证码</span><input autoComplete="one-time-code" inputMode="numeric" maxLength={6} onChange={(event) => onChangeCode(event.target.value.replace(/\D/g, ""))} onFocus={() => void showNativeKeyboard()} placeholder="请输入 6 位验证码" value={code} /></label> : null}
         {error ? <p className="zg-auth-error">{error}</p> : null}
         <button className="zg-sheet-primary" disabled={loading || !emailReady || (!challengeSent && !securityReady) || (challengeSent && code.length !== 6)} onClick={challengeSent ? onVerify : onRequestCode} type="button">
           {loading ? "请稍候..." : challengeSent ? "验证并继续" : "获取验证码"}
         </button>
-        <small><LockKeyhole aria-hidden size={14} />邮箱经加密存储，不会向教练公开。{showLocalCode ? " 本地测试验证码为 888888。" : ""}</small>
-        {!showLocalCode && !turnstileSiteKey ? <p className="zg-auth-error">安全验证服务正在配置，暂时无法发送验证码。</p> : null}
+        <small><LockKeyhole aria-hidden size={14} />邮箱经加密存储，不会向教练公开。{nativeSecurity ? " 验证码请求受设备识别与频率限制保护。" : showLocalCode ? " 本地测试验证码为 888888。" : ""}</small>
+        {!nativeSecurity && !showLocalCode && !turnstileSiteKey ? <p className="zg-auth-error">安全验证服务正在配置，暂时无法发送验证码。</p> : null}
       </div>
     </Sheet>
   );

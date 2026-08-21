@@ -66,7 +66,7 @@ export function ProfileView({
       <section className="zg-profile-summary">
         <ProfileAvatar label={`${ownerName}头像`} />
         <div><h1>{ownerName}</h1><p>{ownerRole}</p></div>
-        <button onClick={() => onAction("privacy")} type="button"><VerifiedPhone masked={contactMasked} /></button>
+        <button onClick={() => onAction(contactMasked ? "privacy" : "authenticate")} type="button"><VerifiedPhone masked={contactMasked} /></button>
       </section>
 
       {coachSummary?.auditStatus === "approved" && onOpenCoachMode ? (

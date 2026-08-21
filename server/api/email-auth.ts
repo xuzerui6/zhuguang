@@ -16,6 +16,9 @@ import {
 
 type Row = Record<string, unknown>;
 const PRIMARY_OPERATOR_EMAIL = "xuzerui6@gmail.com";
+const NATIVE_OTP_MIN_VERSION_CODE = 16;
+const NATIVE_INSTALLATION_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
+const NATIVE_DEVICE_ID_PATTERN = /^device_[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 function database(env: ApiEnv) {
   if (!env.DB) throw new ApiError(503, "database_unavailable", "业务数据库暂时不可用");
@@ -30,14 +33,37 @@ function numberValue(value: unknown) {
   return typeof value === "number" ? value : Number(value ?? 0);
 }
 
+async function isRegisteredNativeOtpRequest(request: Request, env: ApiEnv, db: D1Database) {
+  const deviceId = request.headers.get("x-device-id")?.trim() ?? "";
+  const versionCode = Number(request.headers.get("x-app-version-code") ?? 0);
+  if (
+    request.headers.get("x-app-platform") !== "android"
+    || !NATIVE_DEVICE_ID_PATTERN.test(deviceId)
+    || !Number.isInteger(versionCode)
+    || versionCode < NATIVE_OTP_MIN_VERSION_CODE
+    || !env.PILOT_APP_KEY
+    || request.headers.get("x-zhuguang-app-key") !== env.PILOT_APP_KEY
+  ) return false;
+
+  const installation = await db.prepare(`
+    SELECT id FROM app_installations
+    WHERE id = ? AND platform = 'android' AND status = 'active'
+      AND app_version_code >= ? AND last_seen_at >= ?
+    LIMIT 1
+  `).bind(deviceId, NATIVE_OTP_MIN_VERSION_CODE, Date.now() - NATIVE_INSTALLATION_MAX_AGE_MS).first<Row>();
+  return Boolean(installation);
+}
+
 export async function requestEmailOtpD1(request: Request, input: { email: unknown; turnstileToken?: unknown }, env: ApiEnv) {
-  await verifyTurnstile(request, input.turnstileToken, env);
+  const db = database(env);
+  if (!await isRegisteredNativeOtpRequest(request, env, db)) {
+    await verifyTurnstile(request, input.turnstileToken, env);
+  }
   const email = normalizeEmail(input.email);
   const hashSecret = env.AUTH_HASH_SECRET ?? "";
   const emailHash = await keyedHash(email, hashSecret);
   const ipHash = await keyedHash(getClientIp(request), hashSecret);
   const deviceHash = await keyedHash(request.headers.get("x-device-id")?.slice(0, 160) || "unknown-device", hashSecret);
-  const db = database(env);
   const now = Date.now();
   const oneHourAgo = now - 60 * 60_000;
   const latest = await db.prepare(`

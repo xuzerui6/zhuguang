@@ -2224,7 +2224,7 @@
   max-height: min(84dvh, 760px);
   max-width: 430px;
   overflow-y: auto;
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
   position: absolute;
   transform: translateX(-50%);
   width: 100%;
@@ -2265,7 +2265,7 @@
 }
 
 .zg-sheet-body {
-  padding: 4px 18px 18px;
+  padding: 4px 18px 30px;
 }
 
 .zg-filter-sheet {
@@ -3104,7 +3104,7 @@
 .zg-slot-list article > div { align-items: center; color: #4a5751; display: flex; font-size: 12px; gap: 5px; }
 .zg-slot-list article > em { color: var(--zg-brand); font-size: 11px; font-style: normal; }
 .zg-coach-slot-backdrop { z-index: 80; }
-.zg-coach-slot-sheet { background: #fff; border-radius: 8px 8px 0 0; bottom: 0; display: grid; gap: 16px; left: 50%; max-height: 88dvh; max-width: 430px; overflow: auto; padding: 9px 18px calc(22px + env(safe-area-inset-bottom)); position: fixed; transform: translateX(-50%); width: 100%; }
+.zg-coach-slot-sheet { background: #fff; border-radius: 8px 8px 0 0; bottom: 0; display: grid; gap: 16px; left: 50%; max-height: 88dvh; max-width: 430px; overflow: auto; padding: 9px 18px max(34px, calc(22px + env(safe-area-inset-bottom))); position: fixed; scroll-padding-bottom: 82px; transform: translateX(-50%); width: 100%; }
 .zg-coach-slot-sheet > header { align-items: center; display: flex; justify-content: space-between; }
 .zg-coach-slot-sheet header small { color: var(--zg-brand); font-size: 11px; font-weight: 700; }
 .zg-coach-slot-sheet h2 { font-size: 21px; margin: 3px 0 0; }
@@ -3117,7 +3117,7 @@
 .zg-coach-slot-durations { align-items: center; display: flex; flex-wrap: wrap; gap: 7px; }
 .zg-coach-slot-durations > span { color: var(--zg-muted); font-size: 12px; margin-right: 3px; }
 .zg-coach-slot-durations button { background: #f1f5f3; border: 1px solid var(--zg-line); border-radius: 6px; min-height: 40px; padding: 0 10px; }
-.zg-coach-slot-submit { background: var(--zg-brand); border: 0; border-radius: 7px; color: #fff; min-height: 50px; font-weight: 700; }
+.zg-coach-slot-submit { background: var(--zg-brand); border: 0; border-radius: 7px; box-shadow: 0 8px 24px rgba(8, 44, 29, 0.2); color: #fff; font-weight: 700; min-height: 50px; }
 .zg-coach-conversation { align-items: center; background: #fff; border: 0; border-bottom: 1px solid var(--zg-line); color: var(--zg-ink); display: grid; gap: 10px; grid-template-columns: 44px minmax(0,1fr) auto auto 17px; min-height: 72px; padding: 10px 9px; text-align: left; width: 100%; }
 .zg-coach-conversation > span { align-items: center; background: #e9efec; border-radius: 50%; display: flex; font-weight: 700; height: 44px; justify-content: center; width: 44px; }
 .zg-coach-conversation div { min-width: 0; }

@@ -91,6 +91,7 @@ $cloudflare = Import-Clixml -LiteralPath $cloudflareConfigPath
 $operatorSecret = Read-SecureValue $cloudflare.OPERATOR_API_SECRET
 $pilotAppKey = Read-SecureValue $cloudflare.PILOT_APP_KEY
 $operatorHeaders = @{
+  'x-operator-actor' = 'xuzerui6@gmail.com'
   'x-operator-secret' = $operatorSecret
   'x-zhuguang-app-key' = $pilotAppKey
 }
@@ -99,6 +100,7 @@ try {
   Write-Host "[release] Uploading $VersionName (code $VersionCode) to private R2 storage"
   $uploadHeaders = @{
     'content-type' = 'application/vnd.android.package-archive'
+    'x-operator-actor' = 'xuzerui6@gmail.com'
     'x-operator-secret' = $operatorSecret
     'x-release-version-name' = $VersionName
     'x-zhuguang-app-key' = $pilotAppKey

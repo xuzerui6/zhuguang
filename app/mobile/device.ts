@@ -1,6 +1,7 @@
 import { App } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
+import { Keyboard } from "@capacitor/keyboard";
 import { Network } from "@capacitor/network";
 import { Preferences } from "@capacitor/preferences";
 import { SecureStorage } from "@aparajita/capacitor-secure-storage";
@@ -20,6 +21,15 @@ const UPDATE_DEFERRED_UNTIL_KEY = "zhuguang-update-deferred-until";
 
 export function isNativeMobile() {
   return Capacitor.isNativePlatform();
+}
+
+export async function showNativeKeyboard() {
+  if (!isNativeMobile()) return;
+  try {
+    await Keyboard.show();
+  } catch {
+    // The focused input remains usable when an OEM keyboard declines the request.
+  }
 }
 
 export async function readSession() {

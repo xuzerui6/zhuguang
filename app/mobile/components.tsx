@@ -280,13 +280,18 @@ export function TrustRow({ detail, title }: { detail: string; title: string }) {
 
 export function Sheet({ children, onClose, title }: { children: ReactNode; onClose: () => void; title: string }) {
   const panelRef = useRef<HTMLElement>(null);
+  const closeRef = useRef(onClose);
+
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const frame = window.requestAnimationFrame(() => panelRef.current?.querySelector<HTMLElement>("button, input, textarea, select")?.focus());
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") closeRef.current();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
@@ -294,7 +299,7 @@ export function Sheet({ children, onClose, title }: { children: ReactNode; onClo
       window.cancelAnimationFrame(frame);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div className="zg-sheet-layer">

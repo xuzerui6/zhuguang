@@ -2,6 +2,14 @@
   color: var(--zg-ink);
 }
 
+.directory[aria-busy="true"] .directoryBody {
+  opacity: .72;
+}
+
+.directoryBody {
+  transition: opacity var(--zg-motion-control) ease;
+}
+
 .standalone {
   background: var(--zg-canvas);
   min-height: calc(100vh - 72px);
@@ -236,8 +244,10 @@
   overflow: hidden;
   padding: 12px;
   position: relative;
-  transition: border-color 180ms ease, box-shadow 180ms ease;
+  transition: border-color var(--zg-motion-control) ease, box-shadow var(--zg-motion-control) ease, transform var(--zg-motion-instant) ease;
 }
+
+.coachResult:active { transform: scale(.995); }
 
 .coachResult:hover,
 .activeResult {
@@ -408,6 +418,12 @@
   overflow-y: auto;
   position: sticky;
   top: 90px;
+  animation: zg-inspector-enter var(--zg-motion-content) var(--zg-ease-emphasized) both;
+}
+
+@keyframes zg-inspector-enter {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 .embedded .inspector {

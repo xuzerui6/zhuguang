@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: "Microsoft YaHei"; src: local("Microsoft YaHei"); }
+      @font-face { font-family: "PingFang SC"; src: local("PingFang SC"); }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: #06130f; }
+      body { color: #ecfff2; font-family: "Microsoft YaHei", "PingFang SC", sans-serif; }
+      #root { height: 1080px; overflow: hidden; position: relative; width: 1920px; }
+      .scene { inset: 0; overflow: hidden; position: absolute; }
+      .scene::after { background: linear-gradient(90deg, rgba(2,12,8,.92), rgba(2,12,8,.55) 48%, rgba(2,12,8,.08)); content: ""; inset: 0; position: absolute; }
+      .cover { height: 100%; object-fit: cover; position: absolute; width: 100%; }
+      .content { inset: 0; padding: 116px 132px; position: absolute; z-index: 2; }
+      .eyebrow { color: #75d5a2; font-size: 27px; font-weight: 800; }
+      h1, h2 { letter-spacing: 0; line-height: 1.12; margin: 24px 0; }
+      h1 { font-size: 92px; max-width: 960px; }
+      h2 { font-size: 76px; max-width: 940px; }
+      .sub { color: rgba(236,255,242,.72); font-size: 31px; line-height: 1.7; max-width: 830px; }
+      .brand { align-items: center; bottom: 70px; display: flex; gap: 18px; position: absolute; z-index: 3; }
+      .brand img { border-radius: 16px; height: 64px; width: 64px; }
+      .brand strong { font-size: 30px; }
+      .coach-scene { background: #f6f8f7; color: #101815; }
+      .coach-scene::after, .ui-scene::after { display: none; }
+      .coach-grid { display: grid; gap: 26px; grid-template-columns: repeat(3, 1fr); margin-top: 52px; }
+      .coach { background: #fff; border: 1px solid #dfe5e1; height: 610px; overflow: hidden; position: relative; }
+      .coach img { height: 420px; object-fit: cover; object-position: center 18%; width: 100%; }
+      .coach div { padding: 25px 28px; }
+      .coach strong { display: block; font-size: 34px; }
+      .coach span { color: #087a46; display: block; font-size: 20px; margin-top: 12px; }
+      .coach-scene .eyebrow, .ui-scene .eyebrow { color: #087a46; }
+      .coach-scene h2, .ui-scene h2 { font-size: 65px; margin-top: 14px; }
+      .ui-scene { background: #edf5f1; color: #101815; }
+      .ui-frame { background: #fff; border: 1px solid #d8e1dc; border-radius: 24px; box-shadow: 0 38px 90px rgba(5,35,22,.14); display: grid; gap: 48px; grid-template-columns: 1fr 360px; height: 700px; margin-top: 40px; overflow: hidden; padding: 48px; }
+      .ui-frame img { border: 10px solid #17251f; border-radius: 38px; height: 600px; object-fit: cover; object-position: top; width: 322px; }
+      .steps { display: grid; gap: 26px; padding: 42px 0; }
+      .step { border-top: 1px solid #d9e2dd; display: grid; gap: 20px; grid-template-columns: 54px 1fr; padding-top: 25px; }
+      .step b { color: #087a46; font-size: 20px; }
+      .step strong { font-size: 30px; }
+      .step p { color: #66736d; font-size: 21px; line-height: 1.55; margin: 8px 0 0; }
+      .final-scene { background: #06130f; }
+      .final-line { background: #ff835c; height: 8px; left: 132px; position: absolute; top: 296px; width: 180px; }
+      .final-scene h2 { font-size: 96px; max-width: 1100px; }
+      .caption { bottom: 70px; color: rgba(236,255,242,.7); font-size: 25px; position: absolute; right: 132px; z-index: 3; }
+    </style>
+  </head>
+  <body>
+    <main id="root" data-composition-id="main" data-start="0" data-duration="24" data-width="1920" data-height="1080">
+      <section class="clip scene" data-start="0" data-duration="6" data-track-index="1" id="scene-goal">
+        <img class="cover" src="assets/hero.webp" alt="" />
+        <div class="content"><p class="eyebrow">先说清楚，你想练什么</p><h1>专业训练，从真实目标开始</h1><p class="sub">项目、区域、时间和训练目标进入同一份需求档案。</p><div class="brand"><img src="assets/icon.png" alt="" /><strong>逐光运动教练服务平台</strong></div></div>
+      </section>
+      <section class="clip scene coach-scene" data-start="6" data-duration="6" data-track-index="1" id="scene-coaches">
+        <div class="content"><p class="eyebrow">真实教练档案</p><h2>看经历，也看服务是否适合</h2><div class="coach-grid"><article class="coach"><img src="assets/coach-xu.webp" alt="" /><div><strong>徐泽瑞</strong><span>田径 · 通州区</span></div></article><article class="coach"><img src="assets/coach-zhang.webp" alt="" /><div><strong>张展祁</strong><span>田赛专项 · 通州区</span></div></article><article class="coach"><img src="assets/coach-hao.webp" alt="" /><div><strong>郝健壮</strong><span>田径专项 · 通州区</span></div></article></div></div>
+      </section>
+      <section class="clip scene ui-scene" data-start="12" data-duration="6" data-track-index="1" id="scene-service">
+        <div class="content"><p class="eyebrow">服务状态清楚可见</p><div class="ui-frame"><div><h2>从咨询到确认，每一步都有记录</h2><div class="steps"><div class="step"><b>01</b><div><strong>沟通训练需求</strong><p>不制造虚假时段，先确认目标和场地。</p></div></div><div class="step"><b>02</b><div><strong>教练确认后生效</strong><p>课程信息和费用快照保持清晰。</p></div></div></div></div><img src="assets/app.webp" alt="" /></div></div>
+      </section>
+      <section class="clip scene final-scene" data-start="18" data-duration="6" data-track-index="1" id="scene-record">
+        <div class="content"><p class="eyebrow">训练不是一次交易</p><div class="final-line"></div><h2>把每一次训练，变成持续可见的进步</h2><p class="sub">教练、预约、沟通与训练记录，都在逐光。</p><div class="brand"><img src="assets/icon.png" alt="" /><strong>逐光</strong></div></div><span class="caption">beijingzhuguang.top</span>
+      </section>
+    </main>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#scene-goal .cover", { scale: 1.04 }, { scale: 1, duration: 5.7, ease: "power1.out" }, 0)
+        .from("#scene-goal .eyebrow, #scene-goal h1, #scene-goal .sub", { opacity: 0, y: 34, duration: .7, stagger: .12, ease: "power3.out" }, .15)
+        .from("#scene-coaches h2, #scene-coaches .eyebrow", { opacity: 0, y: 28, duration: .65, stagger: .1, ease: "power3.out" }, 6.12)
+        .from("#scene-coaches .coach", { opacity: 0, y: 34, duration: .65, stagger: .12, ease: "power3.out" }, 6.55)
+        .from("#scene-service .ui-frame", { opacity: 0, y: 34, scale: .985, duration: .8, ease: "power3.out" }, 12.18)
+        .from("#scene-service .step", { opacity: 0, x: 24, duration: .55, stagger: .16, ease: "power3.out" }, 12.75)
+        .from("#scene-record .eyebrow, #scene-record h2, #scene-record .sub", { opacity: 0, y: 34, duration: .72, stagger: .13, ease: "power3.out" }, 18.2)
+        .from("#scene-record .final-line", { scaleX: 0, transformOrigin: "left", duration: .75, ease: "power3.out" }, 18.55);
+      window.__timelines.main = tl;
+    </script>
+  </body>
+</html>

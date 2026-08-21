@@ -1,5 +1,6 @@
 .header {
   background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: saturate(150%) blur(14px);
   border-bottom: 1px solid rgba(213, 220, 216, 0.86);
   height: 72px;
   position: sticky;
@@ -101,6 +102,7 @@
   object-fit: cover;
   object-position: center;
   width: 100%;
+  animation: zg-hero-settle 1100ms var(--zg-ease-emphasized) both;
 }
 
 .heroInner {
@@ -116,6 +118,15 @@
 .heroCopy {
   max-width: 610px;
 }
+
+.heroCopy > * {
+  animation: zg-hero-copy 520ms var(--zg-ease-emphasized) both;
+}
+
+.heroCopy > :nth-child(2) { animation-delay: 70ms; }
+.heroCopy > :nth-child(3) { animation-delay: 140ms; }
+.heroCopy > :nth-child(4) { animation-delay: 210ms; }
+.heroCopy > :nth-child(5) { animation-delay: 280ms; }
 
 .heroKicker {
   color: #81d6aa !important;
@@ -145,24 +156,30 @@
   gap: 10px;
 }
 
-.heroActions a {
+.heroActions :is(a, button) {
   align-items: center;
   border-radius: 6px;
+  cursor: pointer;
   display: inline-flex;
   font-size: 14px;
+  font-family: inherit;
   font-weight: 700;
   gap: 8px;
   justify-content: center;
   min-height: 48px;
   padding: 0 20px;
+  transition: background var(--zg-motion-control) ease, border-color var(--zg-motion-control) ease, transform var(--zg-motion-control) var(--zg-ease-standard);
 }
 
-.heroActions a:first-child {
+.heroActions :is(a, button):hover { transform: translateY(-2px); }
+.heroActions :is(a, button):active { transform: translateY(0) scale(.985); }
+
+.heroActions :is(a, button):first-child {
   background: #07150f;
   color: #fff;
 }
 
-.heroActions a:last-child {
+.heroActions :is(a, button):last-child {
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.32);
   color: #fff;
@@ -211,6 +228,12 @@
   display: grid;
   grid-template-columns: 0.8fr 1fr 1.2fr auto;
   overflow: hidden;
+  transition: border-color var(--zg-motion-control) ease, box-shadow var(--zg-motion-control) ease;
+}
+
+.searchPanel:focus-within {
+  border-color: #68a989;
+  box-shadow: 0 0 0 3px rgba(8, 122, 70, .1);
 }
 
 .searchPanel label {
@@ -251,7 +274,11 @@
   justify-content: center;
   min-width: 160px;
   padding: 0 18px;
+  transition: background var(--zg-motion-control) ease, transform var(--zg-motion-instant) ease;
 }
+
+.searchPanel button:hover { background: var(--zg-brand-strong); }
+.searchPanel button:active { transform: scale(.985); }
 
 .spotlightSection,
 .plansSection {
@@ -289,12 +316,23 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.coachCarouselProgress {
+  display: none;
+}
+
 .spotlightCard {
   background: #fff;
   border: 1px solid var(--zg-line-strong);
   display: flex;
   flex-direction: column;
   min-width: 0;
+  transition: border-color var(--zg-motion-control) ease, box-shadow var(--zg-motion-content) ease, transform var(--zg-motion-content) var(--zg-ease-standard);
+}
+
+.spotlightCard:hover {
+  border-color: #aebdb5;
+  box-shadow: 0 18px 42px rgba(10, 31, 22, .08);
+  transform: translateY(-3px);
 }
 
 .spotlightCardMedia {
@@ -1011,6 +1049,117 @@
 .spin { animation: zg-download-spin 900ms linear infinite; }
 @keyframes zg-download-spin { to { transform: rotate(360deg); } }
 
+.filmSection {
+  margin: 0 auto;
+  padding: 16px 0 104px;
+  scroll-margin-top: 90px;
+  width: var(--zg-page);
+}
+
+.filmHeading {
+  align-items: end;
+  display: grid;
+  gap: 70px;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 440px);
+  margin-bottom: 34px;
+}
+
+.filmHeading > p {
+  color: var(--zg-muted);
+  font-size: 14px;
+  line-height: 1.8;
+  margin: 0;
+}
+
+.filmPlayer {
+  aspect-ratio: 16 / 9;
+  background: #07110d;
+  border-radius: 8px;
+  box-shadow: 0 26px 70px rgba(8, 28, 19, .16);
+  overflow: hidden;
+  position: relative;
+}
+
+.filmVideo {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.filmShade {
+  background: linear-gradient(180deg, transparent 55%, rgba(3, 12, 8, .82));
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.filmControls {
+  align-items: center;
+  bottom: 0;
+  color: #fff;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 52px minmax(0, 1fr) 52px;
+  left: 0;
+  padding: 28px;
+  position: absolute;
+  right: 0;
+}
+
+.filmControls button {
+  align-items: center;
+  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, .12);
+  border: 1px solid rgba(255, 255, 255, .3);
+  border-radius: 50%;
+  color: #fff;
+  display: inline-flex;
+  height: 48px;
+  justify-content: center;
+  transition: background var(--zg-motion-control) ease, transform var(--zg-motion-instant) ease;
+  width: 48px;
+}
+
+.filmControls button:hover { background: rgba(255, 255, 255, .22); transform: scale(1.04); }
+.filmControls button:active { transform: scale(.96); }
+.filmControls > div { display: grid; gap: 4px; }
+.filmControls strong { font-size: 16px; }
+.filmControls span { color: rgba(239, 247, 243, .74); font-size: 12px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  :global(.zg-motion-ready) [data-motion] {
+    opacity: 0;
+    transform: translateY(18px);
+    transition: opacity var(--zg-motion-story) var(--zg-ease-emphasized), transform var(--zg-motion-story) var(--zg-ease-emphasized);
+  }
+
+  :global(.zg-motion-ready) [data-motion="card"] { transform: translateY(14px); }
+  :global(.zg-motion-ready) [data-motion="process"] { transform: translateX(16px); }
+  :global(.zg-motion-ready) [data-motion-state="visible"] { opacity: 1; transform: none; }
+  :global(.zg-motion-ready) .spotlightCard[data-motion-state="visible"]:hover { transform: translateY(-3px); }
+  :global(.zg-motion-ready) [data-motion="card"]:nth-child(2),
+  :global(.zg-motion-ready) [data-motion="process"]:nth-child(2) { transition-delay: 70ms; }
+  :global(.zg-motion-ready) [data-motion="card"]:nth-child(3),
+  :global(.zg-motion-ready) [data-motion="process"]:nth-child(3) { transition-delay: 140ms; }
+  :global(.zg-motion-ready) [data-motion="process"]:nth-child(4) { transition-delay: 210ms; }
+}
+
+@keyframes zg-hero-copy {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes zg-hero-settle {
+  from { opacity: .82; transform: scale(1.018); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes zg-menu-in {
+  from { opacity: 0; transform: translateY(-6px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 @media (max-width: 1024px) {
   .downloadCompact { gap: 42px; grid-template-columns: 1fr 280px; }
   .downloadProduct { grid-template-columns: 1fr 230px; }
@@ -1097,6 +1246,7 @@
     position: absolute;
     right: 0;
     top: 48px;
+    animation: zg-menu-in var(--zg-motion-control) var(--zg-ease-emphasized) both;
   }
 
   .mobileMenu nav a {
@@ -1147,6 +1297,12 @@
 
   .processSection {
     gap: 46px;
+    grid-template-columns: 1fr;
+  }
+
+  .filmHeading {
+    align-items: start;
+    gap: 14px;
     grid-template-columns: 1fr;
   }
 
@@ -1274,6 +1430,19 @@
     scrollbar-width: none;
   }
 
+  .coachCarouselProgress {
+    align-items: center;
+    color: var(--zg-muted);
+    display: flex;
+    font-size: 11px;
+    justify-content: space-between;
+    margin-top: 13px;
+  }
+
+  .coachCarouselProgress > div { display: flex; gap: 5px; }
+  .coachCarouselProgress i { background: #cdd7d1; border-radius: 999px; height: 4px; transition: background 180ms ease, width 180ms ease; width: 12px; }
+  .coachCarouselProgress .activeDot { background: var(--zg-brand); width: 26px; }
+
   .coachSpotlightGrid::-webkit-scrollbar {
     display: none;
   }
@@ -1318,6 +1487,15 @@
   .processSection {
     padding-block: 60px;
   }
+
+  .filmSection { padding: 0 0 72px; }
+  .filmHeading { margin-bottom: 22px; }
+  .filmHeading > p { font-size: 13px; }
+  .filmPlayer { aspect-ratio: 16 / 9; border-radius: 6px; margin-inline: calc((100vw - var(--zg-page)) / -2); }
+  .filmControls { gap: 10px; grid-template-columns: 46px 1fr 46px; padding: 18px; }
+  .filmControls button { height: 44px; width: 44px; }
+  .filmControls strong { font-size: 14px; }
+  .filmControls span { font-size: 10px; }
 
   .trustMedia {
     min-height: 320px;
@@ -1393,6 +1571,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .heroMedia img,
+  .heroCopy > * {
+    animation: none;
+  }
   .spotlightCardMedia img,
   .spotlightMedia img,
   .enterButton,

@@ -150,7 +150,7 @@ export function CoachDirectory({ embedded = false, initialCoaches = fallbackCoac
           {results.map((coach) => <CoachResult active={selected?.id === coach.id} coach={coach} favorite={favorites.includes(coach.id)} key={coach.id} onFavorite={() => toggleFavorite(coach.id)} onSelect={() => updateQuery({ coach: String(coach.id) })} />)}
           {!results.length ? <div className={styles.emptyState}><Search aria-hidden size={28} /><strong>没有符合全部条件的教练</strong><p>减少一个筛选条件，或查看当前全部试点教练。</p><button onClick={resetFilters} type="button">查看全部教练</button></div> : null}
         </div>
-        {selected ? <CoachInspector coach={selected} embedded={embedded} /> : null}
+        {selected ? <CoachInspector coach={selected} embedded={embedded} key={selected.id} /> : null}
       </div>
     </section>
   );

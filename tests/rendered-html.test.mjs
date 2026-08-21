@@ -43,6 +43,22 @@ test("server-renders a service-first homepage without prototype claims", async (
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
 });
 
+test("product film stays lazy, muted-first and isolated from the website bundle", async () => {
+  const response = await render();
+  const html = await response.text();
+  const manifest = await read("app/_lib/product-film.ts");
+  const packageJson = await read("package.json");
+
+  assert.match(html, /从选择教练，到看见每一次进步/);
+  assert.match(html, /zhuguang-product-film-poster\.webp/);
+  assert.match(html, /zhuguang-product-film\.webm/);
+  assert.match(html, /zhuguang-product-film\.mp4/);
+  assert.match(html, /preload="metadata"/);
+  assert.doesNotMatch(html, /autoplay=""|autoplay="true"/i);
+  assert.ok(manifest.indexOf("video/webm") < manifest.indexOf("video/mp4"));
+  assert.doesNotMatch(packageJson, /@remotion|hyperframes/);
+});
+
 test("production login always renders the public Turnstile integration", async () => {
   const response = await render("/login");
   assert.equal(response.status, 200);

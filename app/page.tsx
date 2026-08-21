@@ -5,6 +5,7 @@ import {
   Check,
   ClipboardCheck,
   MapPin,
+  PlayCircle,
   Search,
   ShieldCheck,
   UsersRound,
@@ -15,7 +16,12 @@ import { PublicFooter } from "./_components/public-footer";
 import { PublicHeader } from "./_components/public-header";
 import { AppDownloadClient } from "./_components/app-download-client";
 import { ServiceLeadForm } from "./_components/service-lead-form";
+import { CoachSpotlightCarousel } from "./_components/coach-spotlight-carousel";
+import { MotionCoordinator } from "./_components/motion-coordinator";
+import { ProductFilm } from "./_components/product-film";
+import { ProductFilmLink } from "./_components/product-film-link";
 import styles from "./_components/public-site.module.css";
+import { productFilm } from "./_lib/product-film";
 import { loadPublicCoaches } from "./_lib/web-platform";
 
 export default async function HomePage() {
@@ -25,6 +31,7 @@ export default async function HomePage() {
     <>
       <PublicHeader />
       <main>
+        <MotionCoordinator />
         <section className={styles.hero}>
           <picture className={styles.heroMedia}>
             <source srcSet="/images/hero-athletics-v2.avif" type="image/avif" />
@@ -38,7 +45,7 @@ export default async function HomePage() {
               <p>认真核验教练资料，把选择、沟通、预约和训练记录放进同一条清晰的服务流程。</p>
               <div className={styles.heroActions}>
                 <Link href="/coaches">寻找教练 <ArrowRight aria-hidden size={18} /></Link>
-                <Link href="/service-guarantee">了解服务保障</Link>
+                <ProductFilmLink>看看逐光如何工作 <PlayCircle aria-hidden size={18} /></ProductFilmLink>
               </div>
               <div className={styles.heroTrust} aria-label="平台服务原则">
                 <span><BadgeCheck aria-hidden size={18} />人工核验</span>
@@ -49,7 +56,7 @@ export default async function HomePage() {
           </div>
         </section>
 
-        <section className={styles.discoveryBand} aria-labelledby="find-title">
+        <section className={styles.discoveryBand} aria-labelledby="find-title" data-motion>
           <div>
             <p className="zg-eyebrow">从真实需求出发</p>
             <h2 id="find-title">先说明你要练什么</h2>
@@ -62,14 +69,14 @@ export default async function HomePage() {
           </form>
         </section>
 
-        <section className={styles.spotlightSection}>
+        <section className={styles.spotlightSection} data-motion>
           <div className={styles.spotlightHeading}>
             <div><p className="zg-eyebrow">北京试点教练</p><h2 className="zg-section-title">资料真实，比数字热闹更重要</h2></div>
             <p>平台只展示已经提供并可核验的信息。没有评价、课量或排期时，会如实说明。</p>
           </div>
-          <div className={styles.coachSpotlightGrid}>
+          <CoachSpotlightCarousel count={featuredCoaches.length}>
             {featuredCoaches.map((coach) => (
-              <article className={styles.spotlightCard} key={coach.id}>
+              <article className={styles.spotlightCard} data-motion="card" key={coach.id}>
                 <Link className={styles.spotlightCardMedia} href={`/coaches/${coach.id}`}>
                   <Image alt={`${coach.name}教练`} fill sizes="(max-width: 760px) 82vw, (max-width: 1100px) 46vw, 31vw" src={coach.media.cardUrl || coach.image} unoptimized />
                   <span><BadgeCheck aria-hidden size={15} />{coach.verificationLabel}</span>
@@ -90,23 +97,31 @@ export default async function HomePage() {
                 </div>
               </article>
             ))}
-          </div>
+          </CoachSpotlightCarousel>
         </section>
 
-        <section className={styles.processSection}>
+        <section className={styles.filmSection} data-motion id="product-film">
+          <div className={styles.filmHeading}>
+            <div><p className="zg-eyebrow">逐光如何工作</p><h2 className="zg-section-title">从选择教练，到看见每一次进步</h2></div>
+            <p>把真实需求、教练档案、服务确认和训练记录连在一起。不是一段广告，而是逐光正在使用的服务方式。</p>
+          </div>
+          <ProductFilm manifest={productFilm} />
+        </section>
+
+        <section className={styles.processSection} data-motion>
           <div className={styles.processIntro}>
             <p className="zg-eyebrow">服务流程</p>
             <h2 className="zg-section-title">每一步有状态，<br />每个决定有依据</h2>
           </div>
           <ol className={styles.processList}>
-            <li><span>01</span><div><strong>明确训练需求</strong><p>项目、区域、时间、预算和训练目标进入同一份需求档案。</p></div></li>
-            <li><span>02</span><div><strong>比较教练档案</strong><p>查看经历、服务对象、训练方向、价格和真实排期。</p></div></li>
-            <li><span>03</span><div><strong>提交服务申请</strong><p>教练确认后预约生效，首版采用线下支付。</p></div></li>
-            <li><span>04</span><div><strong>沉淀训练记录</strong><p>课程状态、沟通与训练记录留在账号中持续可查。</p></div></li>
+            <li data-motion="process"><span>01</span><div><strong>明确训练需求</strong><p>项目、区域、时间、预算和训练目标进入同一份需求档案。</p></div></li>
+            <li data-motion="process"><span>02</span><div><strong>比较教练档案</strong><p>查看经历、服务对象、训练方向、价格和真实排期。</p></div></li>
+            <li data-motion="process"><span>03</span><div><strong>提交服务申请</strong><p>教练确认后预约生效，首版采用线下支付。</p></div></li>
+            <li data-motion="process"><span>04</span><div><strong>沉淀训练记录</strong><p>课程状态、沟通与训练记录留在账号中持续可查。</p></div></li>
           </ol>
         </section>
 
-        <section className={styles.trustSection}>
+        <section className={styles.trustSection} data-motion>
           <div className={styles.trustMedia}><Image alt="专业教练在球场指导训练" fill sizes="(max-width: 820px) 100vw, 50vw" src="/coach-visual-v23.webp" unoptimized /></div>
           <div className={styles.trustCopy}>
             <p className="zg-eyebrow">服务保障</p>
@@ -121,7 +136,7 @@ export default async function HomePage() {
           </div>
         </section>
 
-        <section className={styles.plansSection} id="training-plans">
+        <section className={styles.plansSection} data-motion id="training-plans">
           <div className={styles.sectionHeading}>
             <div><p className="zg-eyebrow">训练方案</p><h2 className="zg-section-title">目标不同，路径也应该不同</h2></div>
             <Link href="/coaches">按目标筛选教练 <ArrowRight aria-hidden size={17} /></Link>
@@ -134,16 +149,16 @@ export default async function HomePage() {
           </div>
         </section>
 
-        <section className={styles.downloadBand} id="app-download" aria-label="下载逐光 Android App">
+        <section className={styles.downloadBand} data-motion id="app-download" aria-label="下载逐光 Android App">
           <AppDownloadClient compact />
         </section>
 
-        <section className={styles.cooperationSection}>
+        <section className={styles.cooperationSection} data-motion>
           <div><p className="zg-eyebrow">教练合作</p><h2>让真实的运动经历，转化为长期的专业服务</h2><p>逐光当前采用人工邀请与审核，不开放自助注册。审核通过的教练可用同一账号进入独立工作台。</p></div>
           <Link href="/coach-partnership">了解合作方式 <ArrowRight aria-hidden size={18} /></Link>
         </section>
 
-        <section className={styles.inquirySection} id="service-inquiry">
+        <section className={styles.inquirySection} data-motion id="service-inquiry">
           <div>
             <p className="zg-eyebrow">训练咨询</p>
             <h2>把需求说清楚，再决定是否预约</h2>

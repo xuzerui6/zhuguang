@@ -75,7 +75,7 @@
 }
 
 .studentMain {
-  animation: zg-enter 190ms ease both;
+  animation: zg-enter var(--zg-motion-content) var(--zg-ease-standard) both;
   min-height: calc(100vh - 72px);
 }
 
@@ -270,7 +270,7 @@
 }
 
 .workspaceMain {
-  animation: zg-enter 190ms ease both;
+  animation: zg-enter var(--zg-motion-content) var(--zg-ease-standard) both;
   min-height: calc(100vh - 72px);
   padding: 24px 28px 40px;
 }
@@ -345,6 +345,12 @@
   position: absolute;
   right: 0;
   top: calc(100% + 7px);
+  animation: zg-account-menu-in var(--zg-motion-control) var(--zg-ease-emphasized) both;
+}
+
+@keyframes zg-account-menu-in {
+  from { opacity: 0; transform: translateY(-5px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .accountMenu > div p {
@@ -401,7 +407,7 @@
     box-shadow: 20px 0 60px rgba(0, 0, 0, 0.22);
     position: fixed;
     transform: translateX(-105%);
-    transition: transform 190ms ease;
+    transition: transform var(--zg-motion-content) var(--zg-ease-standard);
     width: min(280px, 86vw);
   }
 
@@ -431,7 +437,10 @@
     inset: 0;
     position: fixed;
     z-index: 65;
+    animation: zg-scrim-in var(--zg-motion-control) ease both;
   }
+
+  @keyframes zg-scrim-in { from { opacity: 0; } to { opacity: 1; } }
 
   .workspaceTopbar {
     gap: 10px;

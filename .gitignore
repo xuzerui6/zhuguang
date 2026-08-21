@@ -2,6 +2,10 @@
 
 # dependencies
 /node_modules
+media/**/node_modules/
+media/**/out/
+media/**/AGENTS.md
+media/**/CLAUDE.md
 /.pnp
 .pnp.*
 .yarn/*

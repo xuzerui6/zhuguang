@@ -1,4 +1,10 @@
 :root {
+  --zg-motion-instant: 120ms;
+  --zg-motion-control: 180ms;
+  --zg-motion-content: 240ms;
+  --zg-motion-story: 440ms;
+  --zg-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --zg-ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
   --zg-brand: #087a46;
   --zg-brand-strong: #056238;
   --zg-brand-soft: #eaf7f0;

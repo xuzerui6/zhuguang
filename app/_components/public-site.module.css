@@ -867,6 +867,17 @@
   grid-column: 1 / -1;
 }
 
+:global(.zg-service-lead-form > .zg-service-lead-context) {
+  align-items: center;
+  background: var(--zg-brand-soft);
+  border: 1px solid rgba(27, 112, 72, 0.18);
+  border-radius: 6px;
+  color: var(--zg-brand-strong);
+  display: flex;
+  gap: 7px;
+  padding: 10px 12px;
+}
+
 :global(.zg-service-lead-form .zg-service-turnstile) {
   min-height: 2px;
 }
@@ -1222,17 +1233,15 @@
     position: relative;
   }
 
-  .mobileMenu summary {
+  .mobileMenu > button {
     align-items: center;
+    background: transparent;
+    border: 0;
+    color: var(--zg-ink);
     display: flex;
     height: 44px;
     justify-content: center;
-    list-style: none;
     width: 44px;
-  }
-
-  .mobileMenu summary::-webkit-details-marker {
-    display: none;
   }
 
   .mobileMenu nav {

@@ -1,4 +1,5 @@
 import { canTransitionBooking } from "../../app/mobile/domain";
+import { matchesAudience, matchesTrainingGoal } from "../../shared/coach-catalog";
 import { validateScheduleDraft } from "../../shared/scheduling";
 import type {
   AccountMode,
@@ -591,7 +592,11 @@ export async function listCoachesD1(env: ApiEnv, filters: URLSearchParams) {
     (SELECT count(*) FROM availability_slots slots WHERE slots.coach_id = coaches.id AND slots.status = 'open' AND slots.starts_at > unixepoch() * 1000) AS open_slot_count
     FROM coaches WHERE ${clauses.join(" AND ")} ORDER BY CASE profile_kind WHEN 'real' THEN 0 ELSE 1 END, rating_basis_points DESC, lessons DESC, id ASC LIMIT 100`;
   const result = await db(env).prepare(query).bind(...values).all<Row>();
-  return (result.results ?? []).map((row) => mapCoach(row, env));
+  const goal = filters.get("goal") ?? "";
+  const audience = filters.get("audience") ?? "";
+  return (result.results ?? []).map((row) => mapCoach(row, env)).filter((coach) =>
+    (!goal || matchesTrainingGoal([...coach.goals, ...coach.strengths], goal))
+    && (!audience || matchesAudience(coach.audience, audience)));
 }
 
 export async function getCoachD1(coachId: number, env: ApiEnv) {

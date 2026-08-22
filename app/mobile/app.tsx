@@ -106,6 +106,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
   const [conversations, setConversations] = useState<MobileConversation[]>(() => demoMode ? createDemoConversations() : []);
   const [selectedConversation, setSelectedConversation] = useState<MobileConversation | null>(null);
   const [messageDraft, setMessageDraft] = useState("");
+  const [messageSending, setMessageSending] = useState(false);
   const [sheet, setSheet] = useState<SheetName>(null);
   const [cancelTarget, setCancelTarget] = useState<MobileBooking | null>(null);
   const [session, setSession] = useState<MobileSession | null>(null);
@@ -116,6 +117,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [pendingBooking, setPendingBooking] = useState(false);
+  const [pendingConversationCoachId, setPendingConversationCoachId] = useState<number | null>(null);
   const [online, setOnline] = useState(true);
   const [feedback, setFeedback] = useState("");
   const [apiConnected, setApiConnected] = useState(false);
@@ -153,8 +155,8 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       setCoaches(bootstrap.coaches);
       if (bootstrap.learnerProfiles.length) setLearner(bootstrap.learnerProfiles[0]);
       if (!demoMode || remoteNotifications.length) setNotifications(remoteNotifications);
-      if (bootstrap.bookings.length) setBookings(bootstrap.bookings);
-      if (bootstrap.conversations.length) setConversations(bootstrap.conversations);
+      setBookings(bootstrap.bookings);
+      setConversations(bootstrap.conversations);
       if (bootstrap.favoriteCoachIds.length) {
         setSavedCoachIds((current) => mergeFavoriteIds(current, bootstrap.favoriteCoachIds));
       }
@@ -420,80 +422,93 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       setSheet(null);
       showFeedback("邮箱验证成功");
       if (pendingBooking) window.setTimeout(() => void performBooking(), 120);
+      if (pendingConversationCoachId) {
+        const coachId = pendingConversationCoachId;
+        setPendingConversationCoachId(null);
+        window.setTimeout(() => {
+          void mobileApi.createConversation(coachId).then((conversation) => {
+            setConversations((current) => [conversation, ...current.filter((item) => item.coachId !== coachId)]);
+            setSelectedConversation(conversation);
+            setActiveTab("messages");
+            setView("messages");
+            queueScroll(0);
+          }).catch((reason) => showFeedback(reason instanceof Error ? reason.message : "暂时无法开始咨询"));
+        }, 120);
+      }
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "验证码无效，请重新输入");
     } finally {
       setAuthLoading(false);
     }
-  }, [challengeId, email, onSessionChange, otpCode, pendingBooking, performBooking, savedCoachIds, showFeedback]);
+  }, [challengeId, email, onSessionChange, otpCode, pendingBooking, pendingConversationCoachId, performBooking, queueScroll, savedCoachIds, showFeedback]);
 
   const openConversationForCoach = useCallback((coachId: number) => {
+    if (!session) {
+      setPendingConversationCoachId(coachId);
+      setSheet("auth");
+      showFeedback("验证邮箱后即可咨询教练");
+      return;
+    }
     const existing = conversations.find((conversation) => conversation.coachId === coachId);
     if (existing) {
       const updated = { ...existing, unreadCount: 0, messages: existing.messages.map((message) => ({ ...message, read: true })) };
       setConversations((current) => current.map((item) => item.id === updated.id ? updated : item));
       setSelectedConversation(updated);
     } else {
-      const coach = coaches.find((item) => item.id === coachId) ?? selectedCoach;
-      const created: MobileConversation = {
-        id: createRequestId("conversation"),
-        coachId,
-        kind: "coach",
-        messages: [],
-        subtitle: "开始咨询训练目标与可约时间",
-        title: `${coach.name}教练`,
-        unreadCount: 0,
-        updatedAt: "现在",
-      };
-      setConversations((current) => [created, ...current]);
-      setSelectedConversation(created);
-      if (session && online) {
-        void mobileApi.createConversation(coachId).then((remote) => {
-          setSelectedConversation(remote);
-          setConversations((current) => [remote, ...current.filter((item) => item.coachId !== coachId)]);
-        }).catch(() => undefined);
+      if (!online) {
+        showFeedback("当前离线，联网后即可开始新咨询");
+        return;
       }
+      void mobileApi.createConversation(coachId).then((remote) => {
+        setSelectedConversation(remote);
+        setConversations((current) => [remote, ...current.filter((item) => item.coachId !== coachId)]);
+        setActiveTab("messages");
+        setView("messages");
+        queueScroll(0);
+      }).catch((reason) => showFeedback(reason instanceof Error ? reason.message : "暂时无法开始咨询"));
+      return;
     }
     setActiveTab("messages");
     setView("messages");
     queueScroll(0);
-  }, [coaches, conversations, online, queueScroll, selectedCoach, session]);
+  }, [conversations, online, queueScroll, session, showFeedback]);
 
-  const sendMessage = useCallback(() => {
-    if (!selectedConversation || !messageDraft.trim()) return;
+  const sendMessage = useCallback(async () => {
+    if (!selectedConversation || !messageDraft.trim() || messageSending) return;
     const body = messageDraft.trim();
-    const message = {
-      body,
-      conversationId: selectedConversation.id,
-      createdAt: "刚刚",
-      id: createRequestId("message"),
-      read: true,
-      sender: "student" as const,
-    };
-    const updated = { ...selectedConversation, messages: [...selectedConversation.messages, message], subtitle: body, updatedAt: "刚刚" };
-    setSelectedConversation(updated);
-    setConversations((current) => current.map((item) => item.id === updated.id ? updated : item));
-    setMessageDraft("");
-    void mobileApi.sendMessage(updated.id, body).catch(() => undefined);
-  }, [messageDraft, selectedConversation]);
+    setMessageSending(true);
+    try {
+      const updated = await mobileApi.sendMessage(selectedConversation.id, body);
+      setSelectedConversation(updated);
+      setConversations((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setMessageDraft("");
+    } catch (reason) {
+      showFeedback(reason instanceof Error ? reason.message : "消息发送失败，请重试");
+    } finally {
+      setMessageSending(false);
+    }
+  }, [messageDraft, messageSending, selectedConversation, showFeedback]);
 
   const confirmCancel = useCallback(async () => {
     if (!cancelTarget) return;
     try {
-      if (!cancelTarget.id.startsWith("booking_")) await mobileApi.cancelBooking(cancelTarget.id);
-    } catch {
-      // The local state still records the user's intent while private API access is unavailable.
+      const cancelled = demoMode && cancelTarget.id.startsWith("booking_")
+        ? { ...cancelTarget, status: "cancelled_by_student" as const }
+        : await mobileApi.cancelBooking(cancelTarget.id);
+      setBookings((current) => current.map((booking) => booking.id === cancelled.id ? cancelled : booking));
+      setCancelTarget(null);
+      setSheet(null);
+      showFeedback("预约已取消");
+    } catch (reason) {
+      showFeedback(reason instanceof Error ? reason.message : "取消失败，请稍后重试");
     }
-    setBookings((current) => current.map((booking) => booking.id === cancelTarget.id ? { ...booking, status: "cancelled_by_student" } : booking));
-    setCancelTarget(null);
-    setSheet(null);
-    showFeedback("预约已取消");
-  }, [cancelTarget, showFeedback]);
+  }, [cancelTarget, demoMode, showFeedback]);
 
   const profileAction = useCallback((action: string) => {
     if (action === "bookings") navigateTab("bookings");
     else if (action === "favorites") setSheet("favorites");
-    else if (action === "learners" || action === "records") setSheet("learner");
+    else if (action === "learners") setSheet("learner");
+    else if (action === "records") { navigateTab("bookings"); setBookingTab("completed"); }
     else if (action === "authenticate") setSheet("auth");
     else if (action === "privacy") setSheet("account");
     else if (action === "assurance") setSheet("assurance");
@@ -525,9 +540,9 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       {view === "home" ? <HomeView activeBooking={activeBooking} coaches={coaches} onDiscover={() => navigateTab("discover")} onOpenBooking={() => navigateTab("bookings")} onOpenCoach={openCoach} onSearch={(value) => { setQuery(value); if (value) navigateTab("discover"); }} onSelectSport={(sport) => updatePreferences({ ...preferences, sport })} onToggleSaved={toggleSaved} preferences={preferences} query={query} savedCoachIds={savedCoachIds} /> : null}
       {view === "discover" ? <DiscoverView coaches={coaches} onFilter={() => setSheet("filters")} onOpenCoach={openCoach} onQuery={setQuery} onToggleSaved={toggleSaved} preferences={preferences} query={query} savedCoachIds={savedCoachIds} /> : null}
       {view === "coach" ? <CoachDetailView coach={selectedCoach} isSaved={savedCoachIds.includes(selectedCoach.id)} onBack={handleBack} onBook={() => void openBooking(selectedCoach)} onMessage={() => openConversationForCoach(selectedCoach.id)} onToggleSaved={() => toggleSaved(selectedCoach.id)} preferences={preferences} /> : null}
-      {view === "booking" ? <BookingView agreed={agreed} coach={selectedCoach} learner={learner} note={bookingNote} onBack={handleBack} onChangeNote={setBookingNote} onConfirm={submitBooking} onSelectSlot={setSelectedSlot} onToggleAgreement={() => setAgreed((current) => !current)} preferences={preferences} selectedSlot={selectedSlot} slots={bookingSlots} submitting={submitting} venue={bookingVenue} /> : null}
+      {view === "booking" ? <BookingView agreed={agreed} coach={selectedCoach} learner={learner} note={bookingNote} onBack={handleBack} onChangeNote={setBookingNote} onConfirm={submitBooking} onEditLearner={() => setSheet("learner")} onSelectSlot={(slot) => { setSelectedSlot(slot); if (slot.venueId) setBookingVenue({ address: slot.venueAddress || "具体位置由平台与教练确认", coachId: selectedCoach.id, district: slot.venueDistrict || selectedCoach.district || "北京", id: slot.venueId, name: slot.venueName || "已确认训练场" }); }} onToggleAgreement={() => setAgreed((current) => !current)} preferences={preferences} selectedSlot={selectedSlot} slots={bookingSlots} submitting={submitting} venue={bookingVenue} /> : null}
       {view === "bookings" ? <BookingsView bookings={bookings} coaches={coaches} onCancel={(booking) => { setCancelTarget(booking); setSheet("cancel"); }} onDiscover={() => navigateTab("discover")} onMessage={openConversationForCoach} onReschedule={(booking) => void openBooking(coaches.find((coach) => coach.id === booking.coachId) ?? selectedCoach)} onTab={setBookingTab} tab={bookingTab} venues={venues} /> : null}
-      {view === "messages" ? <MessagesView coaches={coaches} conversations={conversations} draft={messageDraft} onBack={() => setSelectedConversation(null)} onChangeDraft={setMessageDraft} onOpen={(conversation) => { setSelectedConversation({ ...conversation, unreadCount: 0 }); setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, unreadCount: 0 } : item)); }} onSend={sendMessage} selectedConversation={selectedConversation} /> : null}
+      {view === "messages" ? <MessagesView coaches={coaches} conversations={conversations} draft={messageDraft} onBack={() => setSelectedConversation(null)} onChangeDraft={setMessageDraft} onOpen={(conversation) => { setSelectedConversation({ ...conversation, unreadCount: 0 }); setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, unreadCount: 0 } : item)); }} onSend={sendMessage} selectedConversation={selectedConversation} sending={messageSending} /> : null}
       {view === "profile" ? <ProfileView activeBookingCount={activeBookingCount} coachSummary={session?.coach ?? props.coachSummary} completedCount={bookings.filter((booking) => booking.status === "completed").length} contactMasked={session?.contactMasked ?? session?.phoneMasked} learner={learner} onAction={profileAction} onOpenCoachMode={props.onOpenCoachMode} savedCount={savedCoachIds.length} /> : null}
 
       {showBottomNav ? <BottomNav active={activeTab} bookingCount={pendingBookingCount} messageCount={unreadMessages} onNavigate={navigateTab} /> : null}
@@ -535,13 +550,13 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       {sheet === "filters" ? <FilterSheet onChange={updatePreferences} onClose={() => setSheet(null)} resultCount={filterResultCount} value={preferences} /> : null}
       {sheet === "city" ? <CitySheet district={preferences.district} onClose={() => setSheet(null)} onDistrict={(district) => updatePreferences({ ...preferences, district })} /> : null}
       {sheet === "notifications" ? <NotificationsSheet notifications={notifications} onClose={() => setSheet(null)} /> : null}
-      {sheet === "auth" ? <AuthSheet challengeSent={Boolean(challengeId)} code={otpCode} email={email} error={authError} loading={authLoading} nativeSecurity={isNativeMobile()} onChangeCode={setOtpCode} onChangeEmail={setEmail} onChangeTurnstileToken={setTurnstileToken} onClose={() => { setSheet(null); setPendingBooking(false); }} onRequestCode={requestCode} onVerify={verifyCode} showLocalCode={demoMode} turnstileSiteKey={(import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_TURNSTILE_SITE_KEY || ""} turnstileToken={turnstileToken} /> : null}
+      {sheet === "auth" ? <AuthSheet challengeSent={Boolean(challengeId)} code={otpCode} email={email} error={authError} loading={authLoading} nativeSecurity={isNativeMobile()} onChangeCode={setOtpCode} onChangeEmail={setEmail} onChangeTurnstileToken={setTurnstileToken} onClose={() => { setSheet(null); setPendingBooking(false); setPendingConversationCoachId(null); }} onRequestCode={requestCode} onVerify={verifyCode} showLocalCode={demoMode} turnstileSiteKey={(import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_TURNSTILE_SITE_KEY || ""} turnstileToken={turnstileToken} /> : null}
       {sheet === "booking-success" ? <BookingSuccessSheet coach={selectedCoach} onClose={() => setSheet(null)} onViewBooking={() => { setSheet(null); navigateTab("bookings"); setBookingTab("pending"); }} /> : null}
       {sheet === "cancel" ? <CancelBookingSheet onCancel={() => void confirmCancel()} onClose={() => { setCancelTarget(null); setSheet(null); }} /> : null}
       {sheet === "favorites" ? <FavoritesSheet coaches={coaches.filter((coach) => savedCoachIds.includes(coach.id))} onClose={() => setSheet(null)} onOpen={(coach) => { setSheet(null); openCoach(coach); }} /> : null}
       {sheet === "learner" ? <LearnerSheet learner={learner} onClose={() => setSheet(null)} onSave={(next) => { setLearner(next); if (session) void mobileApi.saveLearner(next).then(setLearner).catch((error) => showFeedback(error instanceof Error ? error.message : "档案保存失败")); }} /> : null}
       {sheet === "account" ? <AccountSheet onClose={() => setSheet(null)} onDelete={() => { void mobileApi.deleteAccount().then(() => { setSession(null); props.onSessionChange?.(null); setSheet(null); showFeedback("账号已注销"); }).catch((error) => showFeedback(error instanceof Error ? error.message : "注销失败，请稍后重试")); }} onLogout={() => { void mobileApi.logout().catch(() => writeSession(null)); setSession(null); props.onSessionChange?.(null); setSheet(null); showFeedback("已退出登录"); }} session={session} /> : null}
-      {sheet === "assurance" || sheet === "feedback" ? <SupportSheet mode={sheet} onClose={() => setSheet(null)} onSubmit={() => showFeedback("反馈已记录，试点运营人员会尽快查看")} /> : null}
+      {sheet === "assurance" || sheet === "feedback" ? <SupportSheet mode={sheet} onClose={() => setSheet(null)} onSubmit={async (message) => { if (!session) throw new Error("请先验证邮箱后提交反馈"); await mobileApi.createFeedbackTicket(message); showFeedback("反馈已提交，运营人员会尽快查看"); }} /> : null}
       {feedback ? <div className="zg-toast" role="status">{feedback}</div> : null}
     </main>
   );

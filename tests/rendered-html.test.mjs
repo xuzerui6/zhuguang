@@ -58,6 +58,19 @@ test("product film stays disabled by default without deleting its isolated media
   assert.doesNotMatch(packageJson, /@remotion|hyperframes/);
 });
 
+test("homepage discovery defaults to a real match and consultation keeps coach context", async () => {
+  const homepage = await render("/?coach=5");
+  const html = await homepage.text();
+  const directory = await read("app/_components/coach-directory.tsx");
+  const detail = await read("app/coaches/[id]/page.tsx");
+
+  assert.match(html, /value="中考体育"|<option[^>]*selected[^>]*>中考体育<\/option>/u);
+  assert.match(html, /正在咨询/);
+  assert.match(html, /徐泽瑞/);
+  assert.match(directory, /\?coach=\$\{coach\.id\}#service-inquiry/);
+  assert.match(detail, /\?coach=\$\{coach\.id\}#service-inquiry/);
+});
+
 test("production login always renders the public Turnstile integration", async () => {
   const response = await render("/login");
   assert.equal(response.status, 200);

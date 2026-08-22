@@ -1,5 +1,17 @@
 import { canTransitionBooking } from "../../app/mobile/domain";
 import type { BookingStatus, LearnerProfile } from "../../app/mobile/types";
+import {
+  AUDIENCE_OPTIONS,
+  BEIJING_DISTRICTS,
+  matchesAudience,
+  matchesTrainingGoal,
+  normalizeAudience,
+  normalizeDistrict,
+  normalizeSport,
+  normalizeTrainingGoal,
+  SPORT_OPTIONS,
+  TRAINING_GOAL_OPTIONS,
+} from "../../shared/coach-catalog";
 import { ApiError, failure, readJson, requireString, success, type ApiEnv, type ApiExecutionContext } from "./contracts";
 import {
   authenticateLocal,
@@ -532,8 +544,18 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   }
 
   if (request.method === "GET" && path === "/api/v1/coaches") {
-    const coaches = local ? filterLocalCoaches(url) : await listCoachesD1(env, url.searchParams);
-    return success(coaches, requestId, { count: coaches.length });
+    const filters = normalizeCoachSearchParams(url.searchParams);
+    const coaches = local ? filterLocalCoaches(filters) : await listCoachesD1(env, filters);
+    return success(coaches, requestId, {
+      appliedFilters: Object.fromEntries(filters.entries()),
+      availableOptions: {
+        audiences: AUDIENCE_OPTIONS,
+        districts: BEIJING_DISTRICTS,
+        goals: TRAINING_GOAL_OPTIONS,
+        sports: SPORT_OPTIONS,
+      },
+      count: coaches.length,
+    });
   }
 
   if (request.method === "POST" && path === "/api/v1/service-leads") {
@@ -945,13 +967,32 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   throw new ApiError(404, "route_not_found", "接口不存在");
 }
 
-function filterLocalCoaches(url: URL) {
+function normalizeCoachSearchParams(input: URLSearchParams) {
+  const filters = new URLSearchParams();
+  const sport = normalizeSport(input.get("sport") ?? "");
+  const district = normalizeDistrict(input.get("district") ?? "");
+  const goal = normalizeTrainingGoal(input.get("goal") ?? "");
+  const audience = normalizeAudience(input.get("audience") ?? "");
+  if (sport) filters.set("sport", sport);
+  if (district) filters.set("district", district);
+  if (goal) filters.set("goal", goal);
+  if (audience) filters.set("audience", audience);
+  const maxPriceFen = Number(input.get("maxPriceFen"));
+  if (Number.isFinite(maxPriceFen) && maxPriceFen > 0) filters.set("maxPriceFen", String(Math.floor(maxPriceFen)));
+  return filters;
+}
+
+function filterLocalCoaches(filters: URLSearchParams) {
   const { coaches } = getLocalCoachData();
-  const sport = url.searchParams.get("sport");
-  const district = url.searchParams.get("district");
-  const maxPriceFen = Number(url.searchParams.get("maxPriceFen"));
+  const sport = filters.get("sport");
+  const district = filters.get("district");
+  const goal = filters.get("goal");
+  const audience = filters.get("audience");
+  const maxPriceFen = Number(filters.get("maxPriceFen"));
   return coaches.filter((coach) => coach.profileKind !== "demo" && (!sport || coach.sport === sport)
     && (!district || coach.district === district)
+    && (!goal || matchesTrainingGoal([...coach.goals, ...coach.strengths], goal))
+    && (!audience || matchesAudience(coach.audience, audience))
     && (!Number.isFinite(maxPriceFen) || maxPriceFen <= 0 || (coach.price != null && coach.price * 100 <= maxPriceFen)));
 }
 

@@ -289,7 +289,7 @@ export function Sheet({ children, onClose, title }: { children: ReactNode; onClo
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const frame = window.requestAnimationFrame(() => panelRef.current?.querySelector<HTMLElement>("button, input, textarea, select")?.focus());
+    const frame = window.requestAnimationFrame(() => panelRef.current?.querySelector<HTMLElement>("[data-sheet-autofocus], input, textarea, select, button:not([aria-label='关闭'])")?.focus({ preventScroll: true }));
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") closeRef.current();
     };

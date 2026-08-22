@@ -47,7 +47,9 @@ try {
   $siteBody = $site.Content.ReadAsStringAsync().GetAwaiter().GetResult()
 
   $workspace = Send-Request $client ([System.Net.Http.HttpMethod]::Get) "$SiteOrigin/ops"
-  $workspaceLocation = $workspace.Headers.Location
+  $workspaceBody = $workspace.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+  $recovery = Send-Request $client ([System.Net.Http.HttpMethod]::Get) "$SiteOrigin/access-recovery"
+  $recoveryLocation = $recovery.Headers.Location
   $accessOrigin = [Uri]$AccessTeamDomain
 
   $www = Send-Request $client ([System.Net.Http.HttpMethod]::Get) 'https://www.beijingzhuguang.top/coaches/7?from=www'
@@ -72,8 +74,9 @@ try {
     SiteStatus = [int]$site.StatusCode
     SiteBrandPresent = $siteBody.Contains('href="/coaches"')
     WorkspaceStatus = [int]$workspace.StatusCode
-    WorkspaceProtected = $workspaceLocation.Host -eq $accessOrigin.Host -and $workspaceLocation.AbsolutePath.StartsWith('/cdn-cgi/access/login')
-    WorkspaceLocationHost = $workspaceLocation.Host
+    WorkspaceProtected = $workspaceBody.Contains('/login?next=/ops')
+    RecoveryStatus = [int]$recovery.StatusCode
+    RecoveryProtected = $recoveryLocation.Host -eq $accessOrigin.Host -and $recoveryLocation.AbsolutePath.StartsWith('/cdn-cgi/access/login')
     WwwStatus = [int]$www.StatusCode
     WwwLocation = $www.Headers.Location.AbsoluteUri
     MediaStatus = [int]$media.StatusCode
@@ -86,8 +89,10 @@ try {
   if (
     $result.SiteStatus -ne 200 -or
     -not $result.SiteBrandPresent -or
-    $result.WorkspaceStatus -ne 302 -or
+    $result.WorkspaceStatus -ne 200 -or
     -not $result.WorkspaceProtected -or
+    $result.RecoveryStatus -ne 302 -or
+    -not $result.RecoveryProtected -or
     $result.WwwStatus -ne 301 -or
     $result.WwwLocation -ne "$SiteOrigin/coaches/7?from=www" -or
     $result.MediaStatus -ne 200 -or
@@ -100,7 +105,7 @@ try {
 
   $result
 } finally {
-  foreach ($response in @($site, $workspace, $www, $media, $cachedMedia, $allowedCors, $hostileCors)) {
+  foreach ($response in @($site, $workspace, $recovery, $www, $media, $cachedMedia, $allowedCors, $hostileCors)) {
     if ($null -ne $response) { $response.Dispose() }
   }
   $client.Dispose()

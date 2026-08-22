@@ -170,6 +170,10 @@ export const mobileApi = {
     body: JSON.stringify({ body }),
     method: "POST",
   }),
+  createFeedbackTicket: (body: string) => request("/api/v1/support-tickets", {
+    body: JSON.stringify({ body, category: "feedback", subject: "App 使用反馈" }),
+    method: "POST",
+  }),
   coachOverview: () => request<CoachOverview>("/api/v1/coach/overview"),
   coachSetBookingStatus: (bookingId: string, status: BookingStatus) => request<MobileBooking>(`/api/v1/coach/bookings/${bookingId}/status`, {
     body: JSON.stringify({ status }),

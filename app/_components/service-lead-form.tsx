@@ -1,11 +1,11 @@
 "use client";
 
-import { CheckCircle2, LoaderCircle, Send } from "lucide-react";
+import { BadgeCheck, CheckCircle2, LoaderCircle, Send } from "lucide-react";
 import Script from "next/script";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { removeTurnstileWidget } from "../_lib/turnstile";
 
-export function ServiceLeadForm({ coachId = 5, siteKey }: { coachId?: number; siteKey?: string }) {
+export function ServiceLeadForm({ coach, siteKey }: { coach?: { id: number; name: string; sport: string }; siteKey?: string }) {
   const widgetHost = useRef<HTMLDivElement>(null);
   const widgetId = useRef<string | null>(null);
   const [state, setState] = useState<"error" | "idle" | "sending" | "sent">("idle");
@@ -39,13 +39,13 @@ export function ServiceLeadForm({ coachId = 5, siteKey }: { coachId?: number; si
     try {
       const response = await fetch(`/api/platform?path=${encodeURIComponent("/api/v1/service-leads")}`, {
         body: JSON.stringify({
-          coachId,
+          coachId: coach?.id,
           contactEmail: String(data.get("contactEmail") || "").trim(),
           contactName: String(data.get("contactName") || "").trim(),
           district: String(data.get("district") || "通州区"),
           goal: String(data.get("goal") || "").trim(),
           source: "official-site",
-          sport: "田径",
+          sport: coach?.sport || "田径",
           turnstileToken,
         }),
         headers: { "content-type": "application/json" },
@@ -68,6 +68,7 @@ export function ServiceLeadForm({ coachId = 5, siteKey }: { coachId?: number; si
   return (
     <form className="zg-service-lead-form" onSubmit={submit}>
       {siteKey ? <Script onLoad={mountTurnstile} src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" strategy="afterInteractive" /> : null}
+      {coach ? <p className="zg-service-lead-context"><BadgeCheck aria-hidden size={16} />正在咨询 <strong>{coach.name}</strong> · {coach.sport}</p> : null}
       <label>
         <span>怎么称呼</span>
         <input maxLength={40} name="contactName" placeholder="你的称呼" required />

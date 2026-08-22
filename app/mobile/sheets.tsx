@@ -3,9 +3,8 @@
 import { Check, ChevronRight, Headphones, LockKeyhole, Mail, MessageCircle, ShieldCheck, Smartphone, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { removeTurnstileWidget } from "../_lib/turnstile";
-import { BEIJING_DISTRICTS, SPORT_OPTIONS } from "../../shared/coach-catalog";
+import { AUDIENCE_OPTIONS, BEIJING_DISTRICTS, SPORT_OPTIONS, TRAINING_GOAL_OPTIONS } from "../../shared/coach-catalog";
 import { CoachAvatar, EmptyState, Sheet } from "./components";
-import { showNativeKeyboard } from "./device";
 import type { LearnerProfile, MatchPreferences, MobileCoach, MobileNotification, MobileSession } from "./types";
 
 export function FilterSheet({
@@ -25,8 +24,8 @@ export function FilterSheet({
       <div className="zg-filter-sheet">
         <FilterGroup label="运动项目" options={["全部项目", ...SPORT_OPTIONS]} selected={value.sport} onSelect={(item) => update("sport", item)} />
         <FilterGroup label="北京区域" options={["全北京", ...BEIJING_DISTRICTS]} selected={value.district} onSelect={(item) => update("district", item)} />
-        <FilterGroup label="训练目标" options={["全部目标", "兴趣入门", "专项提升", "比赛备战", "动作纠错", "校队选拔"]} selected={value.goal} onSelect={(item) => update("goal", item)} />
-        <FilterGroup label="服务对象" options={["全部人群", "儿童", "青少年", "成人", "亲子"]} selected={value.audience} onSelect={(item) => update("audience", item)} />
+        <FilterGroup label="训练目标" options={["全部目标", ...TRAINING_GOAL_OPTIONS]} selected={value.goal} onSelect={(item) => update("goal", item)} />
+        <FilterGroup label="服务对象" options={["全部人群", ...AUDIENCE_OPTIONS]} selected={value.audience} onSelect={(item) => update("audience", item)} />
         <FilterGroup label="希望时段" options={["不限", "工作日", "周末", "晚间"]} selected={value.desiredTime} onSelect={(item) => update("desiredTime", item as MatchPreferences["desiredTime"])} />
         <label className="zg-budget-control">
           <span><strong>课时预算</strong><b>不高于 ¥{value.budget}</b></span>
@@ -125,6 +124,17 @@ export function AuthSheet({
   turnstileToken: string;
 }) {
   const turnstileHost = useRef<HTMLDivElement>(null);
+  const emailInput = useRef<HTMLInputElement>(null);
+  const codeInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const input = challengeSent ? codeInput.current : emailInput.current;
+    const frame = window.requestAnimationFrame(() => {
+      input?.focus({ preventScroll: true });
+      input?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [challengeSent]);
 
   useEffect(() => {
     if (challengeSent || nativeSecurity || showLocalCode || !turnstileSiteKey) return;
@@ -167,9 +177,9 @@ export function AuthSheet({
         <span className="zg-auth-icon"><Mail aria-hidden size={29} /></span>
         <h3>用于同步收藏与预约进度</h3>
         <p>仅在提交预约和同步个人服务记录时需要登录，浏览教练无需注册。</p>
-        <label><span>邮箱地址</span><input autoCapitalize="none" autoComplete="email" inputMode="email" maxLength={254} onChange={(event) => onChangeEmail(event.target.value.trim())} onFocus={() => void showNativeKeyboard()} placeholder="name@example.com" value={email} /></label>
+        <label><span>邮箱地址</span><input autoCapitalize="none" autoComplete="email" data-sheet-autofocus={!challengeSent ? "true" : undefined} enterKeyHint="next" inputMode="email" maxLength={254} onChange={(event) => onChangeEmail(event.target.value.trim())} placeholder="name@example.com" ref={emailInput} value={email} /></label>
         {!challengeSent && !nativeSecurity && !showLocalCode ? <div className="zg-turnstile-host" ref={turnstileHost} /> : null}
-        {challengeSent ? <label><span>验证码</span><input autoComplete="one-time-code" inputMode="numeric" maxLength={6} onChange={(event) => onChangeCode(event.target.value.replace(/\D/g, ""))} onFocus={() => void showNativeKeyboard()} placeholder="请输入 6 位验证码" value={code} /></label> : null}
+        {challengeSent ? <label><span>验证码</span><input autoComplete="one-time-code" data-sheet-autofocus="true" enterKeyHint="done" inputMode="numeric" maxLength={6} onChange={(event) => onChangeCode(event.target.value.replace(/\D/g, "").slice(0, 6))} pattern="[0-9]*" placeholder="请输入 6 位验证码" ref={codeInput} value={code} /></label> : null}
         {error ? <p className="zg-auth-error">{error}</p> : null}
         <button className="zg-sheet-primary" disabled={loading || !emailReady || (!challengeSent && !securityReady) || (challengeSent && code.length !== 6)} onClick={challengeSent ? onVerify : onRequestCode} type="button">
           {loading ? "请稍候..." : challengeSent ? "验证并继续" : "获取验证码"}
@@ -264,9 +274,11 @@ export function SupportSheet({
 }: {
   mode: "assurance" | "feedback";
   onClose: () => void;
-  onSubmit: (message: string) => void;
+  onSubmit: (message: string) => Promise<void>;
 }) {
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const assurance = mode === "assurance";
   return (
     <Sheet onClose={onClose} title={assurance ? "服务保障" : "帮助与反馈"}>
@@ -287,7 +299,8 @@ export function SupportSheet({
           <>
             <label><span>问题或建议</span><textarea maxLength={500} onChange={(event) => setMessage(event.target.value)} placeholder="请描述遇到的问题、发生页面和期望结果" rows={5} value={message} /></label>
             <small>{message.length}/500 · 请勿填写身份证号等敏感信息</small>
-            <button className="zg-sheet-primary" disabled={!message.trim()} onClick={() => { onSubmit(message.trim()); onClose(); }} type="button">提交反馈</button>
+            {error ? <p className="zg-auth-error" role="alert">{error}</p> : null}
+            <button className="zg-sheet-primary" disabled={!message.trim() || submitting} onClick={() => { setSubmitting(true); setError(""); void onSubmit(message.trim()).then(onClose).catch((reason) => setError(reason instanceof Error ? reason.message : "反馈提交失败，请稍后重试")).finally(() => setSubmitting(false)); }} type="button">{submitting ? "提交中..." : "提交反馈"}</button>
           </>
         )}
       </div>

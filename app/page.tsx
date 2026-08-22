@@ -23,9 +23,15 @@ import { ProductFilmLink } from "./_components/product-film-link";
 import styles from "./_components/public-site.module.css";
 import { productFilm } from "./_lib/product-film";
 import { loadPublicCoaches } from "./_lib/web-platform";
+import { TRAINING_GOAL_OPTIONS } from "../shared/coach-catalog";
 
-export default async function HomePage() {
+type HomePageProps = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
+
+export default async function HomePage({ searchParams }: HomePageProps) {
   const catalog = await loadPublicCoaches();
+  const params = await searchParams;
+  const requestedCoachId = Number(Array.isArray(params?.coach) ? params?.coach[0] : params?.coach);
+  const requestedCoach = catalog.find((coach) => coach.id === requestedCoachId && coach.canConsult);
   const featuredCoaches = catalog.filter((item) => item.profileKind === "real").slice(0, 3);
   const productFilmEnabled = process.env.PRODUCT_FILM_ENABLED === "true";
   return (
@@ -65,7 +71,7 @@ export default async function HomePage() {
           <form action="/coaches" className={styles.searchPanel}>
             <label><span>城市</span><select defaultValue="北京" name="city" aria-label="选择城市"><option>北京</option></select></label>
             <label><span>项目</span><select defaultValue="田径" name="sport" aria-label="选择运动项目"><option>田径</option><option>羽毛球</option><option>游泳</option><option>网球</option><option>篮球</option><option>体能</option></select></label>
-            <label><span>目标</span><select defaultValue="专项提升" name="goal" aria-label="选择训练目标"><option>专项提升</option><option>中考体育</option><option>跑姿纠正</option><option>专项体能</option></select></label>
+            <label><span>目标</span><select defaultValue="中考体育" name="goal" aria-label="选择训练目标">{TRAINING_GOAL_OPTIONS.map((goal) => <option key={goal}>{goal}</option>)}</select></label>
             <button type="submit"><Search aria-hidden size={18} />查看匹配结果</button>
           </form>
         </section>
@@ -167,7 +173,7 @@ export default async function HomePage() {
             <h2>把需求说清楚，再决定是否预约</h2>
             <p>提交后只进入逐光运营工作台。未发布真实场馆与时段的教练当前只提供咨询，不会生成虚假预约。</p>
           </div>
-          <ServiceLeadForm siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} />
+          <ServiceLeadForm coach={requestedCoach ? { id: requestedCoach.id, name: requestedCoach.name, sport: requestedCoach.sport } : undefined} siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} />
         </section>
       </main>
       <PublicFooter />

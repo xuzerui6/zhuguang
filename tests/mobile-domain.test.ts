@@ -21,6 +21,7 @@ import {
 import { stableRolloutBucket } from "../server/api/releases";
 import { pushLockScreenBody } from "../server/api/push";
 import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal, validateScheduleDraft } from "../shared/scheduling";
+import { matchesAudience, matchesTrainingGoal } from "../shared/coach-catalog";
 
 const preferences: MatchPreferences = {
   audience: "青少年儿童",
@@ -50,6 +51,16 @@ test("matching applies the locked 30/25/25/15/5 weights", () => {
   assert.equal(getMatchResult(demoCoaches[0], preferences).score, 75);
   assert.deepEqual(getMatchResult({ ...availableCoach, sport: "游泳" }, preferences), { eligible: false, reasons: [], score: 0 });
   assert.deepEqual(getMatchResult({ ...availableCoach, verified: false }, preferences), { eligible: false, reasons: [], score: 0 });
+});
+
+test("shared discovery aliases match real coach vocabulary across web and Android", () => {
+  assert.equal(matchesTrainingGoal(["中小学体育中高考"], "中考体育"), true);
+  assert.equal(matchesTrainingGoal(["专项训练"], "短跑专项"), true);
+  assert.equal(matchesTrainingGoal(["体能提升"], "专项体能"), true);
+  assert.equal(matchesTrainingGoal(["跳远", "跳高"], "专项提升"), true);
+  assert.equal(matchesAudience(["青少年儿童", "成人"], "青少年"), true);
+  assert.equal(matchesAudience(["成人"], "全部对象"), true);
+  assert.equal(matchesAudience(["成人"], "儿童"), false);
 });
 
 test("booking dates and state transitions reject expired or illegal paths", () => {

@@ -5,6 +5,7 @@ import type {
   MobileBooking,
   MobileCoach,
 } from "./types";
+import { matchesAudience, matchesTrainingGoal } from "../../shared/coach-catalog";
 
 export const terminalBookingStatuses: BookingStatus[] = [
   "completed",
@@ -62,7 +63,7 @@ export function getMatchResult(coach: MobileCoach, preferences: MatchPreferences
   let score = 0;
   const reasons: string[] = [];
 
-  if (preferences.goal === "全部目标" || coach.goals.includes(preferences.goal)) {
+  if (matchesTrainingGoal(coach.goals, preferences.goal)) {
     score += 30;
     reasons.push(preferences.goal === "全部目标" ? "训练方向覆盖完整" : `擅长${preferences.goal}`);
   }
@@ -95,7 +96,7 @@ export function getMatchResult(coach: MobileCoach, preferences: MatchPreferences
     reasons.push(`课时价在预算内`);
   }
 
-  if (preferences.audience === "全部人群" || coach.audience.includes(preferences.audience)) {
+  if (matchesAudience(coach.audience, preferences.audience)) {
     score += 5;
     reasons.push(`适合${preferences.audience === "全部人群" ? "多年龄段" : preferences.audience}`);
   }

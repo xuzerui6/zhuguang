@@ -17,7 +17,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { BEIJING_DISTRICTS, SPORT_OPTIONS } from "../../shared/coach-catalog";
+import { AUDIENCE_OPTIONS, BEIJING_DISTRICTS, SPORT_OPTIONS, TRAINING_GOAL_OPTIONS, matchesAudience, matchesTrainingGoal } from "../../shared/coach-catalog";
 import type { MobileCoach } from "../mobile/types";
 import type { CoachProfile } from "../_lib/web-platform";
 import { mapMobileCoachToWeb, publicCoaches as fallbackCoaches } from "../_lib/web-platform";
@@ -98,14 +98,14 @@ export function CoachDirectory({ embedded = false, initialCoaches = fallbackCoac
   const results = useMemo(() => directoryCoaches.filter((coach) => {
     if (sport !== ALL_SPORTS && coach.sport !== sport) return false;
     if (district !== ALL_DISTRICTS && coach.district !== district) return false;
-    if (goal !== ALL_GOALS && !coach.goals.includes(goal)) return false;
-    if (audience !== ALL_AUDIENCES && !coach.audience.includes(audience)) return false;
+    if (!matchesTrainingGoal(coach.goals, goal)) return false;
+    if (!matchesAudience(coach.audience, audience)) return false;
     if (favoritesOnly && !favorites.includes(coach.id)) return false;
     return true;
   }), [audience, directoryCoaches, district, favorites, favoritesOnly, goal, sport]);
 
-  const goalOptions = useMemo(() => [...new Set(directoryCoaches.flatMap((coach) => coach.goals))], [directoryCoaches]);
-  const audienceOptions = useMemo(() => [...new Set(directoryCoaches.flatMap((coach) => coach.audience))], [directoryCoaches]);
+  const goalOptions = TRAINING_GOAL_OPTIONS;
+  const audienceOptions = AUDIENCE_OPTIONS;
 
   const selected = results.find((coach) => coach.id === selectedId) ?? results[0];
 
@@ -183,7 +183,7 @@ function CoachResult({ active, coach, favorite, onFavorite, onSelect }: { active
 }
 
 function CoachInspector({ coach, embedded }: { coach: CoachProfile; embedded: boolean }) {
-  const contactHref = embedded ? `/student/messages?coach=${coach.id}` : "/#service-inquiry";
+  const contactHref = embedded ? `/student/messages?coach=${coach.id}` : `/?coach=${coach.id}#service-inquiry`;
   return (
     <aside className={styles.inspector} aria-label={`${coach.name}教练摘要`}>
       <div className={styles.inspectorProfile}><Image alt={coach.profileKind === "demo" ? `${coach.sport}演示场景` : `${coach.name}教练`} height={120} src={coach.media.avatarUrl || coach.image} unoptimized width={120} /><div><span><BadgeCheck aria-hidden size={14} />{coach.verificationLabel}</span><h2>{coach.name}</h2><p>{coach.title}</p></div></div>

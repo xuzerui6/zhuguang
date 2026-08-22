@@ -471,6 +471,30 @@ test("operator listing controls hide public discovery without changing audit sta
   database.sqlite.close();
 });
 
+test("public coach discovery normalizes natural-language filters and reports applied options", async () => {
+  const database = new D1Adapter();
+  await migrate(database);
+  seedSupply(database);
+  const env: ApiEnv = { APP_ENV: "test", DB: database };
+
+  const result = await request(env, "/api/v1/coaches?sport=%E7%BE%BD%E6%AF%9B%E7%90%83%E9%A1%B9%E7%9B%AE&district=%E5%8C%97%E4%BA%AC%E5%B8%82%E6%9C%9D%E9%98%B3&goal=%E4%B8%93%E9%A1%B9%E8%AE%AD%E7%BB%83&audience=%E9%9D%92%E5%B0%91%E5%B9%B4%E5%84%BF%E7%AB%A5");
+  assert.equal(result.response.status, 200);
+  assert.equal((result.payload?.data as unknown[]).length, 1);
+  const meta = result.payload?.meta as {
+    appliedFilters: Record<string, string>;
+    availableOptions: { districts: string[]; sports: string[] };
+  };
+  assert.deepEqual(meta.appliedFilters, {
+    audience: "青少年儿童",
+    district: "朝阳区",
+    goal: "专项提升",
+    sport: "羽毛球",
+  });
+  assert.ok(meta.availableOptions.districts.includes("通州区"));
+  assert.ok(meta.availableOptions.sports.includes("田径"));
+  database.sqlite.close();
+});
+
 test("coach scheduling uses approved venues while operator business changes remain audited", async () => {
   const database = new D1Adapter();
   await migrate(database);

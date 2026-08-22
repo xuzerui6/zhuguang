@@ -19,6 +19,76 @@ export const BEIJING_DISTRICTS = [
 
 export const SPORT_OPTIONS = ["田径", "羽毛球", "游泳", "网球", "篮球", "体能"] as const;
 
+export const TRAINING_GOAL_OPTIONS = ["中考体育", "专项提升", "短跑专项", "跑姿纠正", "专项体能"] as const;
+export const AUDIENCE_OPTIONS = ["青少年儿童", "成人"] as const;
+
+const sportAliases: Record<string, (typeof SPORT_OPTIONS)[number]> = {
+  田赛: "田径",
+  径赛: "田径",
+  跑步: "田径",
+  体适能: "体能",
+};
+
+const goalAliases: Record<string, string[]> = {
+  中考体育: ["中考体育", "体育中高考", "中小学体育中高考"],
+  专项提升: ["专项提升", "专项训练", "跳远", "跳高", "各类田项", "田赛专项"],
+  短跑专项: ["短跑专项", "专项训练", "400米", "800米", "跨栏"],
+  跑姿纠正: ["跑姿纠正", "动作纠错", "专项训练"],
+  专项体能: ["专项体能", "体能提升", "体能训练"],
+  兴趣入门: ["兴趣入门", "入门"],
+  比赛备战: ["比赛备战", "专项训练", "专项提升"],
+  动作纠错: ["动作纠错", "跑姿纠正", "专项训练"],
+  校队选拔: ["校队选拔", "比赛备战", "专项训练"],
+};
+
+const audienceAliases: Record<string, string[]> = {
+  儿童: ["儿童", "青少年儿童"],
+  青少年: ["青少年", "青少年儿童"],
+  青少年儿童: ["儿童", "青少年", "青少年儿童"],
+  成人: ["成人"],
+  亲子: ["亲子", "青少年儿童"],
+};
+
+function hasRelatedTerm(values: string[], query: string, aliases: Record<string, string[]>) {
+  const terms = aliases[query] ?? [query];
+  return values.some((value) => terms.some((term) => value.includes(term) || term.includes(value)));
+}
+
+export function matchesTrainingGoal(values: string[], query: string) {
+  return query === "全部目标" || hasRelatedTerm(values, query, goalAliases);
+}
+
+export function matchesAudience(values: string[], query: string) {
+  return query === "全部人群" || query === "全部对象" || hasRelatedTerm(values, query, audienceAliases);
+}
+
+export function normalizeSport(value: string) {
+  const normalized = value.trim().replace(/项目$/u, "");
+  return SPORT_OPTIONS.find((option) => option === normalized) ?? sportAliases[normalized] ?? "";
+}
+
+export function normalizeDistrict(value: string) {
+  const normalized = value.trim().replace(/^北京市?/u, "");
+  if (!normalized) return "";
+  const withSuffix = normalized.endsWith("区") ? normalized : `${normalized}区`;
+  return BEIJING_DISTRICTS.find((district) => district === withSuffix) ?? "";
+}
+
+export function normalizeTrainingGoal(value: string) {
+  const normalized = value.trim();
+  if (!normalized) return "";
+  return Object.entries(goalAliases).find(([, aliases]) =>
+    aliases.some((alias) => normalized.includes(alias) || alias.includes(normalized)))?.[0] ?? normalized;
+}
+
+export function normalizeAudience(value: string) {
+  const normalized = value.trim();
+  if (!normalized) return "";
+  if (["儿童", "青少年", "青少年儿童", "亲子"].some((term) => normalized.includes(term))) return "青少年儿童";
+  if (normalized.includes("成人")) return "成人";
+  return normalized;
+}
+
 export type CoachAvailability = {
   day: string;
   periods: string[];

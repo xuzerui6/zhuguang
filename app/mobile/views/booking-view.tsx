@@ -25,6 +25,7 @@ export function BookingView({
   onBack,
   onChangeNote,
   onConfirm,
+  onEditLearner,
   onSelectSlot,
   onToggleAgreement,
   preferences,
@@ -40,6 +41,7 @@ export function BookingView({
   onBack: () => void;
   onChangeNote: (value: string) => void;
   onConfirm: () => void;
+  onEditLearner: () => void;
   onSelectSlot: (slot: BookingSlot) => void;
   onToggleAgreement: () => void;
   preferences: MatchPreferences;
@@ -97,16 +99,15 @@ export function BookingView({
 
       <section className="zg-form-section">
         <h2>选择场馆</h2>
-        <button className="zg-select-row" type="button">
+        <div className="zg-select-row" role="group" aria-label="已选择训练场馆">
           <MapPin aria-hidden size={22} />
           <span><strong>{venue.name}</strong><small>{venue.address}</small></span>
-          <ChevronRight aria-hidden size={18} />
-        </button>
+        </div>
       </section>
 
       <section className="zg-form-section">
         <h2>学员信息</h2>
-        <button className="zg-select-row" type="button">
+        <button className="zg-select-row" onClick={onEditLearner} type="button">
           <UserRound aria-hidden size={22} />
           <span><strong>{learner.name} · {learner.age} 岁</strong><small>{learner.sport} {learner.level} · {learner.goal}</small></span>
           <ChevronRight aria-hidden size={18} />
@@ -122,7 +123,7 @@ export function BookingView({
         <h2>服务保障与取消政策</h2>
         <div className="zg-trust-list">
           <TrustRow detail={coach.isNew ? "平台仅展示已经确认的基础资料" : "身份、退役履历和教学资质已完成复核"} title={coach.verificationLabel ?? "教练资质严格审核"} />
-          <TrustRow detail="试课前 24 小时可免费取消，逾期不退" title="预约取消政策" />
+          <TrustRow detail="以提交时展示并确认的服务规则为准" title="预约取消政策" />
         </div>
       </section>
 

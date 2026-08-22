@@ -526,12 +526,19 @@ test("coach scheduling uses approved venues while operator business changes rema
   const venue = database.sqlite.prepare("SELECT id, name FROM venues WHERE coach_id = 1 AND active = 1").get() as { id: string; name: string };
   assert.equal(venue.name, "通州合作训练场");
 
+  const staleStartsAt = now - 60 * 60_000;
+  database.sqlite.prepare("INSERT INTO availability_slots (id, coach_id, venue_id, starts_at, ends_at, status, created_at, updated_at) VALUES ('stale-open-slot', 1, ?, ?, ?, 'open', ?, ?)").run(venue.id, staleStartsAt, now + 2 * 60 * 60_000, now, now);
+  const replacesStaleOpen = await request(env, "/api/v1/coach/slots", { body: JSON.stringify({ endsAt: now + 90 * 60_000, startsAt: now + 30 * 60_000, venueId: venue.id }), headers: coachHeaders, method: "POST" });
+  assert.equal(replacesStaleOpen.response.status, 201);
+  assert.equal((database.sqlite.prepare("SELECT status FROM availability_slots WHERE id = 'stale-open-slot'").get() as { status: string }).status, "expired");
+
   const startsAt = Date.now() + 3 * 24 * 60 * 60_000;
   const validSlot = await request(env, "/api/v1/coach/slots", { body: JSON.stringify({ endsAt: startsAt + 90 * 60_000, startsAt, venueId: venue.id }), headers: coachHeaders, method: "POST" });
   assert.equal(validSlot.response.status, 201);
   const overlap = await request(env, "/api/v1/coach/slots", { body: JSON.stringify({ endsAt: startsAt + 120 * 60_000, startsAt: startsAt + 30 * 60_000, venueId: venue.id }), headers: coachHeaders, method: "POST" });
   assert.equal(overlap.response.status, 409);
   assert.equal((overlap.payload?.error as { code: string }).code, "slot_conflict");
+  assert.match((overlap.payload?.error as { message: string }).message, /\d{2}:\d{2}–\d{2}:\d{2}/u);
   const tooShort = await request(env, "/api/v1/coach/slots", { body: JSON.stringify({ endsAt: startsAt + 15 * 60_000, startsAt: startsAt + 5 * 60 * 60_000, venueId: venue.id }), headers: coachHeaders, method: "POST" });
   assert.equal(tooShort.response.status, 422);
   assert.equal(((tooShort.payload?.error as { fieldErrors: Record<string, string> }).fieldErrors).endsAt, "训练时长不能少于30分钟");

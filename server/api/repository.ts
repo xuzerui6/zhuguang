@@ -1054,14 +1054,21 @@ export async function createCoachSlotD1(
   const database = db(env);
   const venue = await database.prepare("SELECT id FROM venues WHERE id = ? AND coach_id = ? AND active = 1").bind(input.venueId, identity.coachId).first<Row>();
   if (!venue) throw new ApiError(404, "venue_not_found", "未找到该训练场馆");
+  const now = Date.now();
+  await database.prepare(`
+    UPDATE availability_slots SET status = 'expired', updated_at = ?
+    WHERE coach_id = ? AND status = 'open' AND starts_at <= ?
+  `).bind(now, identity.coachId, now).run();
   const overlap = await database.prepare(`
-    SELECT id FROM availability_slots
+    SELECT id, starts_at, ends_at FROM availability_slots
     WHERE coach_id = ? AND status IN ('open', 'held', 'booked') AND starts_at < ? AND ends_at > ?
     LIMIT 1
   `).bind(identity.coachId, input.endsAt, input.startsAt).first<Row>();
-  if (overlap) throw new ApiError(409, "slot_conflict", "该时间与已有排期冲突，请选择其他时间");
+  if (overlap) {
+    const conflict = beijingDateParts(numberValue(overlap.starts_at), numberValue(overlap.ends_at));
+    throw new ApiError(409, "slot_conflict", `与${conflict.date} ${conflict.time}–${conflict.endTime}的已有排期冲突，请选择其他时间`);
+  }
   const id = randomId("slot");
-  const now = Date.now();
   try {
     await database.prepare(`
       INSERT INTO availability_slots (id, coach_id, venue_id, starts_at, ends_at, status, created_at, updated_at)

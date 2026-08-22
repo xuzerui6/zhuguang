@@ -92,6 +92,8 @@ test("web booking keeps coach and slot context through login and submission", as
   assert.match(studentRoute, /query\.slot/);
   assert.match(studentPages, /\/api\/v1\/learner-profiles/);
   assert.match(studentPages, /idempotencyKey:\s*submissionKey/);
+  assert.match(studentPages, /hasPriorEffectiveBooking/);
+  assert.match(studentPages, /bookingPriceLabel/);
   assert.match(studentPages, /教练确认后预约才会生效/);
   assert.match(platformClient, /headers\.set\("idempotency-key", options\.idempotencyKey\)/);
   assert.match(platformRoute, /\^\[A-Za-z0-9\]\[A-Za-z0-9\._:-\]\{7,159\}\$/);

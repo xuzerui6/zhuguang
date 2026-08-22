@@ -295,7 +295,7 @@ test("D1 migration, auth rotation, favorite merge and slot concurrency form a re
   const rotated = refreshed.payload?.data as { accessToken: string; refreshToken: string };
 
   const second = await authenticate(env, "13800000002");
-  const bookingInit = (token: string, idempotencyKey: string) => json({ coachId: 1, learnerId: "client-draft", note: "重点提升反手", slotId: "slot-1", venueId: "venue-1" }, {
+  const bookingInit = (token: string, idempotencyKey: string, slotId = "slot-1") => json({ coachId: 1, learnerId: "client-draft", note: "重点提升反手", slotId, venueId: "venue-1" }, {
     authorization: `Bearer ${token}`,
     "idempotency-key": idempotencyKey,
   });
@@ -308,6 +308,13 @@ test("D1 migration, auth rotation, favorite merge and slot concurrency form a re
 
   const idempotentReplay = await request(env, "/api/v1/bookings", bookingInit(rotated.accessToken, "submit-1"));
   assert.equal((idempotentReplay.payload?.data as { id: string }).id, booking.id);
+
+  const firstSlot = database.sqlite.prepare("SELECT ends_at FROM availability_slots WHERE id = 'slot-1'").get() as { ends_at: number };
+  const secondStartsAt = firstSlot.ends_at + 60 * 60_000;
+  database.sqlite.prepare("INSERT INTO availability_slots (id, coach_id, venue_id, starts_at, ends_at, status, created_at, updated_at) VALUES ('slot-2', 1, 'venue-1', ?, ?, 'open', ?, ?)").run(secondStartsAt, secondStartsAt + 90 * 60_000, Date.now(), Date.now());
+  const repeatBooking = await request(env, "/api/v1/bookings", bookingInit(rotated.accessToken, "submit-repeat", "slot-2"));
+  assert.equal(repeatBooking.response.status, 201);
+  assert.equal((repeatBooking.payload?.data as { feeFen: number }).feeFen, 52000);
 
   const collision = await request(env, "/api/v1/bookings", bookingInit(second.accessToken, "submit-2"));
   assert.equal(collision.response.status, 409);

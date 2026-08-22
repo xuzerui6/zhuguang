@@ -738,7 +738,7 @@ export async function createBookingD1(
   `).bind(identity.userId, idempotencyKey).first<Row>();
   if (existing) return mapBooking(existing);
   const slot = await database.prepare(`
-    SELECT s.*, c.trial_price_fen, c.audit_status, c.listing_status, c.profile_kind, c.pricing_status, c.booking_enabled FROM availability_slots s
+    SELECT s.*, c.price_fen, c.trial_price_fen, c.audit_status, c.listing_status, c.profile_kind, c.pricing_status, c.booking_enabled FROM availability_slots s
     JOIN coaches c ON c.id = s.coach_id
     WHERE s.id = ? AND s.coach_id = ? AND s.venue_id = ?
   `).bind(input.slotId, input.coachId, input.venueId).first<Row>();
@@ -757,8 +757,18 @@ export async function createBookingD1(
       database.prepare(`
         INSERT INTO booking_requests
           (id, idempotency_key, user_id, learner_profile_id, coach_id, venue_id, slot_id, status, fee_fen, payment_status, note, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_coach', ?, 'offline_unpaid', ?, ?, ?)
-      `).bind(bookingId, idempotencyKey, identity.userId, learner.id, input.coachId, input.venueId, input.slotId, numberValue(slot.trial_price_fen), input.note.slice(0, 500), now, now),
+        SELECT ?, ?, ?, ?, ?, ?, ?, 'pending_coach',
+          CASE WHEN EXISTS (
+            SELECT 1 FROM booking_requests prior
+            WHERE prior.user_id = ? AND prior.coach_id = ?
+              AND prior.status NOT IN ('rejected', 'cancelled_by_student', 'cancelled_by_coach')
+          ) THEN c.price_fen ELSE c.trial_price_fen END,
+          'offline_unpaid', ?, ?, ?
+        FROM coaches c WHERE c.id = ?
+      `).bind(
+        bookingId, idempotencyKey, identity.userId, learner.id, input.coachId, input.venueId, input.slotId,
+        identity.userId, input.coachId, input.note.slice(0, 500), now, now, input.coachId,
+      ),
       database.prepare("UPDATE availability_slots SET status = 'held', updated_at = ? WHERE id = ? AND status = 'open'").bind(now, input.slotId),
       database.prepare(`
         INSERT INTO booking_events (id, booking_id, actor_type, actor_id, from_status, to_status, detail_json, created_at)

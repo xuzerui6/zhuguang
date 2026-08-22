@@ -585,7 +585,7 @@
   align-items: center;
   display: grid;
   gap: 7px;
-  grid-template-columns: 38px repeat(2, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .availability strong {
@@ -599,6 +599,25 @@
   font-size: 11px;
   padding: 7px 8px;
   text-align: center;
+}
+
+.availability small {
+  color: var(--zg-muted);
+  font-size: 11px;
+  grid-column: 1 / -1;
+}
+
+.availability .inspectorAvailabilityEmpty {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.inspectorAvailabilityEmpty button {
+  background: #fff;
+  border: 1px solid var(--zg-line);
+  border-radius: 4px;
+  color: var(--zg-brand);
+  min-height: 34px;
+  padding: 0 9px;
 }
 
 .inspectorActions {

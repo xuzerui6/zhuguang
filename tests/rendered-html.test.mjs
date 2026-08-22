@@ -71,6 +71,32 @@ test("homepage discovery defaults to a real match and consultation keeps coach c
   assert.match(detail, /\?coach=\$\{coach\.id\}#service-inquiry/);
 });
 
+test("web booking keeps coach and slot context through login and submission", async () => {
+  const [accessDenied, directory, detail, studentPages, studentRoute, platformClient, platformRoute] = await Promise.all([
+    read("app/_components/access-denied.tsx"),
+    read("app/_components/coach-directory.tsx"),
+    read("app/coaches/[id]/page.tsx"),
+    read("app/_components/student-pages.tsx"),
+    read("app/student/[section]/page.tsx"),
+    read("app/_components/platform-client.ts"),
+    read("app/api/platform/route.ts"),
+  ]);
+
+  assert.match(directory, /\/student\/bookings\?coach=\$\{coach\.id\}.*slot=\$\{encodeURIComponent\(firstSlot\.id\)\}/s);
+  assert.match(accessDenied, /usePathname/);
+  assert.match(accessDenied, /useSearchParams/);
+  assert.match(accessDenied, /encodeURIComponent\(requestedPath\)/);
+  assert.match(directory, /\/api\/v1\/coaches\/\$\{selected\.id\}\/slots/);
+  assert.match(detail, /loadPublicCoachSlots/);
+  assert.match(detail, /\/login\?next=\$\{encodeURIComponent\(bookingTarget\)\}/);
+  assert.match(studentRoute, /query\.slot/);
+  assert.match(studentPages, /\/api\/v1\/learner-profiles/);
+  assert.match(studentPages, /idempotencyKey:\s*submissionKey/);
+  assert.match(studentPages, /教练确认后预约才会生效/);
+  assert.match(platformClient, /headers\.set\("idempotency-key", options\.idempotencyKey\)/);
+  assert.match(platformRoute, /\^\[A-Za-z0-9\]\[A-Za-z0-9\._:-\]\{7,159\}\$/);
+});
+
 test("production login always renders the public Turnstile integration", async () => {
   const response = await render("/login");
   assert.equal(response.status, 200);

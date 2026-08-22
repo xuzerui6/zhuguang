@@ -16,13 +16,15 @@ export class PlatformRequestError extends Error {
 
 export async function platformRequest<T>(
   path: string,
-  options: { body?: unknown; method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT" } = {},
+  options: { body?: unknown; idempotencyKey?: string; method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT" } = {},
 ): Promise<T> {
   const method = options.method ?? "GET";
+  const headers = new Headers(options.body === undefined ? undefined : { "content-type": "application/json" });
+  if (options.idempotencyKey) headers.set("idempotency-key", options.idempotencyKey);
   const response = await fetch(`/api/platform?path=${encodeURIComponent(path)}`, {
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
     cache: "no-store",
-    headers: options.body === undefined ? undefined : { "content-type": "application/json" },
+    headers,
     method,
   });
   const payload = await response.json() as { data?: T; error?: { code?: string; fieldErrors?: Record<string, string>; message?: string } };

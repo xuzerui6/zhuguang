@@ -19,6 +19,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { SPORT_OPTIONS, TRAINING_GOAL_OPTIONS } from "../../shared/coach-catalog";
 import type { BookingSlot, LearnerProfile, MobileBooking, MobileCoach, MobileConversation } from "../mobile/types";
 import { coaches as fallbackCoaches } from "../_lib/web-platform";
 import { CoachDirectory } from "./coach-directory";
@@ -94,16 +95,16 @@ function useStudentBootstrap() {
   return { data, error, load, loading, refresh, setData };
 }
 
-export function StudentPage({ initialCoachId, section }: { initialCoachId?: number; section: StudentSection }) {
+export function StudentPage({ initialCoachId, initialSlotId, section }: { initialCoachId?: number; initialSlotId?: string; section: StudentSection }) {
   if (section === "coaches") return <div className={styles.page}><CoachDirectory embedded /></div>;
-  return <StudentDataPage initialCoachId={initialCoachId} section={section} />;
+  return <StudentDataPage initialCoachId={initialCoachId} initialSlotId={initialSlotId} section={section} />;
 }
 
-function StudentDataPage({ initialCoachId, section }: { initialCoachId?: number; section: Exclude<StudentSection, "coaches"> }) {
+function StudentDataPage({ initialCoachId, initialSlotId, section }: { initialCoachId?: number; initialSlotId?: string; section: Exclude<StudentSection, "coaches"> }) {
   const state = useStudentBootstrap();
   if (state.loading) return <LoadingState label="正在读取你的服务记录" />;
   if (!state.data) return <ErrorState message={state.error} onRetry={state.load} />;
-  if (section === "bookings") return <BookingsPage data={state.data} initialCoachId={initialCoachId} reload={state.load} />;
+  if (section === "bookings") return <BookingsPage data={state.data} initialCoachId={initialCoachId} initialSlotId={initialSlotId} reload={state.load} />;
   if (section === "messages") return <MessagesPage conversations={state.data.conversations} reload={state.refresh} />;
   if (section === "training") return <TrainingPage data={state.data} />;
   if (section === "profile") return <ProfilePage data={state.data} reload={state.load} />;
@@ -154,22 +155,38 @@ function StudentHome({ data }: { data: BootstrapData }) {
   );
 }
 
-function BookingsPage({ data, initialCoachId, reload }: { data: BootstrapData; initialCoachId?: number; reload: () => Promise<void> }) {
+function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: BootstrapData; initialCoachId?: number; initialSlotId?: string; reload: () => Promise<void> }) {
   const selectedCoach = data.coaches.find((coach) => coach.id === initialCoachId) ?? (initialCoachId ? undefined : data.coaches[0]);
   const [slots, setSlots] = useState<BookingSlot[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(Boolean(selectedCoach));
   const [busy, setBusy] = useState("");
+  const [profileBusy, setProfileBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [selectedLearnerId, setSelectedLearnerId] = useState(data.learnerProfiles[0]?.id || "");
   const [bookingNote, setBookingNote] = useState("");
   const [agreementAccepted, setAgreementAccepted] = useState(false);
   const [proposals, setProposals] = useState<RescheduleProposal[]>([]);
+  const [idempotencyKey, setIdempotencyKey] = useState(() => `web-booking-${crypto.randomUUID()}`);
+  const [idempotencySlotId, setIdempotencySlotId] = useState("");
   const loadProposals = useCallback(async () => { try { setProposals(await platformRequest<RescheduleProposal[]>("/api/v1/reschedule-proposals")); } catch { setProposals([]); } }, []);
   useEffect(() => { queueMicrotask(() => void loadProposals()); }, [loadProposals]);
   useEffect(() => {
     if (!selectedCoach) return;
-    void platformRequest<BookingSlot[]>(`/api/v1/coaches/${selectedCoach.id}/slots`).then(setSlots).catch(() => setSlots([]));
-  }, [selectedCoach]);
+    let active = true;
+    queueMicrotask(() => { setSlotsLoading(true); setError(""); });
+    void platformRequest<BookingSlot[]>(`/api/v1/coaches/${selectedCoach.id}/slots`).then((items) => {
+      if (!active) return;
+      setSlots(items);
+      if (initialSlotId && !items.some((slot) => slot.id === initialSlotId)) setError("你选择的时段已失效或被占用，请从剩余时段中重新选择");
+    }).catch((loadError: unknown) => {
+      if (active) { setSlots([]); setError(loadError instanceof Error ? loadError.message : "可约时间加载失败，请重试"); }
+    }).finally(() => { if (active) setSlotsLoading(false); });
+    return () => { active = false; };
+  }, [initialSlotId, selectedCoach]);
+  useEffect(() => {
+    if (!selectedLearnerId && data.learnerProfiles[0]?.id) queueMicrotask(() => setSelectedLearnerId(data.learnerProfiles[0].id));
+  }, [data.learnerProfiles, selectedLearnerId]);
 
   async function cancel(id: string) {
     setBusy(id);
@@ -184,17 +201,54 @@ function BookingsPage({ data, initialCoachId, reload }: { data: BootstrapData; i
 
   async function book(slot: BookingSlot) {
     if (!selectedLearnerId || !slot.venueId || !selectedCoach || !agreementAccepted) return;
+    const submissionKey = idempotencySlotId === slot.id ? idempotencyKey : `web-booking-${crypto.randomUUID()}`;
+    if (idempotencySlotId !== slot.id) {
+      setIdempotencyKey(submissionKey);
+      setIdempotencySlotId(slot.id);
+    }
     setBusy(slot.id);
+    setError("");
     try {
       await platformRequest("/api/v1/bookings", {
         body: { coachId: selectedCoach.id, learnerId: selectedLearnerId, note: bookingNote, slotId: slot.id, venueId: slot.venueId },
+        idempotencyKey: submissionKey,
         method: "POST",
       });
-      setNotice("预约申请已提交，教练确认后生效");
+      setNotice("预约申请已提交，教练确认后生效；预约编号已写入下方记录");
+      setIdempotencyKey(`web-booking-${crypto.randomUUID()}`);
+      setIdempotencySlotId("");
+      setAgreementAccepted(false);
       await reload();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "预约提交失败");
     } finally { setBusy(""); }
+  }
+
+  async function createLearner(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedCoach) return;
+    const form = new FormData(event.currentTarget);
+    setProfileBusy(true);
+    setError("");
+    try {
+      const saved = await platformRequest<LearnerProfile>("/api/v1/learner-profiles", {
+        body: {
+          age: Number(form.get("age")),
+          gender: String(form.get("gender")),
+          goal: String(form.get("goal")),
+          level: String(form.get("level")),
+          name: String(form.get("name")),
+          relation: String(form.get("relation")),
+          sport: String(form.get("sport")),
+        },
+        method: "POST",
+      });
+      setSelectedLearnerId(saved.id);
+      setNotice("学员档案已建立，可以继续提交当前预约");
+      await reload();
+    } catch (profileError) {
+      setError(profileError instanceof Error ? profileError.message : "学员档案创建失败");
+    } finally { setProfileBusy(false); }
   }
 
   async function respondToReschedule(id: string, decision: "accepted" | "rejected") {
@@ -208,9 +262,11 @@ function BookingsPage({ data, initialCoachId, reload }: { data: BootstrapData; i
     <div className={styles.page}>
       <header className={styles.heading}><div><p className={styles.eyebrow}>预约</p><h1>我的训练安排</h1><p>费用快照、状态变化和取消结果均来自正式业务记录。</p></div><Link className={styles.primary} href="/student/coaches">选择教练</Link></header>
       {error ? <div className={styles.error} role="alert"><strong>操作没有完成</strong><p>{error}</p></div> : null}
+      {!selectedCoach && initialCoachId ? <section className={styles.panel}><EmptyState action={<Link className={styles.primary} href="/student/coaches">重新选择教练</Link>} copy="该教练可能已下线、暂停接单或不再公开展示。" title="当前教练不可预约" /></section> : null}
       {selectedCoach ? <section className={styles.panel}>
-        <header className={styles.panelHeader}><div><h2>{selectedCoach.name}教练的可约时间</h2><p>{selectedCoach.sport} · {selectedCoach.district || "北京"} · 试课 ¥{selectedCoach.trialPrice}</p></div></header>
-        {slots.length ? <><div className={styles.formGrid}><label className={styles.field}><span>训练学员</span><select onChange={(event) => setSelectedLearnerId(event.target.value)} value={selectedLearnerId}><option value="">请选择学员档案</option>{data.learnerProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.goal}</option>)}</select></label><label className={styles.field}><span>训练需求说明</span><input maxLength={500} onChange={(event) => setBookingNote(event.target.value)} placeholder="需要教练提前了解的情况" value={bookingNote} /></label></div><label className={styles.consentRow}><input checked={agreementAccepted} onChange={(event) => setAgreementAccepted(event.target.checked)} type="checkbox" /><span>我已阅读服务与取消规则，理解预约需教练确认后生效，费用采用线下支付。</span></label><div className={styles.list}>{slots.map((slot) => <article className={styles.listItem} key={slot.id}><span className={styles.listIcon}><Clock3 aria-hidden size={19} /></span><div><h3>{slot.dateLabel} {slot.date}</h3><p>{slot.time}–{slot.endTime} · 教练确认后生效</p></div><button className={styles.primary} disabled={!slot.venueId || busy === slot.id || !selectedLearnerId || !agreementAccepted} onClick={() => void book(slot)} type="button">{busy === slot.id ? "提交中" : "提交预约"}</button></article>)}</div></> : <EmptyState copy="教练尚未发布真实场馆与可约时段。你仍可收藏或发起咨询，发布后这里会自动开放。" title="暂无可约时间" />}
+        <header className={styles.panelHeader}><div><h2>{selectedCoach.name}教练的可约时间</h2><p>{selectedCoach.sport} · {selectedCoach.district || "北京"} · 试课 {selectedCoach.trialPrice == null ? "价格待发布" : `¥${selectedCoach.trialPrice}`} · 线下支付</p></div><Link className={styles.secondary} href={`/coaches/${selectedCoach.id}`}>查看教练档案</Link></header>
+        {!data.learnerProfiles.length ? <form className={styles.quickProfile} onSubmit={createLearner}><header><div><h3>先建立学员档案</h3><p>只填写本次预约所需信息，创建后会自动继续当前流程。</p></div><UserRound aria-hidden size={22} /></header><div className={styles.formGrid}><label className={styles.field}><span>学员姓名</span><input maxLength={40} name="name" required /></label><label className={styles.field}><span>身份关系</span><select defaultValue="self" name="relation"><option value="self">本人</option><option value="child">子女</option></select></label><label className={styles.field}><span>年龄</span><input max={100} min={1} name="age" required type="number" /></label><label className={styles.field}><span>性别</span><select defaultValue="unspecified" name="gender"><option value="unspecified">暂不填写</option><option value="male">男</option><option value="female">女</option></select></label><label className={styles.field}><span>运动项目</span><select defaultValue={selectedCoach.sport} name="sport">{SPORT_OPTIONS.map((item) => <option key={item}>{item}</option>)}</select></label><label className={styles.field}><span>训练基础</span><select defaultValue="初学" name="level"><option>初学</option><option>有一定基础</option><option>校队或专项训练</option></select></label><label className={styles.field}><span>训练目标</span><select defaultValue={selectedCoach.goals[0] || TRAINING_GOAL_OPTIONS[0]} name="goal">{Array.from(new Set([...TRAINING_GOAL_OPTIONS, ...selectedCoach.goals])).map((item) => <option key={item}>{item}</option>)}</select></label></div><button className={styles.primary} disabled={profileBusy} type="submit">{profileBusy ? "创建中" : "建立档案并继续"}</button></form> : null}
+        {slotsLoading ? <LoadingState label="正在读取真实可约时段" /> : slots.length ? <><div className={styles.formGrid}><label className={styles.field}><span>训练学员</span><select onChange={(event) => setSelectedLearnerId(event.target.value)} value={selectedLearnerId}><option value="">请选择学员档案</option>{data.learnerProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.goal}</option>)}</select></label><label className={styles.field}><span>训练需求说明</span><input maxLength={500} onChange={(event) => setBookingNote(event.target.value)} placeholder="需要教练提前了解的情况" value={bookingNote} /></label></div><label className={styles.consentRow}><input checked={agreementAccepted} onChange={(event) => setAgreementAccepted(event.target.checked)} type="checkbox" /><span>我已阅读服务与取消规则，理解预约需教练确认后生效，费用采用线下支付。</span></label><div className={styles.list}>{slots.map((slot) => <article className={styles.listItem} data-selected={initialSlotId === slot.id} key={slot.id}><span className={styles.listIcon}><Clock3 aria-hidden size={19} /></span><div><h3>{slot.dateLabel} {slot.date} · {slot.time}–{slot.endTime}</h3><p>{slot.venueName || "训练场馆"} · {slot.venueAddress || slot.venueDistrict || "地址待确认"}</p></div><button className={styles.primary} disabled={!slot.venueId || busy === slot.id || !selectedLearnerId || !agreementAccepted || !selectedCoach.bookable} onClick={() => void book(slot)} type="button">{busy === slot.id ? "提交中" : initialSlotId === slot.id ? "预约这个时段" : "提交预约"}</button></article>)}</div></> : <EmptyState copy={selectedCoach.unavailableReason || "教练尚未发布真实场馆与可约时段。你仍可收藏或发起咨询，发布后这里会自动开放。"} title="暂无可约时间" />}
       </section> : null}
       {proposals.some((item) => item.status === "pending") ? <section className={styles.panel}><header className={styles.panelHeader}><div><h2>待确认改期</h2><p>确认前请核对新时间和场馆</p></div></header><div className={styles.list}>{proposals.filter((item) => item.status === "pending").map((proposal) => <article className={styles.listItem} key={proposal.id}><span className={styles.listIcon}><Clock3 aria-hidden size={19} /></span><div><h3>{formatBeijingDate(proposal.starts_at)}</h3><p>{proposal.venue_name || "训练场馆"} · {proposal.note || "教练提出新的训练时间"}</p></div><span className={styles.rowActions}><button className={styles.danger} disabled={busy === proposal.id} onClick={() => void respondToReschedule(proposal.id, "rejected")} type="button">拒绝</button><button className={styles.primary} disabled={busy === proposal.id} onClick={() => void respondToReschedule(proposal.id, "accepted")} type="button">接受改期</button></span></article>)}</div></section> : null}
       <section className={styles.panel}>

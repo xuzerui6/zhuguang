@@ -301,8 +301,9 @@ test("D1 migration, auth rotation, favorite merge and slot concurrency form a re
   });
   const firstBooking = await request(env, "/api/v1/bookings", bookingInit(rotated.accessToken, "submit-1"));
   assert.equal(firstBooking.response.status, 201);
-  const booking = firstBooking.payload?.data as { id: string; status: string; time: string };
+  const booking = firstBooking.payload?.data as { feeFen: number; id: string; status: string; time: string };
   assert.equal(booking.status, "pending_coach");
+  assert.equal(booking.feeFen, 9900);
   assert.match(booking.time, /^\d{2}:\d{2}$/u);
 
   const idempotentReplay = await request(env, "/api/v1/bookings", bookingInit(rotated.accessToken, "submit-1"));

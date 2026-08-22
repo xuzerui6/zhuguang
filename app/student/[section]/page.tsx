@@ -8,6 +8,6 @@ export default async function StudentSectionPage({ params, searchParams }: { par
   if (!sections.has(section as StudentSection)) notFound();
   const query = await searchParams;
   const coachId = typeof query.coach === "string" ? Number(query.coach) : undefined;
-  return <StudentPage initialCoachId={Number.isFinite(coachId) ? coachId : undefined} section={section as StudentSection} />;
+  const slotId = typeof query.slot === "string" ? query.slot : undefined;
+  return <StudentPage initialCoachId={Number.isFinite(coachId) ? coachId : undefined} initialSlotId={slotId} section={section as StudentSection} />;
 }
-

@@ -18,7 +18,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { AUDIENCE_OPTIONS, BEIJING_DISTRICTS, SPORT_OPTIONS, TRAINING_GOAL_OPTIONS, matchesAudience, matchesTrainingGoal } from "../../shared/coach-catalog";
-import type { MobileCoach } from "../mobile/types";
+import type { BookingSlot, MobileCoach } from "../mobile/types";
 import type { CoachProfile } from "../_lib/web-platform";
 import { mapMobileCoachToWeb, publicCoaches as fallbackCoaches } from "../_lib/web-platform";
 import { platformRequest } from "./platform-client";
@@ -45,6 +45,10 @@ export function CoachDirectory({ embedded = false, initialCoaches = fallbackCoac
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [favorites, setFavorites] = useState<number[]>([]);
   const [directoryCoaches, setDirectoryCoaches] = useState(initialCoaches);
+  const [slots, setSlots] = useState<BookingSlot[]>([]);
+  const [slotsError, setSlotsError] = useState("");
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsReload, setSlotsReload] = useState(0);
   const sport = searchParams.get("sport") || initialSport;
   const district = searchParams.get("district") || initialDistrict;
   const goal = searchParams.get("goal") || initialGoal;
@@ -109,6 +113,24 @@ export function CoachDirectory({ embedded = false, initialCoaches = fallbackCoac
 
   const selected = results.find((coach) => coach.id === selectedId) ?? results[0];
 
+  useEffect(() => {
+    if (!selected || selected.profileKind === "demo") {
+      queueMicrotask(() => { setSlots([]); setSlotsError(""); setSlotsLoading(false); });
+      return;
+    }
+    let active = true;
+    queueMicrotask(() => { setSlotsLoading(true); setSlotsError(""); });
+    void platformRequest<BookingSlot[]>(`/api/v1/coaches/${selected.id}/slots`)
+      .then((items) => { if (active) setSlots(items.filter((slot) => slot.available)); })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setSlots([]);
+        setSlotsError(error instanceof Error ? error.message : "可约时间加载失败");
+      })
+      .finally(() => { if (active) setSlotsLoading(false); });
+    return () => { active = false; };
+  }, [selected, slotsReload]);
+
   function resetFilters() {
     updateQuery({ audience: null, coach: null, district: null, favorites: null, goal: null, sport: null });
   }
@@ -150,7 +172,7 @@ export function CoachDirectory({ embedded = false, initialCoaches = fallbackCoac
           {results.map((coach) => <CoachResult active={selected?.id === coach.id} coach={coach} favorite={favorites.includes(coach.id)} key={coach.id} onFavorite={() => toggleFavorite(coach.id)} onSelect={() => updateQuery({ coach: String(coach.id) })} />)}
           {!results.length ? <div className={styles.emptyState}><Search aria-hidden size={28} /><strong>没有符合全部条件的教练</strong><p>减少一个筛选条件，或查看当前全部试点教练。</p><button onClick={resetFilters} type="button">查看全部教练</button></div> : null}
         </div>
-        {selected ? <CoachInspector coach={selected} embedded={embedded} key={selected.id} /> : null}
+        {selected ? <CoachInspector coach={selected} embedded={embedded} key={selected.id} onRetrySlots={() => setSlotsReload((value) => value + 1)} slots={slots} slotsError={slotsError} slotsLoading={slotsLoading} /> : null}
       </div>
     </section>
   );
@@ -182,15 +204,17 @@ function CoachResult({ active, coach, favorite, onFavorite, onSelect }: { active
   );
 }
 
-function CoachInspector({ coach, embedded }: { coach: CoachProfile; embedded: boolean }) {
+function CoachInspector({ coach, embedded, onRetrySlots, slots, slotsError, slotsLoading }: { coach: CoachProfile; embedded: boolean; onRetrySlots: () => void; slots: BookingSlot[]; slotsError: string; slotsLoading: boolean }) {
   const contactHref = embedded ? `/student/messages?coach=${coach.id}` : `/?coach=${coach.id}#service-inquiry`;
+  const firstSlot = slots[0];
+  const bookingHref = `/student/bookings?coach=${coach.id}${firstSlot ? `&slot=${encodeURIComponent(firstSlot.id)}` : ""}`;
   return (
     <aside className={styles.inspector} aria-label={`${coach.name}教练摘要`}>
       <div className={styles.inspectorProfile}><Image alt={coach.profileKind === "demo" ? `${coach.sport}演示场景` : `${coach.name}教练`} height={120} src={coach.media.avatarUrl || coach.image} unoptimized width={120} /><div><span><BadgeCheck aria-hidden size={14} />{coach.verificationLabel}</span><h2>{coach.name}</h2><p>{coach.title}</p></div></div>
       <div className={styles.inspectorFacts}><p><Star aria-hidden size={16} /><strong>{coach.profileKind === "demo" ? "演示资料" : "新教练"}</strong><span>{coach.profileKind === "demo" ? "不参与预约" : "暂无评价"}</span></p><p><MapPin aria-hidden size={16} /><strong>{coach.district}</strong><span>{coach.venue}</span></p></div>
       <section><header><h3>资料状态</h3><Link href={`/coaches/${coach.id}`}>查看档案</Link></header><ul className={styles.credentials}><li className={styles.inspectorEmpty}><ShieldCheck aria-hidden size={17} /><span>{coach.profileKind === "demo" ? "用于功能演示，不代表真实供给" : "仅展示已确认的身份与服务资料"}</span></li></ul></section>
-      <section><header><h3>本周可约时间</h3><span>北京时间</span></header><div className={styles.availability}><div className={styles.inspectorAvailabilityEmpty}><Clock3 aria-hidden size={17} /><span>真实场馆与时段待运营发布</span></div></div></section>
-      <div className={styles.inspectorActions}><Link href={`/coaches/${coach.id}`}>查看详情</Link>{coach.canConsult ? <Link href={contactHref}>咨询训练安排</Link> : <button disabled type="button">演示资料不可咨询</button>}</div>
+      <section><header><h3>本周可约时间</h3><span>北京时间</span></header><div className={styles.availability}>{slotsLoading ? <div className={styles.inspectorAvailabilityEmpty}><Clock3 aria-hidden size={17} /><span>正在读取真实时段</span></div> : slotsError ? <div className={styles.inspectorAvailabilityEmpty}><Clock3 aria-hidden size={17} /><span>{slotsError}</span><button onClick={onRetrySlots} type="button">重新加载</button></div> : slots.length ? slots.slice(0, 3).map((slot) => <div key={slot.id}><strong>{slot.dateLabel} {slot.date}</strong><span>{slot.time}–{slot.endTime}</span><small>{slot.venueName || "训练场馆"}</small></div>) : <div className={styles.inspectorAvailabilityEmpty}><Clock3 aria-hidden size={17} /><span>{coach.unavailableReason || "可约时段待发布"}</span></div>}</div></section>
+      <div className={styles.inspectorActions}><Link href={`/coaches/${coach.id}`}>查看详情</Link>{embedded && coach.bookable && slots.length ? <Link href={bookingHref}>立即预约</Link> : coach.canConsult ? <Link href={contactHref}>咨询训练安排</Link> : <button disabled type="button">演示资料不可咨询</button>}</div>
     </aside>
   );
 }

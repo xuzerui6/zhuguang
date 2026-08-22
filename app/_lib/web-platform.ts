@@ -1,5 +1,5 @@
 import { coachCatalog, type CoachPublicProfile } from "../../shared/coach-catalog";
-import type { MobileCoach } from "../mobile/types";
+import type { BookingSlot, MobileCoach } from "../mobile/types";
 
 export type WebArea = "public" | "student" | "coach" | "ops";
 
@@ -171,6 +171,21 @@ export async function loadPublicCoachById(id: number | string): Promise<CoachPro
     return payload.data ? mapMobileCoachToWeb(payload.data) : undefined;
   } catch {
     return getPublicCoachById(coachId);
+  }
+}
+
+export async function loadPublicCoachSlots(id: number | string): Promise<BookingSlot[]> {
+  const coachId = Number(id);
+  const headers = publicApiHeaders();
+  if (!Number.isInteger(coachId) || coachId <= 0 || !headers) return [];
+  const origin = (process.env.ZHUGUANG_MOBILE_API_URL || "https://api.beijingzhuguang.top").replace(/\/$/u, "");
+  try {
+    const response = await fetch(`${origin}/api/v1/coaches/${coachId}/slots`, { cache: "no-store", headers, signal: AbortSignal.timeout(4_000) });
+    if (!response.ok) return [];
+    const payload = await response.json() as { data?: BookingSlot[] };
+    return payload.data?.filter((slot) => slot.available) ?? [];
+  } catch {
+    return [];
   }
 }
 

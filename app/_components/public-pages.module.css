@@ -156,6 +156,7 @@
 }
 
 .bookingSummary > a,
+.bookingActions a,
 .availabilityPanel > a,
 .pageCta > a,
 .primaryLogin {
@@ -209,6 +210,7 @@
 }
 
 .bookingSummary > a:hover,
+.bookingActions a:hover,
 .availabilityPanel > a:hover,
 .pageCta > a:hover,
 .primaryLogin:hover {
@@ -217,6 +219,22 @@
 
 .bookingSummary > a {
   margin-top: 20px;
+}
+
+.bookingActions {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.bookingActions a:last-child:not(:first-child) {
+  background: #fff;
+  border: 1px solid var(--zg-line-strong);
+  color: var(--zg-brand);
+}
+
+.bookingActions a:last-child:not(:first-child):hover {
+  background: var(--zg-canvas);
 }
 
 .bookingSummary > small {
@@ -436,6 +454,21 @@
   gap: 6px;
   justify-content: flex-end;
   margin: 0;
+}
+
+.availabilityPanel section b,
+.availabilityPanel section small {
+  display: block;
+}
+
+.availabilityPanel section b {
+  font-size: 12px;
+}
+
+.availabilityPanel section small {
+  color: var(--zg-muted);
+  font-size: 10px;
+  margin-top: 5px;
 }
 
 .availabilityPanel section span {

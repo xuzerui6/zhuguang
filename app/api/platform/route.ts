@@ -60,6 +60,10 @@ async function relay(request: Request) {
   }
   const contentType = request.headers.get("content-type");
   if (contentType) headers.set("content-type", contentType);
+  const idempotencyKey = request.headers.get("idempotency-key");
+  if (idempotencyKey && /^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(idempotencyKey)) {
+    headers.set("idempotency-key", idempotencyKey);
+  }
   const baseUrl = (process.env.ZHUGUANG_MOBILE_API_URL || fallbackApiUrl).replace(/\/$/u, "");
   const upstream = await fetch(`${baseUrl}${path}`, {
     body: method === "GET" || method === "HEAD" ? undefined : await request.arrayBuffer(),

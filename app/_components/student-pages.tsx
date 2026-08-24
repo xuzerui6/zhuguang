@@ -20,7 +20,9 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { SPORT_OPTIONS, TRAINING_GOAL_OPTIONS } from "../../shared/coach-catalog";
-import type { BookingSlot, LearnerProfile, MobileBooking, MobileCoach, MobileConversation } from "../mobile/types";
+import { calculateDurationPriceFen } from "../../shared/pricing";
+import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal } from "../../shared/scheduling";
+import type { BookingOptions, LearnerProfile, MobileBooking, MobileCoach, MobileConversation } from "../mobile/types";
 import { coaches as fallbackCoaches } from "../_lib/web-platform";
 import { CoachDirectory } from "./coach-directory";
 import { formatBeijingDate, formatFen, platformRequest } from "./platform-client";
@@ -56,6 +58,7 @@ const statusCopy: Record<MobileBooking["status"], string> = {
   confirmed: "已确认",
   pending_coach: "等待教练确认",
   rejected: "未被接受",
+  expired: "申请已失效",
   reschedule_requested: "教练申请改期",
 };
 
@@ -140,7 +143,7 @@ function StudentHome({ data }: { data: BootstrapData }) {
                 <em className={styles.status} data-tone={statusTone(active.status)}>{statusCopy[active.status]}</em>
               </article>
             </div>
-          ) : <EmptyState action={<Link className={styles.primary} href="/student/coaches">查看教练</Link>} copy="目前没有进行中的预约。选择教练后，可先咨询训练方向；只有真实时段发布后才能提交预约。" title="从一次清晰的训练需求开始" />}
+          ) : <EmptyState action={<Link className={styles.primary} href="/student/coaches">查看教练</Link>} copy="目前没有进行中的预约。选择已上线教练后，可以直接指定希望的训练时间与地点。" title="从一次清晰的训练需求开始" />}
         </section>
         <aside className={styles.panel}>
           <header className={styles.panelHeader}><div><h2>账号准备度</h2><p>完善档案能让教练更准确地准备课程。</p></div></header>
@@ -159,31 +162,38 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
   const selectedCoach = data.coaches.find((coach) => coach.id === initialCoachId) ?? (initialCoachId ? undefined : data.coaches[0]);
   const hasPriorEffectiveBooking = selectedCoach ? data.bookings.some((booking) => booking.coachId === selectedCoach.id && !["rejected", "cancelled_by_student", "cancelled_by_coach"].includes(booking.status)) : false;
   const bookingPriceLabel = hasPriorEffectiveBooking ? "常规课" : "首次试课";
-  const [slots, setSlots] = useState<BookingSlot[]>([]);
-  const [slotsLoading, setSlotsLoading] = useState(Boolean(selectedCoach));
+  const [options, setOptions] = useState<BookingOptions | null>(null);
+  const [optionsLoading, setOptionsLoading] = useState(Boolean(selectedCoach));
   const [busy, setBusy] = useState("");
   const [profileBusy, setProfileBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [selectedLearnerId, setSelectedLearnerId] = useState(data.learnerProfiles[0]?.id || "");
   const [bookingNote, setBookingNote] = useState("");
+  const [startsAt, setStartsAt] = useState("");
+  const [durationMinutes, setDurationMinutes] = useState<60 | 90 | 120>(60);
+  const [locationType, setLocationType] = useState<"venue" | "custom">("venue");
+  const [venueId, setVenueId] = useState("");
+  const [customDistrict, setCustomDistrict] = useState("");
+  const [customAddress, setCustomAddress] = useState("");
+  const [customLocationNote, setCustomLocationNote] = useState("");
   const [agreementAccepted, setAgreementAccepted] = useState(false);
   const [proposals, setProposals] = useState<RescheduleProposal[]>([]);
   const [idempotencyKey, setIdempotencyKey] = useState(() => `web-booking-${crypto.randomUUID()}`);
-  const [idempotencySlotId, setIdempotencySlotId] = useState("");
   const loadProposals = useCallback(async () => { try { setProposals(await platformRequest<RescheduleProposal[]>("/api/v1/reschedule-proposals")); } catch { setProposals([]); } }, []);
   useEffect(() => { queueMicrotask(() => void loadProposals()); }, [loadProposals]);
   useEffect(() => {
     if (!selectedCoach) return;
     let active = true;
-    queueMicrotask(() => { setSlotsLoading(true); setError(""); });
-    void platformRequest<BookingSlot[]>(`/api/v1/coaches/${selectedCoach.id}/slots`).then((items) => {
+    queueMicrotask(() => { setOptionsLoading(true); setError(""); });
+    void platformRequest<BookingOptions>(`/api/v1/coaches/${selectedCoach.id}/booking-options`).then((value) => {
       if (!active) return;
-      setSlots(items);
-      if (initialSlotId && !items.some((slot) => slot.id === initialSlotId)) setError("你选择的时段已失效或被占用，请从剩余时段中重新选择");
+      setOptions(value);
+      setVenueId(value.venues[0]?.id || "");
+      setStartsAt(formatBeijingDateTimeLocal(value.earliestStartsAt + 5 * 60_000));
     }).catch((loadError: unknown) => {
-      if (active) { setSlots([]); setError(loadError instanceof Error ? loadError.message : "可约时间加载失败，请重试"); }
-    }).finally(() => { if (active) setSlotsLoading(false); });
+      if (active) { setOptions(null); setError(loadError instanceof Error ? loadError.message : "预约配置加载失败，请重试"); }
+    }).finally(() => { if (active) setOptionsLoading(false); });
     return () => { active = false; };
   }, [initialSlotId, selectedCoach]);
   useEffect(() => {
@@ -201,24 +211,22 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
     } finally { setBusy(""); }
   }
 
-  async function book(slot: BookingSlot) {
-    if (!selectedLearnerId || !slot.venueId || !selectedCoach || !agreementAccepted) return;
-    const submissionKey = idempotencySlotId === slot.id ? idempotencyKey : `web-booking-${crypto.randomUUID()}`;
-    if (idempotencySlotId !== slot.id) {
-      setIdempotencyKey(submissionKey);
-      setIdempotencySlotId(slot.id);
-    }
-    setBusy(slot.id);
+  async function book() {
+    if (!selectedLearnerId || !selectedCoach || !options || !agreementAccepted) return;
+    const requestedStartsAt = parseBeijingDateTimeLocal(startsAt);
+    if (!Number.isFinite(requestedStartsAt)) { setError("请选择有效的北京时间"); return; }
+    if (locationType === "venue" && !venueId) { setError("请选择训练场馆"); return; }
+    if (locationType === "custom" && (!customDistrict.trim() || !customAddress.trim())) { setError("请填写期望区域和详细地点"); return; }
+    setBusy("submit");
     setError("");
     try {
       await platformRequest("/api/v1/bookings", {
-        body: { coachId: selectedCoach.id, learnerId: selectedLearnerId, note: bookingNote, slotId: slot.id, venueId: slot.venueId },
-        idempotencyKey: submissionKey,
+        body: { coachId: selectedCoach.id, customAddress, customDistrict, customLocationNote, durationMinutes, learnerId: selectedLearnerId, locationType, note: bookingNote, startsAt: requestedStartsAt, venueId: locationType === "venue" ? venueId : undefined },
+        idempotencyKey,
         method: "POST",
       });
-      setNotice("预约申请已提交，教练确认后生效；预约编号已写入下方记录");
+      setNotice("时间申请已提交，教练将在失效前确认或提出新方案");
       setIdempotencyKey(`web-booking-${crypto.randomUUID()}`);
-      setIdempotencySlotId("");
       setAgreementAccepted(false);
       await reload();
     } catch (actionError) {
@@ -266,9 +274,24 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
       {error ? <div className={styles.error} role="alert"><strong>操作没有完成</strong><p>{error}</p></div> : null}
       {!selectedCoach && initialCoachId ? <section className={styles.panel}><EmptyState action={<Link className={styles.primary} href="/student/coaches">重新选择教练</Link>} copy="该教练可能已下线、暂停接单或不再公开展示。" title="当前教练不可预约" /></section> : null}
       {selectedCoach ? <section className={styles.panel}>
-        <header className={styles.panelHeader}><div><h2>{selectedCoach.name}教练的可约时间</h2><p>{selectedCoach.sport} · {selectedCoach.district || "北京"} · 价格按实际训练时长计算 · 线下支付</p></div><Link className={styles.secondary} href={`/coaches/${selectedCoach.id}`}>查看教练档案</Link></header>
+        <header className={styles.panelHeader}><div><h2>向{selectedCoach.name}教练申请训练时间</h2><p>{selectedCoach.sport} · {selectedCoach.district || "北京"} · 自主选择北京时间 · 教练确认后生效</p></div><Link className={styles.secondary} href={`/coaches/${selectedCoach.id}`}>查看教练档案</Link></header>
         {!data.learnerProfiles.length ? <form className={styles.quickProfile} onSubmit={createLearner}><header><div><h3>先建立学员档案</h3><p>只填写本次预约所需信息，创建后会自动继续当前流程。</p></div><UserRound aria-hidden size={22} /></header><div className={styles.formGrid}><label className={styles.field}><span>学员姓名</span><input maxLength={40} name="name" required /></label><label className={styles.field}><span>身份关系</span><select defaultValue="self" name="relation"><option value="self">本人</option><option value="child">子女</option></select></label><label className={styles.field}><span>年龄</span><input max={100} min={1} name="age" required type="number" /></label><label className={styles.field}><span>性别</span><select defaultValue="unspecified" name="gender"><option value="unspecified">暂不填写</option><option value="male">男</option><option value="female">女</option></select></label><label className={styles.field}><span>运动项目</span><select defaultValue={selectedCoach.sport} name="sport">{SPORT_OPTIONS.map((item) => <option key={item}>{item}</option>)}</select></label><label className={styles.field}><span>训练基础</span><select defaultValue="初学" name="level"><option>初学</option><option>有一定基础</option><option>校队或专项训练</option></select></label><label className={styles.field}><span>训练目标</span><select defaultValue={selectedCoach.goals[0] || TRAINING_GOAL_OPTIONS[0]} name="goal">{Array.from(new Set([...TRAINING_GOAL_OPTIONS, ...selectedCoach.goals])).map((item) => <option key={item}>{item}</option>)}</select></label></div><button className={styles.primary} disabled={profileBusy} type="submit">{profileBusy ? "创建中" : "建立档案并继续"}</button></form> : null}
-        {slotsLoading ? <LoadingState label="正在读取真实可约时段" /> : slots.length ? <><div className={styles.formGrid}><label className={styles.field}><span>训练学员</span><select onChange={(event) => setSelectedLearnerId(event.target.value)} value={selectedLearnerId}><option value="">请选择学员档案</option>{data.learnerProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.goal}</option>)}</select></label><label className={styles.field}><span>训练需求说明</span><input maxLength={500} onChange={(event) => setBookingNote(event.target.value)} placeholder="需要教练提前了解的情况" value={bookingNote} /></label></div><label className={styles.consentRow}><input checked={agreementAccepted} onChange={(event) => setAgreementAccepted(event.target.checked)} type="checkbox" /><span>我已阅读服务与取消规则，理解预约需教练确认后生效，本次{bookingPriceLabel}费用按所选时段展示并生成不可变快照，采用线下支付。</span></label><div className={styles.list}>{slots.map((slot) => { const feeFen = hasPriorEffectiveBooking ? slot.regularFeeFen : slot.trialFeeFen; return <article className={styles.listItem} data-selected={initialSlotId === slot.id} key={slot.id}><span className={styles.listIcon}><Clock3 aria-hidden size={19} /></span><div><h3>{slot.dateLabel} {slot.date} · {slot.time}–{slot.endTime} · {slot.durationMinutes} 分钟</h3><p>{slot.venueName || "训练场馆"} · {slot.venueAddress || slot.venueDistrict || "地址待确认"}</p><small>{bookingPriceLabel} {feeFen == null ? "价格待发布" : formatFen(feeFen)}</small></div><button className={styles.primary} disabled={!slot.venueId || feeFen == null || busy === slot.id || !selectedLearnerId || !agreementAccepted || !selectedCoach.bookable} onClick={() => void book(slot)} type="button">{busy === slot.id ? "提交中" : initialSlotId === slot.id ? "预约这个时段" : "提交预约"}</button></article>; })}</div></> : <EmptyState copy={selectedCoach.unavailableReason || "教练尚未发布真实场馆与可约时段。你仍可收藏或发起咨询，发布后这里会自动开放。"} title="暂无可约时间" />}
+        {optionsLoading ? <LoadingState label="正在读取预约配置" /> : options ? <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void book(); }}>
+          <div className={styles.formGrid}>
+            <label className={styles.field}><span>训练学员</span><select onChange={(event) => setSelectedLearnerId(event.target.value)} value={selectedLearnerId}><option value="">请选择学员档案</option>{data.learnerProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.goal}</option>)}</select></label>
+            <label className={styles.field}><span>开始时间（北京时间）</span><input max={formatBeijingDateTimeLocal(options.latestStartsAt)} min={formatBeijingDateTimeLocal(options.earliestStartsAt)} onChange={(event) => { setStartsAt(event.target.value); setIdempotencyKey(`web-booking-${crypto.randomUUID()}`); }} required type="datetime-local" value={startsAt} /></label>
+          </div>
+          <div className={styles.durationOptions} aria-label="训练时长"><span>训练时长</span>{options.durationMinutes.map((minutes) => <button aria-pressed={durationMinutes === minutes} className={durationMinutes === minutes ? styles.selectedOption : undefined} key={minutes} onClick={() => { setDurationMinutes(minutes); setIdempotencyKey(`web-booking-${crypto.randomUUID()}`); }} type="button">{minutes}分钟</button>)}</div>
+          <div className={styles.formGrid}>
+            <label className={styles.field}><span>地点方式</span><select onChange={(event) => setLocationType(event.target.value as "venue" | "custom")} value={locationType}><option value="venue">教练已审核场馆</option><option value="custom">填写期望地点</option></select></label>
+            {locationType === "venue" ? <label className={styles.field}><span>训练场馆</span><select onChange={(event) => setVenueId(event.target.value)} value={venueId}><option value="">请选择场馆</option>{options.venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name} · {venue.district}</option>)}</select></label> : <label className={styles.field}><span>期望区域</span><input maxLength={40} onChange={(event) => setCustomDistrict(event.target.value)} placeholder="例如：通州区" value={customDistrict} /></label>}
+          </div>
+          {locationType === "custom" ? <div className={styles.formGrid}><label className={styles.field}><span>详细地点</span><input maxLength={240} onChange={(event) => setCustomAddress(event.target.value)} placeholder="仅预约双方与运营可见" value={customAddress} /></label><label className={styles.field}><span>地点补充说明</span><input maxLength={300} onChange={(event) => setCustomLocationNote(event.target.value)} placeholder="集合点、交通或场地要求" value={customLocationNote} /></label></div> : null}
+          <label className={styles.field}><span>训练需求说明</span><textarea maxLength={500} onChange={(event) => setBookingNote(event.target.value)} placeholder="需要教练提前了解的训练目标、基础或伤病情况" rows={3} value={bookingNote} /></label>
+          <section className={styles.bookingSummary}><span><strong>{bookingPriceLabel} · {durationMinutes}分钟</strong><small>申请提交后价格生成快照，教练不能修改</small></span><b>{formatFen(calculateDurationPriceFen(hasPriorEffectiveBooking ? options.regularBasePriceFen : options.trialBasePriceFen, durationMinutes))}</b></section>
+          <label className={styles.consentRow}><input checked={agreementAccepted} onChange={(event) => setAgreementAccepted(event.target.checked)} type="checkbox" /><span>我已阅读服务与取消规则。申请需教练确认后生效，24小时未处理或到达训练开始时间会自动失效，采用线下支付。</span></label>
+          <button className={styles.primary} disabled={busy === "submit" || !selectedLearnerId || !agreementAccepted || (locationType === "venue" ? !venueId : !customDistrict.trim() || !customAddress.trim())} type="submit">{busy === "submit" ? "正在提交" : "提交时间申请"}</button>
+        </form> : <EmptyState copy={selectedCoach.unavailableReason || "该教练当前未上线接单，你可以稍后再试或先发起咨询。"} title="暂时不能预约" />}
       </section> : null}
       {proposals.some((item) => item.status === "pending") ? <section className={styles.panel}><header className={styles.panelHeader}><div><h2>待确认改期</h2><p>确认前请核对新时间和场馆</p></div></header><div className={styles.list}>{proposals.filter((item) => item.status === "pending").map((proposal) => <article className={styles.listItem} key={proposal.id}><span className={styles.listIcon}><Clock3 aria-hidden size={19} /></span><div><h3>{formatBeijingDate(proposal.starts_at)}</h3><p>{proposal.venue_name || "训练场馆"} · {proposal.note || "教练提出新的训练时间"}</p></div><span className={styles.rowActions}><button className={styles.danger} disabled={busy === proposal.id} onClick={() => void respondToReschedule(proposal.id, "rejected")} type="button">拒绝</button><button className={styles.primary} disabled={busy === proposal.id} onClick={() => void respondToReschedule(proposal.id, "accepted")} type="button">接受改期</button></span></article>)}</div></section> : null}
       <section className={styles.panel}>

@@ -71,7 +71,7 @@ test("homepage discovery defaults to a real match and consultation keeps coach c
   assert.match(detail, /\?coach=\$\{coach\.id\}#service-inquiry/);
 });
 
-test("web booking keeps coach and slot context through login and submission", async () => {
+test("web booking keeps coach context and submits a student-selected time", async () => {
   const [accessDenied, directory, detail, studentPages, studentRoute, platformClient, platformRoute] = await Promise.all([
     read("app/_components/access-denied.tsx"),
     read("app/_components/coach-directory.tsx"),
@@ -82,16 +82,16 @@ test("web booking keeps coach and slot context through login and submission", as
     read("app/api/platform/route.ts"),
   ]);
 
-  assert.match(directory, /\/student\/bookings\?coach=\$\{coach\.id\}.*slot=\$\{encodeURIComponent\(firstSlot\.id\)\}/s);
+  assert.match(directory, /\/student\/bookings\?coach=\$\{coach\.id\}/s);
   assert.match(accessDenied, /usePathname/);
   assert.match(accessDenied, /useSearchParams/);
   assert.match(accessDenied, /encodeURIComponent\(requestedPath\)/);
-  assert.match(directory, /\/api\/v1\/coaches\/\$\{selected\.id\}\/slots/);
-  assert.match(detail, /loadPublicCoachSlots/);
+  assert.doesNotMatch(directory, /\/slots/);
+  assert.doesNotMatch(detail, /loadPublicCoachSlots/);
   assert.match(detail, /\/login\?next=\$\{encodeURIComponent\(bookingTarget\)\}/);
   assert.match(studentRoute, /query\.slot/);
   assert.match(studentPages, /\/api\/v1\/learner-profiles/);
-  assert.match(studentPages, /idempotencyKey:\s*submissionKey/);
+  assert.match(studentPages, /idempotencyKey,/);
   assert.match(studentPages, /hasPriorEffectiveBooking/);
   assert.match(studentPages, /bookingPriceLabel/);
   assert.match(studentPages, /教练确认后预约才会生效/);
@@ -200,7 +200,7 @@ test("keeps the native MVP and business API isolated from browser routing", asyn
   for (const table of ["users", "learner_profiles", "coaches", "coach_credentials", "availability_slots", "favorites", "booking_requests", "booking_events", "conversations", "messages", "notifications", "auth_challenges", "sessions"]) {
     assert.match(schema, new RegExp(`\\b${table}\\b`));
   }
-  for (const page of ["预约管理", "排期与场馆", "学员消息", "课程记录", "线下收款", "资质与资料"]) {
+  for (const page of ["预约管理", "接单状态与日程", "学员消息", "课程记录", "线下收款", "资质与资料"]) {
     assert.match(coachPages, new RegExp(page));
   }
 });

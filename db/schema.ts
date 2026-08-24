@@ -143,11 +143,13 @@ export const availabilitySlots = sqliteTable("availability_slots", {
   venueId: text("venue_id").notNull().references(() => venues.id),
   startsAt: integer("starts_at", { mode: "timestamp_ms" }).notNull(),
   endsAt: integer("ends_at", { mode: "timestamp_ms" }).notNull(),
-  status: text("status", { enum: ["open", "held", "booked", "blocked"] }).notNull().default("open"),
+  status: text("status", { enum: ["open", "held", "booked", "blocked", "expired"] }).notNull().default("open"),
+  source: text("source", { enum: ["coach_open", "student_request", "coach_proposal", "legacy"] }).notNull().default("coach_open"),
+  ownerBookingId: text("owner_booking_id"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
 }, (table) => [
-  uniqueIndex("availability_slots_coach_time_unique").on(table.coachId, table.startsAt, table.endsAt),
+  index("availability_slots_coach_time_idx").on(table.coachId, table.startsAt, table.endsAt),
   index("availability_slots_query_idx").on(table.coachId, table.status, table.startsAt),
   check("availability_slots_time_check", sql`${table.endsAt} > ${table.startsAt}`),
 ]);
@@ -167,7 +169,7 @@ export const bookingRequests = sqliteTable("booking_requests", {
   venueId: text("venue_id").notNull().references(() => venues.id),
   slotId: text("slot_id").notNull().references(() => availabilitySlots.id),
   status: text("status", {
-    enum: ["pending_coach", "confirmed", "reschedule_requested", "completed", "rejected", "cancelled_by_student", "cancelled_by_coach"],
+    enum: ["pending_coach", "confirmed", "reschedule_requested", "completed", "rejected", "expired", "cancelled_by_student", "cancelled_by_coach"],
   }).notNull().default("pending_coach"),
   feeFen: integer("fee_fen").notNull(),
   paymentStatus: text("payment_status", { enum: ["offline_unpaid", "offline_paid"] }).notNull().default("offline_unpaid"),
@@ -299,6 +301,21 @@ export const notificationPreferences = sqliteTable("notification_preferences", {
   updateEnabled: integer("update_enabled", { mode: "boolean" }).notNull().default(true),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
 });
+
+export const bookingRequestDetails = sqliteTable("booking_request_details", {
+  bookingId: text("booking_id").primaryKey().references(() => bookingRequests.id, { onDelete: "cascade" }),
+  requestedStartsAt: integer("requested_starts_at", { mode: "timestamp_ms" }).notNull(),
+  requestedEndsAt: integer("requested_ends_at", { mode: "timestamp_ms" }).notNull(),
+  durationMinutes: integer("duration_minutes").notNull(),
+  locationType: text("location_type", { enum: ["venue", "custom"] }).notNull(),
+  requestedVenueId: text("requested_venue_id").references(() => venues.id),
+  customDistrict: text("custom_district"),
+  customAddress: text("custom_address"),
+  customNote: text("custom_note"),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [index("booking_request_details_expiry_idx").on(table.expiresAt)]);
 
 export const pushDeliveries = sqliteTable("push_deliveries", {
   id: text("id").primaryKey(),
@@ -441,6 +458,10 @@ export const bookingRescheduleProposals = sqliteTable("booking_reschedule_propos
   previousBookingStatus: text("previous_booking_status", { enum: ["pending_coach", "confirmed"] }).notNull(),
   status: text("status", { enum: ["pending", "accepted", "rejected", "cancelled"] }).notNull().default("pending"),
   note: text("note").notNull().default(""),
+  locationType: text("location_type", { enum: ["venue", "custom"] }).notNull().default("venue"),
+  customDistrict: text("custom_district"),
+  customAddress: text("custom_address"),
+  customNote: text("custom_note"),
   respondedAt: integer("responded_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),

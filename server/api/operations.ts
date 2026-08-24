@@ -587,19 +587,51 @@ export async function listOpsAuditLogsD1(env: ApiEnv) {
   return rows(result);
 }
 
-export async function createCoachRescheduleProposalD1(identity: CoachIdentity, input: { bookingId: string; note: string; slotId: string }, env: ApiEnv) {
+export async function createCoachRescheduleProposalD1(identity: CoachIdentity, input: { bookingId: string; customAddress?: string; customDistrict?: string; customLocationNote?: string; locationType?: "venue" | "custom"; note: string; slotId?: string; startsAt?: number; venueId?: string }, env: ApiEnv) {
   const database = db(env); const now = Date.now();
-  const booking = await database.prepare("SELECT id, user_id, slot_id, status FROM booking_requests WHERE id = ? AND coach_id = ?").bind(input.bookingId, identity.coachId).first<Row>();
+  const booking = await database.prepare(`SELECT b.id, b.user_id, b.slot_id, b.status, b.venue_id, s.starts_at, s.ends_at,
+    coalesce(d.duration_minutes, round((s.ends_at - s.starts_at) / 60000)) AS duration_minutes
+    FROM booking_requests b JOIN availability_slots s ON s.id = b.slot_id
+    LEFT JOIN booking_request_details d ON d.booking_id = b.id WHERE b.id = ? AND b.coach_id = ?`
+  ).bind(input.bookingId, identity.coachId).first<Row>();
   if (!booking || (booking.status !== "pending_coach" && booking.status !== "confirmed")) throw new ApiError(409, "booking_not_reschedulable", "该预约当前不能发起改期");
-  const slot = await database.prepare("SELECT id, venue_id, starts_at, status FROM availability_slots WHERE id = ? AND coach_id = ?").bind(input.slotId, identity.coachId).first<Row>();
-  if (!slot || slot.status !== "open" || Number(slot.starts_at) <= now) throw new ApiError(409, "reschedule_slot_unavailable", "改期时段已不可用");
   const pending = await database.prepare("SELECT id FROM booking_reschedule_proposals WHERE booking_id = ? AND status = 'pending'").bind(input.bookingId).first<Row>();
   if (pending) throw new ApiError(409, "reschedule_already_pending", "该预约已有待确认的改期方案");
+  let slotId = input.slotId || "";
+  let locationType = input.locationType || "venue";
+  let venueId = input.venueId || "";
+  if (slotId) {
+    const legacySlot = await database.prepare("SELECT id, venue_id, starts_at, status FROM availability_slots WHERE id = ? AND coach_id = ?").bind(slotId, identity.coachId).first<Row>();
+    if (!legacySlot || legacySlot.status !== "open" || Number(legacySlot.starts_at) <= now) throw new ApiError(409, "reschedule_slot_unavailable", "改期时段已不可用");
+    venueId = String(legacySlot.venue_id);
+  } else {
+    if (!input.startsAt || input.startsAt <= now) throw new ApiError(422, "invalid_proposal_time", "请选择未来的训练时间");
+    if (locationType === "venue") {
+      const venue = await database.prepare("SELECT id FROM venues WHERE id = ? AND coach_id = ? AND active = 1").bind(venueId, identity.coachId).first<Row>();
+      if (!venue) throw new ApiError(422, "venue_not_found", "请选择有效的训练场馆");
+    } else {
+      if (!input.customDistrict?.trim() || !input.customAddress?.trim()) throw new ApiError(422, "custom_location_required", "请填写新的区域和详细地点");
+      venueId = `venue_coordination_${identity.coachId}`;
+      await database.prepare(`INSERT OR IGNORE INTO venues (id, coach_id, name, address, city, district, active, created_at, updated_at)
+        VALUES (?, ?, '协商训练地点', '仅预约双方可见', '北京', ?, 0, ?, ?)`)
+        .bind(venueId, identity.coachId, input.customDistrict.trim().slice(0, 40), now, now).run();
+    }
+    slotId = randomId("proposal_slot");
+    const endsAt = input.startsAt + Number(booking.duration_minutes) * 60_000;
+    await database.prepare(`INSERT INTO availability_slots (id, coach_id, venue_id, starts_at, ends_at, status, source, owner_booking_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'held', 'coach_proposal', ?, ?, ?)`
+    ).bind(slotId, identity.coachId, venueId, input.startsAt, endsAt, input.bookingId, now, now).run();
+  }
   const id = randomId("reschedule");
   const result = await database.batch([
     database.prepare("UPDATE booking_requests SET status = 'reschedule_requested', updated_at = ? WHERE id = ? AND status = ?").bind(now, input.bookingId, booking.status),
-    database.prepare("UPDATE availability_slots SET status = 'held', updated_at = ? WHERE id = ? AND status = 'open'").bind(now, input.slotId),
-    database.prepare("INSERT INTO booking_reschedule_proposals (id, booking_id, proposed_slot_id, proposed_by, previous_booking_status, status, note, created_at, updated_at) VALUES (?, ?, ?, 'coach', ?, 'pending', ?, ?, ?)").bind(id, input.bookingId, input.slotId, booking.status, input.note.trim().slice(0, 500), now, now),
+    database.prepare("UPDATE availability_slots SET status = 'held', updated_at = ? WHERE id = ? AND status IN ('open','held')").bind(now, slotId),
+    database.prepare(`INSERT INTO booking_reschedule_proposals (id, booking_id, proposed_slot_id, proposed_by, previous_booking_status, status, note, location_type, custom_district, custom_address, custom_note, created_at, updated_at)
+      VALUES (?, ?, ?, 'coach', ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, input.bookingId, slotId, booking.status, input.note.trim().slice(0, 500), locationType,
+      locationType === "custom" ? input.customDistrict?.trim().slice(0, 40) : null,
+      locationType === "custom" ? input.customAddress?.trim().slice(0, 240) : null,
+      locationType === "custom" ? input.customLocationNote?.trim().slice(0, 300) || null : null, now, now),
     database.prepare("INSERT INTO notifications (id, user_id, type, title, body, entity_type, entity_id, target_mode, deep_link, created_at) VALUES (?, ?, 'booking_status', '教练提出改期方案', '请查看新时段并确认或拒绝', 'booking', ?, 'student', 'zhuguang://student/bookings', ?)").bind(randomId("notification"), booking.user_id, input.bookingId, now),
   ]);
   if (!result[0].meta.changes || !result[1].meta.changes) throw new ApiError(409, "reschedule_concurrent_change", "预约或时段已变化，请刷新后重试");
@@ -609,7 +641,8 @@ export async function createCoachRescheduleProposalD1(identity: CoachIdentity, i
 export async function listStudentRescheduleProposalsD1(identity: StudentIdentity, env: ApiEnv) {
   const result = await db(env).prepare(`
     SELECT p.id, p.booking_id, p.proposed_slot_id, p.status, p.note, p.created_at,
-      s.starts_at, s.ends_at, v.name AS venue_name, v.address AS venue_address
+      s.starts_at, s.ends_at, v.name AS venue_name, v.address AS venue_address,
+      p.location_type, p.custom_district, p.custom_address, p.custom_note
     FROM booking_reschedule_proposals p
     JOIN booking_requests b ON b.id = p.booking_id
     JOIN availability_slots s ON s.id = p.proposed_slot_id
@@ -627,16 +660,30 @@ export async function respondStudentRescheduleProposalD1(identity: StudentIdenti
     WHERE p.id = ? AND b.user_id = ? AND p.status = 'pending' AND b.status = 'reschedule_requested'
   `).bind(id, identity.userId).first<Row>();
   if (!proposal) throw new ApiError(409, "reschedule_not_pending", "该改期方案已处理或不存在");
+  if (decision === "accepted") {
+    const proposedSlot = await database.prepare("SELECT coach_id, starts_at, ends_at, venue_id FROM availability_slots WHERE id = ? AND status = 'held'").bind(proposal.proposed_slot_id).first<Row>();
+    if (!proposedSlot || Number(proposedSlot.starts_at) <= now) throw new ApiError(409, "reschedule_slot_unavailable", "该方案时间已失效，请让教练重新提出方案");
+    const conflict = await database.prepare(`SELECT b.id FROM booking_requests b JOIN availability_slots s ON s.id = b.slot_id
+      WHERE b.coach_id = ? AND b.id <> ? AND b.status = 'confirmed' AND s.starts_at < ? AND s.ends_at > ? LIMIT 1`
+    ).bind(proposedSlot.coach_id, proposal.booking_id, proposedSlot.ends_at, proposedSlot.starts_at).first<Row>();
+    if (conflict) throw new ApiError(409, "coach_time_conflict", "教练在该时间已有确认课程，请重新协商");
+  }
   const statements = [database.prepare("UPDATE booking_reschedule_proposals SET status = ?, responded_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'").bind(decision, now, now, id)];
   if (decision === "accepted") {
     statements.push(
-      database.prepare("UPDATE availability_slots SET status = 'open', updated_at = ? WHERE id = ?").bind(now, proposal.original_slot_id),
+      database.prepare("UPDATE availability_slots SET status = CASE WHEN source = 'coach_open' THEN 'open' ELSE 'expired' END, updated_at = ? WHERE id = ?").bind(now, proposal.original_slot_id),
       database.prepare("UPDATE availability_slots SET status = 'booked', updated_at = ? WHERE id = ? AND status = 'held'").bind(now, proposal.proposed_slot_id),
       database.prepare("UPDATE booking_requests SET slot_id = ?, venue_id = (SELECT venue_id FROM availability_slots WHERE id = ?), status = 'confirmed', updated_at = ? WHERE id = ? AND user_id = ? AND status = 'reschedule_requested'").bind(proposal.proposed_slot_id, proposal.proposed_slot_id, now, proposal.booking_id, identity.userId),
+      database.prepare(`UPDATE booking_request_details SET requested_starts_at = (SELECT starts_at FROM availability_slots WHERE id = ?),
+        requested_ends_at = (SELECT ends_at FROM availability_slots WHERE id = ?), location_type = ?,
+        requested_venue_id = CASE WHEN ? = 'venue' THEN (SELECT venue_id FROM availability_slots WHERE id = ?) ELSE NULL END,
+        custom_district = ?, custom_address = ?, custom_note = ?, updated_at = ? WHERE booking_id = ?`
+      ).bind(proposal.proposed_slot_id, proposal.proposed_slot_id, proposal.location_type, proposal.location_type,
+        proposal.proposed_slot_id, proposal.custom_district, proposal.custom_address, proposal.custom_note, now, proposal.booking_id),
     );
   } else {
     statements.push(
-      database.prepare("UPDATE availability_slots SET status = 'open', updated_at = ? WHERE id = ? AND status = 'held'").bind(now, proposal.proposed_slot_id),
+      database.prepare("UPDATE availability_slots SET status = CASE WHEN source = 'coach_open' THEN 'open' ELSE 'expired' END, updated_at = ? WHERE id = ? AND status = 'held'").bind(now, proposal.proposed_slot_id),
       database.prepare("UPDATE booking_requests SET status = ?, updated_at = ? WHERE id = ? AND user_id = ? AND status = 'reschedule_requested'").bind(proposal.previous_booking_status, now, proposal.booking_id, identity.userId),
     );
   }

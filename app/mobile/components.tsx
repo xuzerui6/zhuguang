@@ -221,7 +221,7 @@ export function CoachCard({
           <span className="zg-coach-card-meta">
             {coach.profileKind === "demo" ? <b className="is-demo">演示</b> : coach.isNew ? <b className="is-new">新教练</b> : <b><Star aria-hidden fill="currentColor" size={14} />{coach.rating}</b>}
             {coach.distanceKm ? <i>{coach.distanceKm.toFixed(1)}km</i> : <i>{coach.district}</i>}
-            <i>{coach.profileKind === "demo" ? "不可预约" : coach.bookable === false ? "时段待发布" : `${coach.availability[0]}可约`}</i>
+            <i>{coach.profileKind === "demo" ? "不可预约" : coach.bookable === false ? "当前未接单" : "可指定时间"}</i>
           </span>
         </span>
         <MatchScore score={match.score} />

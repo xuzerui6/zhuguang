@@ -3,6 +3,7 @@ import { getOrCreateDeviceId, readSession, writeSession } from "./device";
 import type {
   AppRelease,
   BookingSlot,
+  BookingOptions,
   BookingStatus,
   CoachOverview,
   LearnerProfile,
@@ -145,12 +146,18 @@ export const mobileApi = {
     method: favorite ? "PUT" : "DELETE",
   }),
   coachSlots: (coachId: number) => request<BookingSlot[]>(`/api/v1/coaches/${coachId}/slots`),
+  coachBookingOptions: (coachId: number) => request<BookingOptions>(`/api/v1/coaches/${coachId}/booking-options`),
   createBooking: (input: {
     coachId: number;
+    customAddress?: string;
+    customDistrict?: string;
+    customLocationNote?: string;
+    durationMinutes: 60 | 90 | 120;
     learnerId: string;
+    locationType: "venue" | "custom";
     note: string;
-    slotId: string;
-    venueId: string;
+    startsAt: number;
+    venueId?: string;
   }) => request<MobileBooking>("/api/v1/bookings", {
     body: JSON.stringify(input),
     headers: { "idempotency-key": createRequestId("booking-submit") },
@@ -183,6 +190,12 @@ export const mobileApi = {
   coachCreateSlot: (input: { endsAt: number; startsAt: number; venueId: string }) => request(`/api/v1/coach/slots`, {
     body: JSON.stringify(input),
     method: "POST",
+  }),
+  coachSetAvailability: (online: boolean) => request<{ effectiveOnline: boolean; online: boolean }>("/api/v1/coach/availability", {
+    body: JSON.stringify({ online }), method: "PATCH",
+  }),
+  coachProposeReschedule: (input: { bookingId: string; startsAt: number; venueId: string; note: string }) => request<{ id: string; status: string }>("/api/v1/coach/reschedule-proposals", {
+    body: JSON.stringify({ ...input, locationType: "venue" }), method: "POST",
   }),
   coachSendMessage: (conversationId: string, body: string) => request(`/api/v1/coach/conversations/${conversationId}/messages`, {
     body: JSON.stringify({ body }),

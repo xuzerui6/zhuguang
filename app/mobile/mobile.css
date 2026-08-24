@@ -1323,6 +1323,28 @@
   text-decoration: line-through;
 }
 
+.zg-mobile-field,
+.zg-mobile-field-grid { display: grid; gap: 8px; }
+.zg-mobile-field-grid { gap: 12px; }
+.zg-mobile-field > span { color: #526159; font-size: 13px; font-weight: 700; }
+.zg-mobile-field input,
+.zg-mobile-field select {
+  background: #fff;
+  border: 1px solid #d9e1dc;
+  border-radius: 7px;
+  color: #173329;
+  font: inherit;
+  min-height: 48px;
+  padding: 0 12px;
+  width: 100%;
+}
+.zg-mobile-field > small { align-items: center; color: #6b7971; display: flex; font-size: 12px; gap: 5px; line-height: 1.5; }
+.zg-duration-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 14px; }
+.zg-field-hint { color: #6b7971; font-size: 12px; line-height: 1.6; margin: 12px 0 0; }
+.zg-location-toggle { background: #eef3f0; border-radius: 7px; display: grid; gap: 4px; grid-template-columns: 1fr 1fr; margin-bottom: 14px; padding: 4px; }
+.zg-location-toggle button { background: transparent; border: 0; border-radius: 5px; color: #607068; font-weight: 700; min-height: 42px; }
+.zg-location-toggle button[aria-pressed="true"] { background: #fff; box-shadow: 0 1px 4px rgb(4 30 20 / 10%); color: #087a50; }
+
 .zg-select-row {
   align-items: center;
   background: #fff;

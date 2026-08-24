@@ -89,16 +89,14 @@ export function CoachDetailView({
       </section>
 
       <section className="zg-detail-section">
-        <header><h2>近期可约</h2>{coach.availability.length ? <button onClick={onBook} type="button">更多日期<ChevronRight aria-hidden size={16} /></button> : null}</header>
-        {coach.availability.length && coach.profileKind !== "demo" ? <div className="zg-slot-preview">
-          {coach.availability.slice(0, 3).map((slot) => <span key={slot}>{slot}</span>)}
-        </div> : <div className="zg-slot-empty"><Clock3 aria-hidden size={18} /><span><strong>{coach.profileKind === "demo" ? "演示资料不可预约" : "可约时段待发布"}</strong><small>{coach.profileKind === "demo" ? "请选择真实教练继续咨询。" : "可先收藏或咨询，运营确认真实场地与时段后开放预约。"}</small></span></div>}
+        <header><h2>预约方式</h2>{coach.bookable ? <button onClick={onBook} type="button">选择时间<ChevronRight aria-hidden size={16} /></button> : null}</header>
+        {coach.bookable && coach.profileKind !== "demo" ? <div className="zg-slot-empty"><Clock3 aria-hidden size={18} /><span><strong>学员自主指定时间</strong><small>选择未来2小时至60天内的北京时间、训练时长与地点，教练确认后生效。</small></span></div> : <div className="zg-slot-empty"><Clock3 aria-hidden size={18} /><span><strong>{coach.profileKind === "demo" ? "演示资料不可预约" : "当前未上线接单"}</strong><small>{coach.profileKind === "demo" ? "请选择真实教练继续咨询。" : coach.unavailableReason || "可先收藏或咨询教练。"}</small></span></div>}
       </section>
 
       <div className="zg-detail-bottom-space" />
       <footer className="zg-detail-action">
         <button aria-label="发送消息" className="zg-secondary-icon-action" disabled={coach.canConsult === false || coach.profileKind === "demo"} onClick={onMessage} type="button"><MessageCircle aria-hidden size={21} /><small>{coach.profileKind === "demo" ? "不可咨询" : "咨询"}</small></button>
-        <button className="zg-primary-action" disabled={coach.bookable === false || coach.trialPrice === undefined || coach.profileKind === "demo"} onClick={onBook} type="button">{coach.profileKind === "demo" ? "演示资料" : coach.bookable === false || coach.trialPrice === undefined ? "时段待发布" : <>申请试课 <span>{formatYuan(coach.trialPrice * 100)}</span></>}</button>
+        <button className="zg-primary-action" disabled={coach.bookable === false || coach.trialPrice === undefined || coach.profileKind === "demo"} onClick={onBook} type="button">{coach.profileKind === "demo" ? "演示资料" : coach.bookable === false || coach.trialPrice === undefined ? "当前未接单" : <>选择时间预约 <span>{formatYuan(coach.trialPrice * 100)}起</span></>}</button>
       </footer>
     </div>
   );

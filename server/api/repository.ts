@@ -92,7 +92,6 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
   const profileKind = row.profile_kind === "demo" ? "demo" : "real";
   const pricingPublished = row.pricing_status !== "unavailable";
   const bookingEnabled = row.booking_enabled !== 0;
-  const hasOpenSlots = numberValue(row.open_slot_count) > 0 || availability.length > 0;
   const audience = jsonArray(row.audience_json);
   const goals = jsonArray(row.goals_json);
   const honors = jsonArray(row.honors_json);
@@ -115,7 +114,7 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
     audience,
     availability,
     avatarUrl: publicCoachMediaUrl(row, "avatar", env),
-    bookable: profileKind === "real" && bookingEnabled && pricingPublished && hasOpenSlots,
+    bookable: profileKind === "real" && bookingEnabled && pricingPublished,
     bookingEnabled,
     canConsult: profileKind === "real",
     cardUrl: publicCoachMediaUrl(row, "card", env),
@@ -155,9 +154,7 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
         ? "教练暂时停止接受新预约"
         : !pricingPublished
           ? "课程价格尚未发布"
-          : !hasOpenSlots
-            ? "可约时段待发布"
-            : undefined,
+          : undefined,
     venue: stringValue(row.venue_name),
     verificationLabel,
     verified: row.audit_status === "approved",
@@ -200,6 +197,12 @@ function mapBooking(row: Row): MobileBooking {
     submittedAt: "已提交",
     venueId: stringValue(row.venue_id),
     venueName: row.venue_name ? stringValue(row.venue_name) : undefined,
+    customAddress: row.custom_address ? stringValue(row.custom_address) : undefined,
+    customDistrict: row.custom_district ? stringValue(row.custom_district) : undefined,
+    customLocationNote: row.custom_note ? stringValue(row.custom_note) : undefined,
+    durationMinutes: row.duration_minutes ? numberValue(row.duration_minutes) : durationMinutesBetween(startsAt, endsAt),
+    expiresAt: row.expires_at ? numberValue(row.expires_at) : undefined,
+    locationType: row.location_type ? stringValue(row.location_type) as MobileBooking["locationType"] : "venue",
   };
 }
 
@@ -575,7 +578,7 @@ export async function deleteAccountD1(identity: StudentIdentity, env: ApiEnv) {
 }
 
 export async function listCoachesD1(env: ApiEnv, filters: URLSearchParams) {
-  const clauses = ["profile_kind = 'real'", "audit_status = 'approved'", "listing_status = 'online'", "city = '北京'"];
+  const clauses = ["profile_kind = 'real'", "audit_status = 'approved'", "listing_status = 'online'", "booking_enabled = 1", "city = '北京'"];
   const values: unknown[] = [];
   for (const [field, column] of [["sport", "sport"], ["district", "district"]] as const) {
     const value = filters.get(field);
@@ -607,7 +610,7 @@ export async function getCoachD1(coachId: number, env: ApiEnv) {
     (SELECT count(*) FROM availability_slots slots WHERE slots.coach_id = coaches.id AND slots.status = 'open' AND slots.starts_at > unixepoch() * 1000) AS open_slot_count
     FROM coaches WHERE id = ? AND profile_kind = 'real'`).bind(coachId).first<Row>();
   if (!row) throw new ApiError(404, "coach_not_found", "未找到该教练");
-  if (row.audit_status !== "approved" || row.listing_status !== "online") {
+  if (row.audit_status !== "approved" || row.listing_status !== "online" || row.booking_enabled === 0) {
     throw new ApiError(410, "coach_offline", "该教练当前未公开展示");
   }
   return mapCoach(row, env);
@@ -666,12 +669,27 @@ async function listLearners(userId: string, env: ApiEnv): Promise<LearnerProfile
 }
 
 async function listBookings(userId: string, env: ApiEnv) {
+  await expirePendingBookingRequestsD1(env);
   const result = await db(env).prepare(`
-    SELECT b.*, s.starts_at, s.ends_at FROM booking_requests b
+    SELECT b.*, s.starts_at, s.ends_at, d.duration_minutes, d.location_type, d.custom_district, d.custom_address, d.custom_note, d.expires_at FROM booking_requests b
     JOIN availability_slots s ON s.id = b.slot_id
+    LEFT JOIN booking_request_details d ON d.booking_id = b.id
     WHERE b.user_id = ? ORDER BY b.created_at DESC LIMIT 100
   `).bind(userId).all<Row>();
   return (result.results ?? []).map(mapBooking);
+}
+
+export async function expirePendingBookingRequestsD1(env: ApiEnv) {
+  const database = db(env);
+  const now = Date.now();
+  await database.batch([
+    database.prepare(`UPDATE booking_requests SET status = 'expired', updated_at = ?
+      WHERE status = 'pending_coach' AND id IN (SELECT booking_id FROM booking_request_details WHERE expires_at <= ? OR requested_starts_at <= ?)`
+    ).bind(now, now, now),
+    database.prepare(`UPDATE availability_slots SET status = 'expired', updated_at = ?
+      WHERE source = 'student_request' AND status = 'held' AND owner_booking_id IN (SELECT id FROM booking_requests WHERE status = 'expired')`
+    ).bind(now),
+  ]);
 }
 
 async function listConversations(userId: string, env: ApiEnv): Promise<MobileConversation[]> {
@@ -736,6 +754,130 @@ export async function setFavoriteD1(userId: string, coachId: number, favorite: b
   }
   const rows = await database.prepare("SELECT coach_id FROM favorites WHERE user_id = ? ORDER BY coach_id").bind(userId).all<Row>();
   return { favoriteCoachIds: (rows.results ?? []).map((row) => numberValue(row.coach_id)) };
+}
+
+const BOOKING_DURATIONS = [60, 90, 120] as const;
+const MIN_BOOKING_NOTICE_MS = 2 * 60 * 60_000;
+const MAX_BOOKING_HORIZON_MS = 60 * 24 * 60 * 60_000;
+
+export async function getCoachBookingOptionsD1(coachId: number, env: ApiEnv) {
+  const database = db(env);
+  const coach = await database.prepare(`SELECT id, price_fen, trial_price_fen FROM coaches
+    WHERE id = ? AND profile_kind = 'real' AND audit_status = 'approved' AND listing_status = 'online'
+      AND booking_enabled = 1 AND pricing_status = 'published'`).bind(coachId).first<Row>();
+  if (!coach) throw new ApiError(410, "coach_not_accepting_requests", "该教练当前未上线接单");
+  const venues = await database.prepare(`SELECT id, coach_id, name, address, district FROM venues
+    WHERE coach_id = ? AND active = 1 AND id NOT LIKE 'venue_coordination_%' ORDER BY created_at`).bind(coachId).all<Row>();
+  const now = Date.now();
+  return {
+    coachId,
+    durationMinutes: BOOKING_DURATIONS,
+    earliestStartsAt: now + MIN_BOOKING_NOTICE_MS,
+    latestStartsAt: now + MAX_BOOKING_HORIZON_MS,
+    regularBasePriceFen: numberValue(coach.price_fen),
+    trialBasePriceFen: numberValue(coach.trial_price_fen),
+    venues: (venues.results ?? []).map((venue) => ({
+      address: stringValue(venue.address), coachId, district: stringValue(venue.district),
+      id: stringValue(venue.id), name: stringValue(venue.name),
+    })),
+  };
+}
+
+export async function createTimeRequestBookingD1(
+  identity: StudentIdentity,
+  input: {
+    coachId: number;
+    customAddress?: string;
+    customDistrict?: string;
+    customLocationNote?: string;
+    durationMinutes: number;
+    learnerId: string;
+    locationType: "venue" | "custom";
+    note: string;
+    startsAt: number;
+    venueId?: string;
+  },
+  idempotencyKey: string,
+  env: ApiEnv,
+) {
+  const database = db(env);
+  const existing = await database.prepare(`SELECT b.*, s.starts_at, s.ends_at, d.* FROM booking_requests b
+    JOIN availability_slots s ON s.id = b.slot_id LEFT JOIN booking_request_details d ON d.booking_id = b.id
+    WHERE b.user_id = ? AND b.idempotency_key = ?`).bind(identity.userId, idempotencyKey).first<Row>();
+  if (existing) return mapBooking(existing);
+
+  const now = Date.now();
+  const fieldErrors: Record<string, string> = {};
+  if (!BOOKING_DURATIONS.includes(input.durationMinutes as typeof BOOKING_DURATIONS[number])) fieldErrors.durationMinutes = "请选择60、90或120分钟";
+  if (!Number.isFinite(input.startsAt) || input.startsAt < now + MIN_BOOKING_NOTICE_MS) fieldErrors.startsAt = "预约时间至少需要提前2小时";
+  if (input.startsAt > now + MAX_BOOKING_HORIZON_MS) fieldErrors.startsAt = "只能预约未来60天内的时间";
+  if (input.locationType !== "venue" && input.locationType !== "custom") fieldErrors.locationType = "请选择训练地点方式";
+  if (input.locationType === "custom" && (!input.customDistrict?.trim() || !input.customAddress?.trim())) fieldErrors.customAddress = "请填写期望区域和详细地点";
+  if (Object.keys(fieldErrors).length) throw new ApiError(422, "invalid_booking_request", "请检查预约时间和地点", fieldErrors);
+
+  const coach = await database.prepare(`SELECT * FROM coaches WHERE id = ? AND profile_kind = 'real'
+    AND audit_status = 'approved' AND listing_status = 'online' AND booking_enabled = 1 AND pricing_status = 'published'`
+  ).bind(input.coachId).first<Row>();
+  if (!coach) throw new ApiError(410, "coach_not_accepting_requests", "该教练当前未上线接单");
+  const learner = await database.prepare("SELECT id FROM learner_profiles WHERE id = ? AND user_id = ?").bind(input.learnerId, identity.userId).first<Row>();
+  if (!learner) throw new ApiError(422, "learner_required", "请选择有效的学员档案", { learnerId: "学员档案无效" });
+
+  let venueId = input.venueId?.trim() || "";
+  if (input.locationType === "venue") {
+    const venue = await database.prepare("SELECT id FROM venues WHERE id = ? AND coach_id = ? AND active = 1").bind(venueId, input.coachId).first<Row>();
+    if (!venue) throw new ApiError(422, "venue_not_found", "请选择该教练已审核的训练场馆", { venueId: "场馆无效" });
+  } else {
+    venueId = `venue_coordination_${input.coachId}`;
+    await database.prepare(`INSERT OR IGNORE INTO venues (id, coach_id, name, address, city, district, active, created_at, updated_at)
+      VALUES (?, ?, '学员期望地点', '仅预约双方可见', '北京', ?, 0, ?, ?)`)
+      .bind(venueId, input.coachId, input.customDistrict!.trim().slice(0, 40), now, now).run();
+  }
+
+  const bookingId = randomId("booking");
+  const slotId = randomId("request_slot");
+  const endsAt = input.startsAt + input.durationMinutes * 60_000;
+  const expiresAt = Math.min(now + 24 * 60 * 60_000, input.startsAt);
+  const prior = await database.prepare(`SELECT id FROM booking_requests WHERE user_id = ? AND coach_id = ?
+    AND status NOT IN ('rejected', 'expired', 'cancelled_by_student', 'cancelled_by_coach') LIMIT 1`
+  ).bind(identity.userId, input.coachId).first<Row>();
+  const basePriceFen = prior ? numberValue(coach.price_fen) : numberValue(coach.trial_price_fen);
+  const feeFen = calculateDurationPriceFen(basePriceFen, input.durationMinutes);
+
+  await database.batch([
+    database.prepare(`INSERT INTO availability_slots
+      (id, coach_id, venue_id, starts_at, ends_at, status, source, owner_booking_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'held', 'student_request', ?, ?, ?)`
+    ).bind(slotId, input.coachId, venueId, input.startsAt, endsAt, bookingId, now, now),
+    database.prepare(`INSERT INTO booking_requests
+      (id, idempotency_key, user_id, learner_profile_id, coach_id, venue_id, slot_id, status, fee_fen, payment_status, note, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_coach', ?, 'offline_unpaid', ?, ?, ?)`
+    ).bind(bookingId, idempotencyKey, identity.userId, learner.id, input.coachId, venueId, slotId, feeFen, input.note.slice(0, 500), now, now),
+    database.prepare(`INSERT INTO booking_request_details
+      (booking_id, requested_starts_at, requested_ends_at, duration_minutes, location_type, requested_venue_id,
+       custom_district, custom_address, custom_note, expires_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(bookingId, input.startsAt, endsAt, input.durationMinutes, input.locationType,
+      input.locationType === "venue" ? venueId : null,
+      input.locationType === "custom" ? input.customDistrict!.trim().slice(0, 40) : null,
+      input.locationType === "custom" ? input.customAddress!.trim().slice(0, 240) : null,
+      input.locationType === "custom" ? (input.customLocationNote || "").trim().slice(0, 300) : null,
+      expiresAt, now, now),
+    database.prepare(`INSERT INTO booking_events (id, booking_id, actor_type, actor_id, from_status, to_status, detail_json, created_at)
+      VALUES (?, ?, 'student', ?, NULL, 'pending_coach', ?, ?)`
+    ).bind(randomId("event"), bookingId, identity.userId, JSON.stringify({ durationMinutes: input.durationMinutes, source: "student_time_request" }), now),
+    database.prepare(`INSERT INTO notifications (id, user_id, type, title, body, entity_type, entity_id, target_mode, deep_link, created_at)
+      VALUES (?, ?, 'booking_submitted', '时间申请已提交', '教练确认后预约生效，费用在线下支付。', 'booking', ?, 'student', 'zhuguang://student/bookings', ?)`
+    ).bind(randomId("notification"), identity.userId, bookingId, now),
+    database.prepare(`INSERT INTO notifications (id, user_id, type, title, body, entity_type, entity_id, target_mode, deep_link, created_at)
+      SELECT ?, user_id, 'coach_booking_pending', '有新的训练时间申请', '请确认、拒绝或提出新的时间地点方案。', 'booking', ?, 'coach', 'zhuguang://coach/appointments', ?
+      FROM coaches WHERE id = ? AND user_id IS NOT NULL`
+    ).bind(randomId("notification"), bookingId, now, input.coachId),
+  ]);
+  const created = await database.prepare(`SELECT b.*, s.starts_at, s.ends_at, d.* FROM booking_requests b
+    JOIN availability_slots s ON s.id = b.slot_id JOIN booking_request_details d ON d.booking_id = b.id WHERE b.id = ?`
+  ).bind(bookingId).first<Row>();
+  if (!created) throw new ApiError(500, "booking_create_failed", "时间申请提交失败，请稍后重试");
+  return mapBooking(created);
 }
 
 export async function createBookingD1(
@@ -811,7 +953,8 @@ export async function createBookingD1(
 export async function cancelBookingD1(identity: StudentIdentity, bookingId: string, env: ApiEnv) {
   const database = db(env);
   const booking = await database.prepare(`
-    SELECT b.*, s.starts_at, s.ends_at FROM booking_requests b JOIN availability_slots s ON s.id = b.slot_id
+    SELECT b.*, s.starts_at, s.ends_at, s.source, d.* FROM booking_requests b JOIN availability_slots s ON s.id = b.slot_id
+    LEFT JOIN booking_request_details d ON d.booking_id = b.id
     WHERE b.id = ? AND b.user_id = ?
   `).bind(bookingId, identity.userId).first<Row>();
   if (!booking) throw new ApiError(404, "booking_not_found", "未找到该预约");
@@ -820,7 +963,7 @@ export async function cancelBookingD1(identity: StudentIdentity, bookingId: stri
   const now = Date.now();
   const results = await database.batch([
     database.prepare("UPDATE booking_requests SET status = 'cancelled_by_student', updated_at = ? WHERE id = ? AND user_id = ? AND status = ?").bind(now, bookingId, identity.userId, fromStatus),
-    database.prepare("UPDATE availability_slots SET status = 'open', updated_at = ? WHERE id = ?").bind(now, booking.slot_id),
+    database.prepare("UPDATE availability_slots SET status = CASE WHEN source = 'student_request' THEN 'expired' ELSE 'open' END, updated_at = ? WHERE id = ?").bind(now, booking.slot_id),
     database.prepare(`
       INSERT INTO booking_events (id, booking_id, actor_type, actor_id, from_status, to_status, detail_json, created_at)
       VALUES (?, ?, 'student', ?, ?, 'cancelled_by_student', '{}', ?)
@@ -899,13 +1042,16 @@ export async function authenticateCoach(request: Request, env: ApiEnv): Promise<
 
 export async function coachOverviewD1(identity: CoachIdentity, env: ApiEnv) {
   const database = db(env);
+  await expirePendingBookingRequestsD1(env);
   const coachRow = await database.prepare("SELECT * FROM coaches WHERE id = ? AND profile_kind = 'real' AND audit_status = 'approved'").bind(identity.coachId).first<Row>();
   if (!coachRow) throw new ApiError(403, "coach_not_approved", "教练身份尚未通过人工审核或已被暂停");
   const [coach, bookings, conversations, slots, venues] = await Promise.all([
     Promise.resolve(mapCoach(coachRow, env)),
     database.prepare(`
-      SELECT b.*, s.starts_at, s.ends_at, l.name AS learner_name, v.name AS venue_name, c.name AS coach_name, c.sport
+      SELECT b.*, s.starts_at, s.ends_at, s.source, l.name AS learner_name, v.name AS venue_name, c.name AS coach_name, c.sport,
+        d.duration_minutes, d.location_type, d.custom_district, d.custom_address, d.custom_note, d.expires_at
       FROM booking_requests b JOIN availability_slots s ON s.id = b.slot_id
+      LEFT JOIN booking_request_details d ON d.booking_id = b.id
       JOIN learner_profiles l ON l.id = b.learner_profile_id
       JOIN venues v ON v.id = b.venue_id
       JOIN coaches c ON c.id = b.coach_id
@@ -955,7 +1101,8 @@ export async function coachOverviewD1(identity: CoachIdentity, env: ApiEnv) {
 export async function coachTransitionBookingD1(identity: CoachIdentity, bookingId: string, toStatus: BookingStatus, env: ApiEnv) {
   const database = db(env);
   const booking = await database.prepare(`
-    SELECT b.*, s.starts_at, s.ends_at FROM booking_requests b JOIN availability_slots s ON s.id = b.slot_id
+    SELECT b.*, s.starts_at, s.ends_at, s.source, d.* FROM booking_requests b JOIN availability_slots s ON s.id = b.slot_id
+    LEFT JOIN booking_request_details d ON d.booking_id = b.id
     WHERE b.id = ? AND b.coach_id = ?
   `).bind(bookingId, identity.coachId).first<Row>();
   if (!booking) throw new ApiError(404, "booking_not_found", "未找到该预约");
@@ -965,7 +1112,17 @@ export async function coachTransitionBookingD1(identity: CoachIdentity, bookingI
     throw new ApiError(422, "invalid_booking_status", "教练端不支持该状态操作");
   }
   const now = Date.now();
-  const slotStatus = toStatus === "confirmed" ? "booked" : ["rejected", "cancelled_by_coach"].includes(toStatus) ? "open" : "held";
+  if (fromStatus === "pending_coach" && booking.expires_at && numberValue(booking.expires_at) <= now) {
+    throw new ApiError(409, "booking_request_expired", "该时间申请已经失效");
+  }
+  if (toStatus === "confirmed") {
+    const conflict = await database.prepare(`SELECT b.id FROM booking_requests b JOIN availability_slots s ON s.id = b.slot_id
+      WHERE b.coach_id = ? AND b.id <> ? AND b.status = 'confirmed' AND s.starts_at < ? AND s.ends_at > ? LIMIT 1`
+    ).bind(identity.coachId, bookingId, booking.ends_at, booking.starts_at).first<Row>();
+    if (conflict) throw new ApiError(409, "coach_time_conflict", "该时间已确认其他课程，请提出新的时间方案或拒绝申请");
+  }
+  const slotStatus = toStatus === "confirmed" ? "booked" : ["rejected", "cancelled_by_coach"].includes(toStatus)
+    ? (booking.source === "student_request" ? "expired" : "open") : "held";
   const results = await database.batch([
     database.prepare("UPDATE booking_requests SET status = ?, updated_at = ?, completed_at = ? WHERE id = ? AND coach_id = ? AND status = ?").bind(toStatus, now, toStatus === "completed" ? now : null, bookingId, identity.coachId, fromStatus),
     database.prepare("UPDATE availability_slots SET status = ?, updated_at = ? WHERE id = ?").bind(slotStatus, now, booking.slot_id),
@@ -990,9 +1147,25 @@ export function bookingStatusText(status: BookingStatus) {
     confirmed: "教练已确认预约，请按约到场并线下支付",
     pending_coach: "预约等待教练确认",
     rejected: "教练未接受本次预约",
+    expired: "预约申请已失效",
     reschedule_requested: "教练发起了改期协商",
   };
   return copy[status];
+}
+
+export async function updateCoachBookingAvailabilityD1(identity: CoachIdentity, online: boolean, env: ApiEnv) {
+  const database = db(env);
+  const coach = await database.prepare("SELECT audit_status, listing_status, booking_enabled FROM coaches WHERE id = ?").bind(identity.coachId).first<Row>();
+  if (!coach || coach.audit_status !== "approved") throw new ApiError(403, "coach_not_approved", "教练身份未通过审核，不能调整上线状态");
+  if (online && coach.listing_status !== "online") throw new ApiError(409, "operator_listing_blocked", "运营端已暂停展示，请联系平台处理");
+  const now = Date.now();
+  await database.batch([
+    database.prepare("UPDATE coaches SET booking_enabled = ?, updated_at = ? WHERE id = ? AND audit_status = 'approved'").bind(online ? 1 : 0, now, identity.coachId),
+    database.prepare(`INSERT INTO coach_status_events (id, coach_id, event_type, from_status, to_status, reason, actor, created_at)
+      VALUES (?, ?, 'self_listing', ?, ?, ?, ?, ?)`
+    ).bind(randomId("coach_event"), identity.coachId, coach.booking_enabled ? "online" : "offline", online ? "online" : "offline", online ? "教练自行上线" : "教练自行下线", `coach:${identity.coachId}`, now),
+  ]);
+  return { effectiveOnline: online && coach.listing_status === "online", online };
 }
 
 export async function sendStudentBookingStatusSms(bookingId: string, status: BookingStatus, env: ApiEnv) {

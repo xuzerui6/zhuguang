@@ -6,7 +6,6 @@ import { MobileApiError, mobileApi, usesBundledDemoData } from "./api-client";
 import { AppHeader, BottomNav } from "./components";
 import {
   createDemoConversations,
-  createDemoSlots,
   defaultLearner,
   demoCoaches,
   demoNotifications,
@@ -25,6 +24,8 @@ import {
   writeSession,
 } from "./device";
 import { createRequestId, getMatchResult, mergeFavoriteIds } from "./domain";
+import { calculateDurationPriceFen } from "../../shared/pricing";
+import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal } from "../../shared/scheduling";
 import {
   AccountSheet,
   AuthSheet,
@@ -38,7 +39,7 @@ import {
   SupportSheet,
 } from "./sheets";
 import type {
-  BookingSlot,
+  BookingOptions,
   CoachVenue,
   MatchPreferences,
   MobileBooking,
@@ -97,9 +98,14 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
   const [savedCoachIds, setSavedCoachIds] = useState<number[]>(props.savedCoachIds);
   const [bookings, setBookings] = useState<MobileBooking[]>([]);
   const [bookingTab, setBookingTab] = useState<BookingTab>("pending");
-  const [bookingSlots, setBookingSlots] = useState<BookingSlot[]>(() => createDemoSlots(props.selectedCoachId || 5));
-  const [selectedSlot, setSelectedSlot] = useState<BookingSlot>(() => createDemoSlots(props.selectedCoachId || 5).find((slot) => slot.available) ?? createDemoSlots(5)[0]);
+  const [bookingOptions, setBookingOptions] = useState<BookingOptions | null>(null);
+  const [bookingStartsAt, setBookingStartsAt] = useState(() => formatBeijingDateTimeLocal(Date.now() + 3 * 60 * 60_000));
+  const [bookingDuration, setBookingDuration] = useState<60 | 90 | 120>(60);
+  const [bookingLocationType, setBookingLocationType] = useState<"venue" | "custom">("venue");
   const [bookingVenue, setBookingVenue] = useState<CoachVenue>(() => venues[0]);
+  const [bookingCustomDistrict, setBookingCustomDistrict] = useState("");
+  const [bookingCustomAddress, setBookingCustomAddress] = useState("");
+  const [bookingCustomNote, setBookingCustomNote] = useState("");
   const [bookingNote, setBookingNote] = useState("希望先沟通训练目标，真实场地与时段确认后再提交预约。");
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -276,38 +282,26 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
 
   const openBooking = useCallback(async (coach = selectedCoach) => {
     if (coach.bookable === false || coach.profileKind === "demo") {
-      showFeedback("真实场地与时段发布后即可预约，可先收藏或咨询教练");
+      showFeedback(coach.unavailableReason || "该教练当前未上线接单");
       return;
     }
-    let slots: BookingSlot[];
+    let options: BookingOptions;
     try {
-      slots = demoMode ? createDemoSlots(coach.id) : await mobileApi.coachSlots(coach.id);
+      options = demoMode ? {
+        coachId: coach.id, durationMinutes: [60, 90, 120], earliestStartsAt: Date.now() + 2 * 60 * 60_000,
+        latestStartsAt: Date.now() + 60 * 24 * 60 * 60_000, regularBasePriceFen: (coach.price || 0) * 100,
+        trialBasePriceFen: (coach.trialPrice || coach.price || 0) * 100, venues: venues.filter((item) => item.coachId === coach.id || item.coachId === 5),
+      } : await mobileApi.coachBookingOptions(coach.id);
     } catch (error) {
-      showFeedback(error instanceof Error ? error.message : "暂时无法读取可约时段");
-      return;
-    }
-    const firstAvailable = slots.find((slot) => slot.available);
-    if (!firstAvailable?.venueId) {
-      showFeedback("真实场地与时段发布后即可预约，可先收藏或咨询教练");
-      return;
-    }
-    const venue = demoMode
-      ? venues.find((item) => item.id === firstAvailable.venueId)
-      : {
-          address: firstAvailable.venueAddress || "具体位置由平台与教练确认",
-          coachId: coach.id,
-          district: firstAvailable.venueDistrict || coach.district || "北京",
-          id: firstAvailable.venueId,
-          name: firstAvailable.venueName || "已确认训练场",
-        };
-    if (!venue) {
-      showFeedback("该时段的训练场信息尚未完成发布");
+      showFeedback(error instanceof Error ? error.message : "暂时无法读取预约配置");
       return;
     }
     setSelectedCoachId(coach.id);
-    setBookingSlots(slots);
-    setSelectedSlot(firstAvailable);
-    setBookingVenue(venue);
+    setBookingOptions(options);
+    setBookingStartsAt(formatBeijingDateTimeLocal(options.earliestStartsAt + 5 * 60_000));
+    setBookingDuration(60);
+    if (options.venues[0]) { setBookingLocationType("venue"); setBookingVenue(options.venues[0]); }
+    else setBookingLocationType("custom");
     setAgreed(false);
     detailScrollPosition.current = window.scrollY;
     setView("booking");
@@ -315,13 +309,22 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
   }, [demoMode, queueScroll, selectedCoach, showFeedback]);
 
   const performBooking = useCallback(async () => {
+    if (!bookingOptions) return;
+    const startsAt = parseBeijingDateTimeLocal(bookingStartsAt);
+    if (!Number.isFinite(startsAt)) { showFeedback("请选择有效的北京时间"); return; }
+    if (bookingLocationType === "custom" && (!bookingCustomDistrict.trim() || !bookingCustomAddress.trim())) { showFeedback("请填写期望区域和详细地点"); return; }
     setSubmitting(true);
     const input = {
       coachId: selectedCoach.id,
+      customAddress: bookingCustomAddress,
+      customDistrict: bookingCustomDistrict,
+      customLocationNote: bookingCustomNote,
+      durationMinutes: bookingDuration,
       learnerId: learner.id,
+      locationType: bookingLocationType,
       note: bookingNote,
-      slotId: selectedSlot.id,
-      venueId: bookingVenue.id,
+      startsAt,
+      venueId: bookingLocationType === "venue" ? bookingVenue.id : undefined,
     };
     try {
       let booking: MobileBooking;
@@ -344,17 +347,21 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
           id: createRequestId("booking"),
           coachId: selectedCoach.id,
           learnerId: learner.id,
-          venueId: bookingVenue.id,
-          slotId: selectedSlot.id,
-          date: selectedSlot.date,
-          dateLabel: selectedSlot.dateLabel,
-          time: selectedSlot.time,
-          endTime: selectedSlot.endTime,
+          venueId: bookingLocationType === "venue" ? bookingVenue.id : "custom",
+          slotId: `request_${Date.now()}`,
+          date: bookingStartsAt.slice(0, 10),
+          dateLabel: "申请时间",
+          time: bookingStartsAt.slice(11),
+          endTime: formatBeijingDateTimeLocal(startsAt + bookingDuration * 60_000).slice(11),
           status: "pending_coach",
           submittedAt: "刚刚",
-          feeFen: (isTrialBooking ? selectedSlot.trialFeeFen : selectedSlot.regularFeeFen) ?? 0,
+          feeFen: calculateDurationPriceFen(isTrialBooking ? bookingOptions.trialBasePriceFen : bookingOptions.regularBasePriceFen, bookingDuration),
           paymentStatus: "offline_unpaid",
           note: bookingNote,
+          durationMinutes: bookingDuration,
+          locationType: bookingLocationType,
+          customDistrict: bookingCustomDistrict,
+          customAddress: bookingCustomAddress,
         };
       }
       setBookings((current) => [booking, ...current.filter((item) => item.id !== booking.id)]);
@@ -365,7 +372,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     } finally {
       setSubmitting(false);
     }
-  }, [apiConnected, bookingNote, bookingVenue.id, demoMode, isTrialBooking, learner.id, props, selectedCoach, selectedSlot, showFeedback]);
+  }, [apiConnected, bookingCustomAddress, bookingCustomDistrict, bookingCustomNote, bookingDuration, bookingLocationType, bookingNote, bookingOptions, bookingStartsAt, bookingVenue.id, demoMode, isTrialBooking, learner.id, props, selectedCoach, showFeedback]);
 
   const submitBooking = useCallback(() => {
     if (!session) {
@@ -541,7 +548,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       {view === "home" ? <HomeView activeBooking={activeBooking} coaches={coaches} onDiscover={() => navigateTab("discover")} onOpenBooking={() => navigateTab("bookings")} onOpenCoach={openCoach} onSearch={(value) => { setQuery(value); if (value) navigateTab("discover"); }} onSelectSport={(sport) => updatePreferences({ ...preferences, sport })} onToggleSaved={toggleSaved} preferences={preferences} query={query} savedCoachIds={savedCoachIds} /> : null}
       {view === "discover" ? <DiscoverView coaches={coaches} onFilter={() => setSheet("filters")} onOpenCoach={openCoach} onQuery={setQuery} onToggleSaved={toggleSaved} preferences={preferences} query={query} savedCoachIds={savedCoachIds} /> : null}
       {view === "coach" ? <CoachDetailView coach={selectedCoach} isSaved={savedCoachIds.includes(selectedCoach.id)} onBack={handleBack} onBook={() => void openBooking(selectedCoach)} onMessage={() => openConversationForCoach(selectedCoach.id)} onToggleSaved={() => toggleSaved(selectedCoach.id)} preferences={preferences} /> : null}
-      {view === "booking" ? <BookingView agreed={agreed} coach={selectedCoach} isTrialBooking={isTrialBooking} learner={learner} note={bookingNote} onBack={handleBack} onChangeNote={setBookingNote} onConfirm={submitBooking} onEditLearner={() => setSheet("learner")} onSelectSlot={(slot) => { setSelectedSlot(slot); if (slot.venueId) setBookingVenue({ address: slot.venueAddress || "具体位置由平台与教练确认", coachId: selectedCoach.id, district: slot.venueDistrict || selectedCoach.district || "北京", id: slot.venueId, name: slot.venueName || "已确认训练场" }); }} onToggleAgreement={() => setAgreed((current) => !current)} preferences={preferences} selectedSlot={selectedSlot} slots={bookingSlots} submitting={submitting} venue={bookingVenue} /> : null}
+      {view === "booking" && bookingOptions ? <BookingView agreed={agreed} coach={selectedCoach} customAddress={bookingCustomAddress} customDistrict={bookingCustomDistrict} customLocationNote={bookingCustomNote} durationMinutes={bookingDuration} isTrialBooking={isTrialBooking} learner={learner} locationType={bookingLocationType} note={bookingNote} onBack={handleBack} onChangeCustomAddress={setBookingCustomAddress} onChangeCustomDistrict={setBookingCustomDistrict} onChangeCustomLocationNote={setBookingCustomNote} onChangeDuration={setBookingDuration} onChangeLocationType={setBookingLocationType} onChangeNote={setBookingNote} onChangeStartsAt={setBookingStartsAt} onChangeVenue={(id) => { const venue = bookingOptions.venues.find((item) => item.id === id); if (venue) setBookingVenue(venue); }} onConfirm={submitBooking} onEditLearner={() => setSheet("learner")} onToggleAgreement={() => setAgreed((current) => !current)} options={bookingOptions} preferences={preferences} startsAt={bookingStartsAt} submitting={submitting} venue={bookingVenue} /> : null}
       {view === "bookings" ? <BookingsView bookings={bookings} coaches={coaches} onCancel={(booking) => { setCancelTarget(booking); setSheet("cancel"); }} onDiscover={() => navigateTab("discover")} onMessage={openConversationForCoach} onReschedule={(booking) => void openBooking(coaches.find((coach) => coach.id === booking.coachId) ?? selectedCoach)} onTab={setBookingTab} tab={bookingTab} venues={venues} /> : null}
       {view === "messages" ? <MessagesView coaches={coaches} conversations={conversations} draft={messageDraft} onBack={() => setSelectedConversation(null)} onChangeDraft={setMessageDraft} onOpen={(conversation) => { setSelectedConversation({ ...conversation, unreadCount: 0 }); setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, unreadCount: 0 } : item)); }} onSend={sendMessage} selectedConversation={selectedConversation} sending={messageSending} /> : null}
       {view === "profile" ? <ProfileView activeBookingCount={activeBookingCount} coachSummary={session?.coach ?? props.coachSummary} completedCount={bookings.filter((booking) => booking.status === "completed").length} contactMasked={session?.contactMasked ?? session?.phoneMasked} learner={learner} onAction={profileAction} onOpenCoachMode={props.onOpenCoachMode} savedCount={savedCoachIds.length} /> : null}

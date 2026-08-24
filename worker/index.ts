@@ -4,6 +4,7 @@ import handler from "vinext/server/app-router-entry";
 import { handleApiRequest } from "../server/api/router";
 import type { ApiEnv } from "../server/api/contracts";
 import { dispatchPushDeliveriesD1 } from "../server/api/push";
+import { expirePendingBookingRequestsD1 } from "../server/api/repository";
 
 interface Env extends ApiEnv {
   ASSETS: Fetcher;
@@ -53,7 +54,7 @@ const worker = {
     return handler.fetch(request, env, ctx);
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(dispatchPushDeliveriesD1(env));
+    ctx.waitUntil(expirePendingBookingRequestsD1(env).then(() => dispatchPushDeliveriesD1(env)));
   },
 };
 

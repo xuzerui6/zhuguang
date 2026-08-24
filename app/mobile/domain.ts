@@ -10,6 +10,7 @@ import { matchesAudience, matchesTrainingGoal } from "../../shared/coach-catalog
 export const terminalBookingStatuses: BookingStatus[] = [
   "completed",
   "rejected",
+  "expired",
   "cancelled_by_student",
   "cancelled_by_coach",
 ];
@@ -20,6 +21,7 @@ const allowedBookingTransitions: Record<BookingStatus, BookingStatus[]> = {
   reschedule_requested: ["confirmed", "rejected", "cancelled_by_student", "cancelled_by_coach"],
   completed: [],
   rejected: [],
+  expired: [],
   cancelled_by_student: [],
   cancelled_by_coach: [],
 };
@@ -48,6 +50,7 @@ export function getBookingStatusCopy(status: BookingStatus) {
     reschedule_requested: { label: "改期协商中", tone: "warning" },
     completed: { label: "已完成", tone: "neutral" },
     rejected: { label: "教练未接受", tone: "danger" },
+    expired: { label: "申请已失效", tone: "neutral" },
     cancelled_by_student: { label: "已取消", tone: "neutral" },
     cancelled_by_coach: { label: "教练已取消", tone: "danger" },
   };

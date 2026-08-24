@@ -172,7 +172,7 @@ function json(body: unknown, headers: Record<string, string> = {}): RequestInit 
 
 async function migrate(database: D1Adapter) {
   const directory = new URL("../drizzle/", import.meta.url);
-  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql", "0006_verified_coach_profiles.sql", "0007_operational_closure.sql", "0008_public_app_downloads.sql", "0009_business_scheduling.sql"]) {
+  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql", "0006_verified_coach_profiles.sql", "0007_operational_closure.sql", "0008_public_app_downloads.sql", "0009_business_scheduling.sql", "0010_student_time_requests.sql"]) {
     const source = await readFile(new URL(file, directory), "utf8");
     for (const statement of source.split("--> statement-breakpoint").map((item) => item.trim()).filter(Boolean)) database.sqlite.exec(statement);
   }
@@ -558,6 +558,26 @@ test("coach scheduling uses approved venues while operator business changes rema
   assert.equal(tooShort.response.status, 422);
   assert.equal(((tooShort.payload?.error as { fieldErrors: Record<string, string> }).fieldErrors).endsAt, "训练时长不能少于30分钟");
 
+  const secondStudent = await authenticate(env, "13800000019");
+  const secondMe = await request(env, "/api/v1/me", { headers: { authorization: `Bearer ${secondStudent.accessToken}`, "x-device-id": "device-test" } });
+  const secondUserId = (secondMe.payload?.data as { userId: string }).userId;
+  database.sqlite.prepare("INSERT INTO learner_profiles (id, user_id, name, relation, gender, sport, level, goal, created_at, updated_at) VALUES (?, ?, '学员甲', 'self', 'unspecified', '田径', '入门', '专项提升', ?, ?)").run("learner-time-a", userId, now, now);
+  database.sqlite.prepare("INSERT INTO learner_profiles (id, user_id, name, relation, gender, sport, level, goal, created_at, updated_at) VALUES (?, ?, '学员乙', 'self', 'unspecified', '田径', '入门', '专项提升', ?, ?)").run("learner-time-b", secondUserId, now, now);
+  const requestedStartsAt = now + 10 * 24 * 60 * 60_000;
+  const timeRequest = (token: string, learnerId: string, key: string) => request(env, "/api/v1/bookings", json({ coachId: 1, durationMinutes: 90, learnerId, locationType: "venue", note: "学员指定时间", startsAt: requestedStartsAt, venueId: venue.id }, { authorization: `Bearer ${token}`, "idempotency-key": key }));
+  const requestA = await timeRequest(session.accessToken, "learner-time-a", "time-request-a");
+  const requestB = await timeRequest(secondStudent.accessToken, "learner-time-b", "time-request-b");
+  assert.equal(requestA.response.status, 201);
+  assert.equal(requestB.response.status, 201);
+  assert.equal((requestA.payload?.data as { feeFen: number }).feeFen, 14850);
+  const requestAId = (requestA.payload?.data as { id: string }).id;
+  const requestBId = (requestB.payload?.data as { id: string }).id;
+  const confirmA = await request(env, `/api/v1/coach/bookings/${requestAId}/status`, { body: JSON.stringify({ status: "confirmed" }), headers: coachHeaders, method: "POST" });
+  const confirmB = await request(env, `/api/v1/coach/bookings/${requestBId}/status`, { body: JSON.stringify({ status: "confirmed" }), headers: coachHeaders, method: "POST" });
+  assert.equal(confirmA.response.status, 200);
+  assert.equal(confirmB.response.status, 409);
+  assert.equal((confirmB.payload?.error as { code: string }).code, "coach_time_conflict");
+
   const settings = await request(env, "/api/v1/operator/coaches/1/business-settings", { body: JSON.stringify({ bookingEnabled: false, district: "通州区", priceFen: 28000, pricingStatus: "published", reason: "试点价格调整", trialPriceFen: 12900 }), headers: operatorHeaders, method: "PATCH" });
   assert.equal(settings.response.status, 200);
   assert.equal((settings.payload?.data as { bookingEnabled: boolean; priceFen: number }).bookingEnabled, false);
@@ -565,8 +585,8 @@ test("coach scheduling uses approved venues while operator business changes rema
   const audit = database.sqlite.prepare("SELECT detail_json FROM ops_audit_logs WHERE action = 'coach.business.update' ORDER BY created_at DESC LIMIT 1").get() as { detail_json: string };
   assert.match(audit.detail_json, /试点价格调整/u);
   const publicCoach = await request(env, "/api/v1/coaches/1");
-  assert.equal((publicCoach.payload?.data as { bookable: boolean; unavailableReason: string }).bookable, false);
-  assert.equal((publicCoach.payload?.data as { unavailableReason: string }).unavailableReason, "教练暂时停止接受新预约");
+  assert.equal(publicCoach.response.status, 410);
+  assert.equal((publicCoach.payload?.error as { code: string }).code, "coach_offline");
   database.sqlite.close();
 });
 

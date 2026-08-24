@@ -36,11 +36,13 @@ import {
   coachOverviewD1,
   coachTransitionBookingD1,
   createBookingD1,
+  createTimeRequestBookingD1,
   createCoachSlotD1,
   createConversationD1,
   deleteAccountD1,
   deleteCoachSlotD1,
   getCoachD1,
+  getCoachBookingOptionsD1,
   getMobileIdentityD1,
   listCoachesD1,
   listNotificationsD1,
@@ -55,6 +57,7 @@ import {
   sendStudentMessageD1,
   setFavoriteD1,
   upsertLearnerD1,
+  updateCoachBookingAvailabilityD1,
   verifyOtpD1,
 } from "./repository";
 import {
@@ -124,6 +127,7 @@ const bookingStatuses = new Set<BookingStatus>([
   "confirmed",
   "pending_coach",
   "rejected",
+  "expired",
   "reschedule_requested",
 ]);
 
@@ -682,6 +686,12 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     return success(data, requestId);
   }
 
+  const bookingOptionsMatch = path.match(/^\/api\/v1\/coaches\/(\d+)\/booking-options$/u);
+  if (request.method === "GET" && bookingOptionsMatch) {
+    if (local) throw new ApiError(501, "local_booking_options_unavailable", "本地预览暂不提供真实预约配置");
+    return success(await getCoachBookingOptionsD1(Number(bookingOptionsMatch[1]), env), requestId);
+  }
+
   if (request.method === "GET" && path === "/api/v1/bookings") {
     if (local) authenticateLocal(request);
     else await authenticateStudent(request, env);
@@ -690,18 +700,34 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   }
 
   if (request.method === "POST" && path === "/api/v1/bookings") {
-    const body = await readJson<{ coachId?: unknown; learnerId?: unknown; note?: unknown; slotId?: unknown; venueId?: unknown }>(request);
-    const input = {
-      coachId: positiveInteger(body.coachId, "coachId"),
-      learnerId: requireString(body.learnerId, "learnerId", 160),
-      note: typeof body.note === "string" ? body.note.trim().slice(0, 500) : "",
-      slotId: requireString(body.slotId, "slotId", 200),
-      venueId: requireString(body.venueId, "venueId", 200),
-    };
+    const body = await readJson<{ coachId?: unknown; customAddress?: unknown; customDistrict?: unknown; customLocationNote?: unknown; durationMinutes?: unknown; learnerId?: unknown; locationType?: unknown; note?: unknown; slotId?: unknown; startsAt?: unknown; venueId?: unknown }>(request);
     const idempotencyKey = request.headers.get("idempotency-key")?.slice(0, 160) || requestId;
-    const booking = local
-      ? (authenticateLocal(request), localCreateBooking(input))
-      : await createBookingD1((await authenticateStudent(request, env))!, input, idempotencyKey, env);
+    const coachId = positiveInteger(body.coachId, "coachId");
+    const learnerId = requireString(body.learnerId, "learnerId", 160);
+    const note = typeof body.note === "string" ? body.note.trim().slice(0, 500) : "";
+    let booking;
+    if (body.startsAt !== undefined || body.durationMinutes !== undefined || body.locationType !== undefined) {
+      if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不写入时间申请");
+      const locationType = requireString(body.locationType, "locationType", 20);
+      if (locationType !== "venue" && locationType !== "custom") throw new ApiError(422, "invalid_location_type", "请选择训练地点方式");
+      booking = await createTimeRequestBookingD1((await authenticateStudent(request, env))!, {
+        coachId,
+        customAddress: typeof body.customAddress === "string" ? body.customAddress : undefined,
+        customDistrict: typeof body.customDistrict === "string" ? body.customDistrict : undefined,
+        customLocationNote: typeof body.customLocationNote === "string" ? body.customLocationNote : undefined,
+        durationMinutes: positiveInteger(body.durationMinutes, "durationMinutes"),
+        learnerId,
+        locationType,
+        note,
+        startsAt: timestamp(body.startsAt, "startsAt"),
+        venueId: typeof body.venueId === "string" ? body.venueId : undefined,
+      }, idempotencyKey, env);
+    } else {
+      const legacyInput = { coachId, learnerId, note, slotId: requireString(body.slotId, "slotId", 200), venueId: requireString(body.venueId, "venueId", 200) };
+      booking = local
+        ? (authenticateLocal(request), localCreateBooking(legacyInput))
+        : await createBookingD1((await authenticateStudent(request, env))!, legacyInput, idempotencyKey, env);
+    }
     if (!local) ctx.waitUntil(dispatchPushDeliveriesD1(env));
     return success(booking, requestId, undefined, 201);
   }
@@ -831,6 +857,13 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     return success(data, requestId);
   }
 
+  if (request.method === "PATCH" && path === "/api/v1/coach/availability") {
+    const body = await readJson<{ online?: unknown }>(request);
+    if (typeof body.online !== "boolean") throw new ApiError(422, "invalid_online_state", "请选择上线或下线状态");
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不修改接单状态");
+    return success(await updateCoachBookingAvailabilityD1(await authenticateCoach(request, env), body.online, env), requestId);
+  }
+
   const coachStatusMatch = path.match(/^\/api\/v1\/coach\/bookings\/([^/]+)\/status$/u);
   if (request.method === "POST" && coachStatusMatch) {
     const body = await readJson<{ status?: unknown }>(request);
@@ -867,12 +900,20 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   }
 
   if (request.method === "POST" && path === "/api/v1/coach/reschedule-proposals") {
-    const body = await readJson<{ bookingId?: unknown; note?: unknown; slotId?: unknown }>(request);
+    const body = await readJson<{ bookingId?: unknown; customAddress?: unknown; customDistrict?: unknown; customLocationNote?: unknown; locationType?: unknown; note?: unknown; slotId?: unknown; startsAt?: unknown; venueId?: unknown }>(request);
     if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不写入改期方案");
+    const locationType = body.locationType === undefined ? undefined : requireString(body.locationType, "locationType", 20);
+    if (locationType !== undefined && locationType !== "venue" && locationType !== "custom") throw new ApiError(422, "invalid_location_type", "请选择训练地点方式");
     return success(await createCoachRescheduleProposalD1(await authenticateCoach(request, env), {
       bookingId: requireString(body.bookingId, "bookingId", 180),
+      customAddress: typeof body.customAddress === "string" ? body.customAddress : undefined,
+      customDistrict: typeof body.customDistrict === "string" ? body.customDistrict : undefined,
+      customLocationNote: typeof body.customLocationNote === "string" ? body.customLocationNote : undefined,
+      locationType,
       note: typeof body.note === "string" ? body.note : "",
-      slotId: requireString(body.slotId, "slotId", 180),
+      slotId: typeof body.slotId === "string" ? body.slotId : undefined,
+      startsAt: body.startsAt === undefined ? undefined : timestamp(body.startsAt, "startsAt"),
+      venueId: typeof body.venueId === "string" ? body.venueId : undefined,
     }, env), requestId, undefined, 201);
   }
 

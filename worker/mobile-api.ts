@@ -1,6 +1,7 @@
 import type { ApiEnv, ApiExecutionContext } from "../server/api/contracts";
 import { dispatchPushDeliveriesD1 } from "../server/api/push";
 import { handleApiRequest } from "../server/api/router";
+import { expirePendingBookingRequestsD1 } from "../server/api/repository";
 
 interface MobileApiExecutionContext extends ApiExecutionContext {
   passThroughOnException(): void;
@@ -35,7 +36,7 @@ const mobileApiWorker = {
     return response ?? notFound();
   },
   async scheduled(_controller: ScheduledController, env: ApiEnv, ctx: MobileApiExecutionContext) {
-    ctx.waitUntil(dispatchPushDeliveriesD1(env));
+    ctx.waitUntil(expirePendingBookingRequestsD1(env).then(() => dispatchPushDeliveriesD1(env)));
   },
 };
 

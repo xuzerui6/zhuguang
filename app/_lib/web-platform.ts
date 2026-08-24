@@ -121,7 +121,7 @@ export function mapMobileCoachToWeb(coach: MobileCoach): CoachProfile {
     },
     motto: coach.motto ?? "",
     name: coach.name,
-    nextSlot: coach.profileKind === "demo" ? "演示资料不可预约" : coach.bookable ? "已有真实时段" : coach.unavailableReason || "可约时段待发布",
+    nextSlot: coach.profileKind === "demo" ? "演示资料不可预约" : coach.bookable ? "可由学员指定时间" : coach.unavailableReason || "当前未上线接单",
     price: coach.price,
     profileCompleteness: coach.profileCompleteness || (coach.profileKind === "demo" ? "demo" : "partial"),
     profileKind: coach.profileKind || "real",

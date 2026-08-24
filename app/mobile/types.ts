@@ -21,6 +21,7 @@ export type BookingStatus =
   | "reschedule_requested"
   | "completed"
   | "rejected"
+  | "expired"
   | "cancelled_by_student"
   | "cancelled_by_coach";
 
@@ -125,6 +126,22 @@ export type MobileBooking = {
   feeFen: number;
   paymentStatus: "offline_unpaid" | "offline_paid";
   note: string;
+  durationMinutes?: number;
+  expiresAt?: number;
+  locationType?: "venue" | "custom";
+  customDistrict?: string;
+  customAddress?: string;
+  customLocationNote?: string;
+};
+
+export type BookingOptions = {
+  coachId: number;
+  durationMinutes: [60, 90, 120];
+  earliestStartsAt: number;
+  latestStartsAt: number;
+  regularBasePriceFen: number;
+  trialBasePriceFen: number;
+  venues: CoachVenue[];
 };
 
 export type MobileMessage = {

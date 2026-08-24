@@ -295,6 +295,11 @@ test("D1 migration, auth rotation, favorite merge and slot concurrency form a re
   const rotated = refreshed.payload?.data as { accessToken: string; refreshToken: string };
 
   const second = await authenticate(env, "13800000002");
+  const pricedSlots = await request(env, "/api/v1/coaches/1/slots");
+  const pricedSlot = (pricedSlots.payload?.data as Array<{ durationMinutes: number; regularFeeFen: number; trialFeeFen: number }>)[0];
+  assert.equal(pricedSlot.durationMinutes, 90);
+  assert.equal(pricedSlot.regularFeeFen, 78000);
+  assert.equal(pricedSlot.trialFeeFen, 14850);
   const bookingInit = (token: string, idempotencyKey: string, slotId = "slot-1") => json({ coachId: 1, learnerId: "client-draft", note: "重点提升反手", slotId, venueId: "venue-1" }, {
     authorization: `Bearer ${token}`,
     "idempotency-key": idempotencyKey,
@@ -303,7 +308,7 @@ test("D1 migration, auth rotation, favorite merge and slot concurrency form a re
   assert.equal(firstBooking.response.status, 201);
   const booking = firstBooking.payload?.data as { feeFen: number; id: string; status: string; time: string };
   assert.equal(booking.status, "pending_coach");
-  assert.equal(booking.feeFen, 9900);
+  assert.equal(booking.feeFen, 14850);
   assert.match(booking.time, /^\d{2}:\d{2}$/u);
 
   const idempotentReplay = await request(env, "/api/v1/bookings", bookingInit(rotated.accessToken, "submit-1"));
@@ -314,7 +319,7 @@ test("D1 migration, auth rotation, favorite merge and slot concurrency form a re
   database.sqlite.prepare("INSERT INTO availability_slots (id, coach_id, venue_id, starts_at, ends_at, status, created_at, updated_at) VALUES ('slot-2', 1, 'venue-1', ?, ?, 'open', ?, ?)").run(secondStartsAt, secondStartsAt + 90 * 60_000, Date.now(), Date.now());
   const repeatBooking = await request(env, "/api/v1/bookings", bookingInit(rotated.accessToken, "submit-repeat", "slot-2"));
   assert.equal(repeatBooking.response.status, 201);
-  assert.equal((repeatBooking.payload?.data as { feeFen: number }).feeFen, 52000);
+  assert.equal((repeatBooking.payload?.data as { feeFen: number }).feeFen, 78000);
 
   const collision = await request(env, "/api/v1/bookings", bookingInit(second.accessToken, "submit-2"));
   assert.equal(collision.response.status, 409);
@@ -416,7 +421,10 @@ test("coach media honors quoted, weak and multi-value ETags", async () => {
   seedSupply(database);
   database.sqlite.prepare("UPDATE coaches SET avatar_object_key = 'coaches/1/avatar.webp' WHERE id = 1").run();
   await media.put("coaches/1/avatar.webp", "coach-avatar");
-  const env: ApiEnv = { APP_ENV: "test", DB: database, MEDIA: media };
+  const env: ApiEnv = { APP_ENV: "test", DB: database, MEDIA: media, MOBILE_API_ORIGIN: "https://api.example.test" };
+
+  const catalog = await request(env, "/api/v1/coaches/1");
+  assert.match((catalog.payload?.data as { avatarUrl: string }).avatarUrl, /^https:\/\/api\.example\.test\/api\/v1\/media\/coaches\/1\/avatar\?v=\d+$/u);
 
   const initial = await request(env, "/api/v1/media/coaches/1/avatar");
   assert.equal(initial.response.status, 200);

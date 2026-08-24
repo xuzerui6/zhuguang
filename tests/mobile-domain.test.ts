@@ -22,6 +22,7 @@ import { stableRolloutBucket } from "../server/api/releases";
 import { pushLockScreenBody } from "../server/api/push";
 import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal, validateScheduleDraft } from "../shared/scheduling";
 import { matchesAudience, matchesTrainingGoal } from "../shared/coach-catalog";
+import { calculateDurationPriceFen, durationMinutesBetween } from "../shared/pricing";
 
 const preferences: MatchPreferences = {
   audience: "青少年儿童",
@@ -78,6 +79,14 @@ test("favorites merge without duplicates and money remains fen-based", () => {
   assert.deepEqual(mergeFavoriteIds([3, 1, 3], [2, 1]), [1, 2, 3]);
   assert.match(formatYuan(9900), /99/u);
   assert.match(formatYuan(12_345), /123[.,]45|123\.45/u);
+});
+
+test("booking prices scale from the 60-minute base rate", () => {
+  assert.equal(calculateDurationPriceFen(24_000, 60), 24_000);
+  assert.equal(calculateDurationPriceFen(24_000, 90), 36_000);
+  assert.equal(calculateDurationPriceFen(24_000, 120), 48_000);
+  assert.equal(calculateDurationPriceFen(9_900, 90), 14_850);
+  assert.equal(durationMinutesBetween(1_000, 1_000 + 90 * 60_000), 90);
 });
 
 const approvedCoach: CoachAccountSummary = {

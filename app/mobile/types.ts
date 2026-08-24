@@ -88,6 +88,9 @@ export type BookingSlot = {
   time: string;
   endTime: string;
   available: boolean;
+  durationMinutes: number;
+  regularFeeFen?: number;
+  trialFeeFen?: number;
 };
 
 export type LearnerProfile = {

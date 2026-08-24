@@ -197,7 +197,7 @@ function CoachResult({ active, coach, favorite, onFavorite, onSelect }: { active
       </div>
       <div className={styles.resultCommercial}>
         <span className={`${styles.rating} ${styles.newCoachRating}`}><Star aria-hidden size={16} />{coach.profileKind === "demo" ? "演示资料" : coach.isNew ? "新教练" : coach.rating.toFixed(1)}<small>{coach.profileKind === "demo" ? "不可预约" : coach.reviewCount ? `${coach.reviewCount} 条评价` : "暂无评价"}</small></span>
-        <strong>{coach.price === undefined ? "价格待发布" : <>¥{coach.price}<small>/课时</small></>}</strong><span>{coach.trialPrice === undefined ? "暂未开放试课" : `试课 ¥${coach.trialPrice}`}</span>
+        <strong>{coach.price === undefined ? "价格待发布" : <>¥{coach.price}<small>/60分钟</small></>}</strong><span>{coach.trialPrice === undefined ? "暂未开放试课" : `首次试课 ¥${coach.trialPrice}/60分钟`}</span>
         <button aria-label={favorite ? `取消收藏${coach.name}` : `收藏${coach.name}`} className={styles.heartButton} onClick={onFavorite} type="button"><Heart aria-hidden fill={favorite ? "currentColor" : "none"} size={19} />{favorite ? "已收藏" : "收藏"}</button>
       </div>
     </article>

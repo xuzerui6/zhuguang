@@ -20,6 +20,7 @@ import type {
 export function BookingView({
   agreed,
   coach,
+  isTrialBooking,
   learner,
   note,
   onBack,
@@ -36,6 +37,7 @@ export function BookingView({
 }: {
   agreed: boolean;
   coach: MobileCoach;
+  isTrialBooking: boolean;
   learner: LearnerProfile;
   note: string;
   onBack: () => void;
@@ -53,6 +55,8 @@ export function BookingView({
   const match = getMatchResult(coach, preferences);
   const dates = Array.from(new Map(slots.map((slot) => [slot.date, { date: slot.date, dateLabel: slot.dateLabel }])).values()).slice(0, 5);
   const selectedDateSlots = slots.filter((slot) => slot.date === selectedSlot.date);
+  const feeFen = isTrialBooking ? selectedSlot.trialFeeFen : selectedSlot.regularFeeFen;
+  const priceLabel = isTrialBooking ? "首次试课" : "常规课";
 
   return (
     <div className="zg-view zg-booking-view">
@@ -92,7 +96,7 @@ export function BookingView({
               key={slot.id}
               onClick={() => onSelectSlot(slot)}
               type="button"
-            >{slot.time}</button>
+            ><span>{slot.time}</span><small>{slot.durationMinutes}分钟</small></button>
           ))}
         </div>
       </section>
@@ -129,9 +133,9 @@ export function BookingView({
 
       <section className="zg-fee-section">
         <h2>费用明细</h2>
-        <p><span>试课价</span><strong>{coach.trialPrice === undefined ? "待发布" : formatYuan(coach.trialPrice * 100)}</strong></p>
+        <p><span>{priceLabel} · {selectedSlot.durationMinutes}分钟</span><strong>{feeFen === undefined ? "待发布" : formatYuan(feeFen)}</strong></p>
         <p><span>支付方式</span><strong>教练确认后线下支付</strong></p>
-        <p className="is-total"><span>本次应付</span><strong>{coach.trialPrice === undefined ? "待发布" : formatYuan(coach.trialPrice * 100)} <em>待支付</em></strong></p>
+        <p className="is-total"><span>本次应付</span><strong>{feeFen === undefined ? "待发布" : formatYuan(feeFen)} <em>待支付</em></strong></p>
       </section>
 
       <label className="zg-agreement-row">

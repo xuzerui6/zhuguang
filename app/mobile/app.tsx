@@ -135,6 +135,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
   const unreadMessages = conversations.reduce((total, conversation) => total + conversation.unreadCount, 0);
   const activeBookingCount = bookings.filter((booking) => booking.status === "confirmed").length;
   const pendingBookingCount = bookings.filter((booking) => booking.status === "pending_coach" || booking.status === "reschedule_requested").length;
+  const isTrialBooking = !bookings.some((booking) => booking.coachId === selectedCoach.id && !["rejected", "cancelled_by_student", "cancelled_by_coach"].includes(booking.status));
 
   const showFeedback = useCallback((message: string) => {
     setFeedback(message);
@@ -351,7 +352,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
           endTime: selectedSlot.endTime,
           status: "pending_coach",
           submittedAt: "刚刚",
-          feeFen: (selectedCoach.trialPrice ?? 0) * 100,
+          feeFen: (isTrialBooking ? selectedSlot.trialFeeFen : selectedSlot.regularFeeFen) ?? 0,
           paymentStatus: "offline_unpaid",
           note: bookingNote,
         };
@@ -364,7 +365,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     } finally {
       setSubmitting(false);
     }
-  }, [apiConnected, bookingNote, bookingVenue.id, demoMode, learner.id, props, selectedCoach, selectedSlot, showFeedback]);
+  }, [apiConnected, bookingNote, bookingVenue.id, demoMode, isTrialBooking, learner.id, props, selectedCoach, selectedSlot, showFeedback]);
 
   const submitBooking = useCallback(() => {
     if (!session) {
@@ -540,7 +541,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       {view === "home" ? <HomeView activeBooking={activeBooking} coaches={coaches} onDiscover={() => navigateTab("discover")} onOpenBooking={() => navigateTab("bookings")} onOpenCoach={openCoach} onSearch={(value) => { setQuery(value); if (value) navigateTab("discover"); }} onSelectSport={(sport) => updatePreferences({ ...preferences, sport })} onToggleSaved={toggleSaved} preferences={preferences} query={query} savedCoachIds={savedCoachIds} /> : null}
       {view === "discover" ? <DiscoverView coaches={coaches} onFilter={() => setSheet("filters")} onOpenCoach={openCoach} onQuery={setQuery} onToggleSaved={toggleSaved} preferences={preferences} query={query} savedCoachIds={savedCoachIds} /> : null}
       {view === "coach" ? <CoachDetailView coach={selectedCoach} isSaved={savedCoachIds.includes(selectedCoach.id)} onBack={handleBack} onBook={() => void openBooking(selectedCoach)} onMessage={() => openConversationForCoach(selectedCoach.id)} onToggleSaved={() => toggleSaved(selectedCoach.id)} preferences={preferences} /> : null}
-      {view === "booking" ? <BookingView agreed={agreed} coach={selectedCoach} learner={learner} note={bookingNote} onBack={handleBack} onChangeNote={setBookingNote} onConfirm={submitBooking} onEditLearner={() => setSheet("learner")} onSelectSlot={(slot) => { setSelectedSlot(slot); if (slot.venueId) setBookingVenue({ address: slot.venueAddress || "具体位置由平台与教练确认", coachId: selectedCoach.id, district: slot.venueDistrict || selectedCoach.district || "北京", id: slot.venueId, name: slot.venueName || "已确认训练场" }); }} onToggleAgreement={() => setAgreed((current) => !current)} preferences={preferences} selectedSlot={selectedSlot} slots={bookingSlots} submitting={submitting} venue={bookingVenue} /> : null}
+      {view === "booking" ? <BookingView agreed={agreed} coach={selectedCoach} isTrialBooking={isTrialBooking} learner={learner} note={bookingNote} onBack={handleBack} onChangeNote={setBookingNote} onConfirm={submitBooking} onEditLearner={() => setSheet("learner")} onSelectSlot={(slot) => { setSelectedSlot(slot); if (slot.venueId) setBookingVenue({ address: slot.venueAddress || "具体位置由平台与教练确认", coachId: selectedCoach.id, district: slot.venueDistrict || selectedCoach.district || "北京", id: slot.venueId, name: slot.venueName || "已确认训练场" }); }} onToggleAgreement={() => setAgreed((current) => !current)} preferences={preferences} selectedSlot={selectedSlot} slots={bookingSlots} submitting={submitting} venue={bookingVenue} /> : null}
       {view === "bookings" ? <BookingsView bookings={bookings} coaches={coaches} onCancel={(booking) => { setCancelTarget(booking); setSheet("cancel"); }} onDiscover={() => navigateTab("discover")} onMessage={openConversationForCoach} onReschedule={(booking) => void openBooking(coaches.find((coach) => coach.id === booking.coachId) ?? selectedCoach)} onTab={setBookingTab} tab={bookingTab} venues={venues} /> : null}
       {view === "messages" ? <MessagesView coaches={coaches} conversations={conversations} draft={messageDraft} onBack={() => setSelectedConversation(null)} onChangeDraft={setMessageDraft} onOpen={(conversation) => { setSelectedConversation({ ...conversation, unreadCount: 0 }); setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, unreadCount: 0 } : item)); }} onSend={sendMessage} selectedConversation={selectedConversation} sending={messageSending} /> : null}
       {view === "profile" ? <ProfileView activeBookingCount={activeBookingCount} coachSummary={session?.coach ?? props.coachSummary} completedCount={bookings.filter((booking) => booking.status === "completed").length} contactMasked={session?.contactMasked ?? session?.phoneMasked} learner={learner} onAction={profileAction} onOpenCoachMode={props.onOpenCoachMode} savedCount={savedCoachIds.length} /> : null}

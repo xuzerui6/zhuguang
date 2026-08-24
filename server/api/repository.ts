@@ -1,5 +1,6 @@
 import { canTransitionBooking } from "../../app/mobile/domain";
 import { matchesAudience, matchesTrainingGoal } from "../../shared/coach-catalog";
+import { calculateDurationPriceFen, durationMinutesBetween } from "../../shared/pricing";
 import { validateScheduleDraft } from "../../shared/scheduling";
 import type {
   AccountMode,
@@ -80,7 +81,8 @@ function publicCoachMediaUrl(row: Row, kind: "avatar" | "card" | "hero", env?: A
       : row.hero_object_key;
   const origin = env?.MOBILE_API_ORIGIN?.replace(/\/$/u, "");
   if (!objectKey || !origin) return undefined;
-  return `${origin}/api/v1/media/coaches/${numberValue(row.id)}/${kind}`;
+  const version = Math.max(0, numberValue(row.updated_at));
+  return `${origin}/api/v1/media/coaches/${numberValue(row.id)}/${kind}${version ? `?v=${version}` : ""}`;
 }
 
 function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
@@ -618,22 +620,33 @@ export async function listSlotsD1(coachId: number, env: ApiEnv, requirePublic = 
   if (coach.profile_kind === "demo") return [];
   const result = await db(env).prepare(`
     SELECT s.id, s.coach_id, s.venue_id, s.starts_at, s.ends_at, s.status,
+      c.price_fen, c.trial_price_fen, c.pricing_status,
       v.name AS venue_name, v.address AS venue_address, v.district AS venue_district
     FROM availability_slots s
+    JOIN coaches c ON c.id = s.coach_id
     JOIN venues v ON v.id = s.venue_id AND v.active = 1
     WHERE s.coach_id = ? AND s.starts_at > ? AND s.status = 'open'
     ORDER BY s.starts_at ASC LIMIT 100
   `).bind(coachId, Date.now()).all<Row>();
-  return (result.results ?? []).map((row) => ({
-    ...beijingDateParts(numberValue(row.starts_at), numberValue(row.ends_at)),
-    available: row.status === "open",
-    coachId: numberValue(row.coach_id),
-    id: stringValue(row.id),
-    venueAddress: stringValue(row.venue_address),
-    venueDistrict: stringValue(row.venue_district),
-    venueId: stringValue(row.venue_id),
-    venueName: stringValue(row.venue_name),
-  }));
+  return (result.results ?? []).map((row) => {
+    const startsAt = numberValue(row.starts_at);
+    const endsAt = numberValue(row.ends_at);
+    const durationMinutes = durationMinutesBetween(startsAt, endsAt);
+    const pricingPublished = row.pricing_status === "published";
+    return {
+      ...beijingDateParts(startsAt, endsAt),
+      available: row.status === "open",
+      coachId: numberValue(row.coach_id),
+      durationMinutes,
+      id: stringValue(row.id),
+      regularFeeFen: pricingPublished ? calculateDurationPriceFen(numberValue(row.price_fen), durationMinutes) : undefined,
+      trialFeeFen: pricingPublished ? calculateDurationPriceFen(numberValue(row.trial_price_fen), durationMinutes) : undefined,
+      venueAddress: stringValue(row.venue_address),
+      venueDistrict: stringValue(row.venue_district),
+      venueId: stringValue(row.venue_id),
+      venueName: stringValue(row.venue_name),
+    };
+  });
 }
 
 async function listLearners(userId: string, env: ApiEnv): Promise<LearnerProfile[]> {
@@ -758,16 +771,16 @@ export async function createBookingD1(
         INSERT INTO booking_requests
           (id, idempotency_key, user_id, learner_profile_id, coach_id, venue_id, slot_id, status, fee_fen, payment_status, note, created_at, updated_at)
         SELECT ?, ?, ?, ?, ?, ?, ?, 'pending_coach',
-          CASE WHEN EXISTS (
+          CAST(ROUND((CASE WHEN EXISTS (
             SELECT 1 FROM booking_requests prior
             WHERE prior.user_id = ? AND prior.coach_id = ?
               AND prior.status NOT IN ('rejected', 'cancelled_by_student', 'cancelled_by_coach')
-          ) THEN c.price_fen ELSE c.trial_price_fen END,
+          ) THEN c.price_fen ELSE c.trial_price_fen END) * (s.ends_at - s.starts_at) / 3600000.0) AS INTEGER),
           'offline_unpaid', ?, ?, ?
-        FROM coaches c WHERE c.id = ?
+        FROM coaches c JOIN availability_slots s ON s.id = ? WHERE c.id = ?
       `).bind(
         bookingId, idempotencyKey, identity.userId, learner.id, input.coachId, input.venueId, input.slotId,
-        identity.userId, input.coachId, input.note.slice(0, 500), now, now, input.coachId,
+        identity.userId, input.coachId, input.note.slice(0, 500), now, now, input.slotId, input.coachId,
       ),
       database.prepare("UPDATE availability_slots SET status = 'held', updated_at = ? WHERE id = ? AND status = 'open'").bind(now, input.slotId),
       database.prepare(`

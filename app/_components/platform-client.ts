@@ -46,5 +46,6 @@ export function formatBeijingDate(value: number | string | undefined) {
 }
 
 export function formatFen(value: number | undefined) {
-  return `¥${((value ?? 0) / 100).toFixed(0)}`;
+  const fen = value ?? 0;
+  return `¥${(fen / 100).toFixed(fen % 100 === 0 ? 0 : 2)}`;
 }

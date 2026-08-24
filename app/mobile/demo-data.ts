@@ -85,11 +85,14 @@ function dateParts(offset: number) {
 }
 
 export function createDemoSlots(coachId: number): BookingSlot[] {
-  if (demoCoaches.find((coach) => coach.id === coachId)?.bookable === false) return [];
+  const coach = demoCoaches.find((item) => item.id === coachId);
+  if (coach?.bookable === false) return [];
   const times = ["08:00", "09:30", "11:00", "14:00", "15:30", "18:00"];
   return Array.from({ length: 7 }, (_, dateIndex) => {
     const parts = dateParts(dateIndex);
-    return times.map((time, timeIndex) => ({
+    return times.map((time, timeIndex) => {
+      const durationMinutes = time === "09:30" ? 90 : 60;
+      return ({
       id: `slot-${coachId}-${parts.date}-${time.replace(":", "")}`,
       coachId,
       venueId: coachId === 5 ? "venue-tongzhou-track" : undefined,
@@ -97,10 +100,13 @@ export function createDemoSlots(coachId: number): BookingSlot[] {
       dateLabel: parts.dateLabel,
       time,
       endTime: time === "09:30" ? "11:00" : `${String(Math.min(23, Number(time.slice(0, 2)) + 1)).padStart(2, "0")}:${time.slice(3)}`,
+      durationMinutes,
+      regularFeeFen: coach?.price === undefined ? undefined : Math.round(coach.price * 100 * durationMinutes / 60),
+      trialFeeFen: coach?.trialPrice === undefined ? undefined : Math.round(coach.trialPrice * 100 * durationMinutes / 60),
       available:
         new Date(`${parts.date}T${time}:00+08:00`).getTime() > Date.now() + 15 * 60_000
         && (dateIndex + timeIndex + coachId) % 4 !== 0,
-    }));
+    }); });
   }).flat();
 }
 

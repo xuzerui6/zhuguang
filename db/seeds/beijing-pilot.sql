@@ -33,7 +33,7 @@ INSERT INTO coaches (
    24000, 9900, 0, 0, 0, 0, 0, '["青少年","成人"]',
    '["中考体育","短跑专项","跑姿纠正","专项体能"]', '["短跑技术","起跑与加速","跑姿纠正","专项体能"]', '[]',
    'real', 'online', '平台试点上线', 'system', 1786219200000, 'published', 'approved',
-   'coaches/5/public/avatar-v1.webp', 'coaches/5/public/card-v1.webp', 'coaches/5/public/hero-v1.webp', 1786219200000, 1786219200000),
+   'coaches/5/public/avatar-v1.webp', 'coaches/5/public/card-v1.webp', 'coaches/5/public/hero-v2.webp', 1786219200000, 1786219200000),
   (6, '张展祁', '田径', '北京', '通州区', '资料待补充', '田径训练教练',
    '北京通州区田径教练。当前仅展示已确认的姓名、项目与服务区域，其他资料由平台核验后补充。',
    0, 0, 0, 0, 0, 0, 0, '[]', '["田径训练"]', '["田径训练"]', '[]',

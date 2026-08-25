@@ -257,7 +257,7 @@
   color: var(--zg-ink);
   font-size: 14px;
   font-weight: 700;
-  min-height: 30px;
+  min-height: 44px;
   outline: 0;
   width: 100%;
 }
@@ -337,13 +337,14 @@
 
 .spotlightCardMedia {
   aspect-ratio: 4 / 5;
-  background: #f2f5f3;
+  background: linear-gradient(115deg, #edf2ef 15%, #f7f9f8 42%, #e7eeea 70%);
   display: block;
   overflow: hidden;
   position: relative;
 }
 
 .spotlightCardMedia img {
+  animation: zg-media-in 360ms ease both;
   object-fit: cover;
   object-position: center 18%;
   transition: transform 220ms ease;
@@ -649,11 +650,13 @@
 }
 
 .trustMedia {
+  background: linear-gradient(115deg, #e8efeb 15%, #f5f8f6 42%, #dde8e2 70%);
   min-height: 520px;
   position: relative;
 }
 
 .trustMedia img {
+  animation: zg-media-in 420ms ease both;
   object-fit: cover;
 }
 
@@ -973,8 +976,11 @@
 }
 
 .footerMain a {
+  align-items: center;
   color: #96a49d;
+  display: flex;
   font-size: 12px;
+  min-height: 44px;
 }
 
 .footerMain a:hover {
@@ -1002,7 +1008,7 @@
 .downloadPrimary { align-items: center; background: #fff; border-radius: 6px; color: #092017; display: inline-flex; font-size: 13px; font-weight: 800; gap: 9px; justify-content: center; min-height: 48px; padding: 0 20px; transition: transform 180ms ease, background 180ms ease; }
 .downloadPrimary:hover { background: #eafff3; transform: translateY(-1px); }
 .downloadPhone { align-self: end; background: #f6f8f7; border: 8px solid #27322d; border-bottom: 0; border-radius: 34px 34px 0 0; box-shadow: 0 24px 70px rgba(0, 0, 0, 0.32); height: 500px; overflow: hidden; position: relative; }
-.downloadPhone > img:last-of-type { object-fit: cover; object-position: 56% center; }
+.downloadPhone > img:last-of-type { animation: zg-media-in 420ms ease both; object-fit: cover; object-position: 56% center; }
 .downloadPhoneTop { align-items: center; background: rgba(255,255,255,.96); display: flex; gap: 10px; height: 72px; left: 0; padding: 0 18px; position: absolute; right: 0; top: 0; z-index: 2; }
 .downloadPhoneTop img { border-radius: 10px; }
 .downloadPhoneTop span { color: var(--zg-ink); font-size: 16px; font-weight: 800; }
@@ -1049,7 +1055,7 @@
 .hashRow { align-items: center; border-top: 1px solid var(--zg-line); display: grid; gap: 14px; grid-template-columns: 80px minmax(0,1fr) 40px; min-height: 58px; }
 .hashRow > span { color: var(--zg-muted); font-size: 10px; }
 .hashRow code { font-size: 11px; overflow-wrap: anywhere; }
-.hashRow button { align-items: center; background: transparent; border: 0; color: var(--zg-brand); display: flex; height: 40px; justify-content: center; width: 40px; }
+.hashRow button { align-items: center; background: transparent; border: 0; color: var(--zg-brand); display: flex; height: 44px; justify-content: center; width: 44px; }
 .installSteps { display: grid; gap: 60px; grid-template-columns: 270px 1fr; margin: 70px auto 0; width: var(--zg-page); }
 .installSteps h2 { font-size: 28px; margin: 10px 0 0; }
 .installSteps ol { display: grid; grid-template-columns: repeat(3,1fr); list-style: none; margin: 0; padding: 0; }
@@ -1592,6 +1598,8 @@
     animation: none;
   }
   .spotlightCardMedia img,
+  .trustMedia img,
+  .downloadPhone > img:last-of-type,
   .spotlightMedia img,
   .enterButton,
   .cooperationSection > a,
@@ -1608,6 +1616,11 @@
     animation: none;
     transition: none;
   }
+}
+
+@keyframes zg-media-in {
+  from { opacity: 0; transform: scale(1.008); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 @keyframes zg-form-spin {

@@ -81,17 +81,10 @@ export function getMatchResult(coach: MobileCoach, preferences: MatchPreferences
     reasons.push("同城可约");
   }
 
-  const availabilityText = coach.availability.join(" ");
-  const timeMatches =
-    coach.availability.length > 0 && (
-      preferences.desiredTime === "不限" ||
-      (preferences.desiredTime === "周末" && /周六|周日/.test(availabilityText)) ||
-      (preferences.desiredTime === "工作日" && /周一|周二|周三|周四|周五/.test(availabilityText)) ||
-      (preferences.desiredTime === "晚间" && /18:|19:|20:|21:/.test(availabilityText))
-    );
-  if (timeMatches) {
+  const acceptsTimeRequests = coach.bookingEnabled !== false && coach.bookable !== false;
+  if (acceptsTimeRequests) {
     score += 25;
-    reasons.push(preferences.desiredTime === "不限" ? "近期有可约时段" : `${preferences.desiredTime}可约`);
+    reasons.push(preferences.desiredTime === "不限" ? "支持学员指定时间" : `${preferences.desiredTime}可申请`);
   }
 
   if (coach.price !== undefined && coach.price <= preferences.budget) {

@@ -82,10 +82,7 @@ export function CoachDetailView({
 
       <section className="zg-detail-section zg-review-section">
         <header><h2>学员评价（{coach.reviewCount}）</h2></header>
-        {coach.isNew || coach.profileKind === "demo" ? <div className="zg-review-empty"><strong>{coach.profileKind === "demo" ? "演示资料无评价" : "暂无学员评价"}</strong><p>{coach.profileKind === "demo" ? "演示记录不会生成评价或课量。" : "完成平台课程后，真实评价会在这里展示。"}</p></div> : <article>
-          <span className="zg-review-avatar">宇</span>
-          <div><strong>小宇妈妈 <b>★★★★★ 5.0</b></strong><small>已完成平台课程 · 近期</small><p>孩子跟着教练训练半年，技术和比赛心态都有很大进步。讲解有耐心，课后复盘也很具体。</p></div>
-        </article>}
+        <div className="zg-review-empty"><strong>{coach.profileKind === "demo" ? "演示资料无评价" : coach.reviewCount > 0 ? `${coach.reviewCount} 条评价已通过审核` : "暂无学员评价"}</strong><p>{coach.profileKind === "demo" ? "演示记录不会生成评价或课量。" : coach.reviewCount > 0 ? "当前仅展示服务端已审核数量，评价正文同步完成后再公开。" : "完成平台课程后，真实评价会在这里展示。"}</p></div>
       </section>
 
       <section className="zg-detail-section">

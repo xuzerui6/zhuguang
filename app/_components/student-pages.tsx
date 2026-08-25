@@ -204,7 +204,7 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
     setBusy(id);
     try {
       await platformRequest(`/api/v1/bookings/${encodeURIComponent(id)}/cancel`, { method: "POST" });
-      setNotice("预约已取消，原时段已释放");
+      setNotice("预约已取消，本次时间申请已关闭");
       await reload();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "取消失败");
@@ -263,7 +263,7 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
 
   async function respondToReschedule(id: string, decision: "accepted" | "rejected") {
     setBusy(id);
-    try { await platformRequest(`/api/v1/reschedule-proposals/${encodeURIComponent(id)}/respond`, { body: { decision }, method: "POST" }); setNotice(decision === "accepted" ? "已接受新时段，预约已确认" : "已拒绝改期，原预约状态已恢复"); setError(""); await Promise.all([reload(), loadProposals()]); }
+    try { await platformRequest(`/api/v1/reschedule-proposals/${encodeURIComponent(id)}/respond`, { body: { decision }, method: "POST" }); setNotice(decision === "accepted" ? "已接受新方案，预约已确认" : "已拒绝新方案，原预约状态已恢复"); setError(""); await Promise.all([reload(), loadProposals()]); }
     catch (actionError) { setError(actionError instanceof Error ? actionError.message : "改期处理失败"); }
     finally { setBusy(""); }
   }
@@ -303,7 +303,7 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
             const cancellable = ["pending_coach", "confirmed", "reschedule_requested"].includes(booking.status);
             return <article className={styles.tableRow} key={booking.id}><span><strong>{coach?.name || "教练"}</strong><small>{coach?.sport || "专项训练"}</small></span><span><strong>{booking.dateLabel} {booking.date}</strong><small>{booking.time}–{booking.endTime}</small></span><span><strong>{formatFen(booking.feeFen)}</strong><small>{booking.paymentStatus === "offline_paid" ? "已标记线下收款" : "线下待支付"}</small></span><span><em className={styles.status} data-tone={statusTone(booking.status)}>{statusCopy[booking.status]}</em></span><span className={styles.rowActions}>{cancellable ? <button className={styles.danger} disabled={busy === booking.id} onClick={() => void cancel(booking.id)} type="button">取消预约</button> : <Link className={styles.secondary} href="/student/training">查看记录</Link>}</span></article>;
           })}
-        </div> : <EmptyState copy="提交的预约会出现在这里。没有真实时段时，平台不会生成示例预约。" title="还没有预约记录" />}
+        </div> : <EmptyState copy="你提交的时间申请和已经确认的课程会出现在这里。" title="还没有预约记录" />}
       </section>
       {notice ? <div className={styles.notice} role="status"><CheckCircle2 aria-hidden size={17} />{notice}</div> : null}
     </div>

@@ -83,6 +83,7 @@ test("workspace navigation uses real, unique URLs", () => {
   }
   assert.equal(studentNavigation.find((item) => item.label === "找教练")?.href, "/student/coaches");
   assert.equal(coachNavigation.find((item) => item.label === "线下收款")?.href, "/coach-workspace/payments");
+  assert.equal(coachNavigation.find((item) => item.id === "coach-schedule")?.label, "接单状态与日程");
   assert.equal(opsNavigation.find((item) => item.label === "匹配中心")?.href, "/ops/matching");
 });
 
@@ -92,6 +93,26 @@ test("browser pages cannot mount the native mobile shell", async () => {
   assert.doesNotMatch(homepage, /MobileStudentApp|shouldUseStudentMobileApp|detectDeviceProfile/);
   assert.doesNotMatch(workspaceShell, /MobileStudentApp|source=native-mobile/);
   assert.match(workspaceShell, /item\.id !== "student-training"/);
+});
+
+test("new web and Android clients do not restore legacy or unverified service claims", async () => {
+  const [homepage, mobileApi, coachPages, productionEdge, mobileSheets, mobileBookings, coachDetail] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/mobile/api-client.ts", root), "utf8"),
+    readFile(new URL("app/_components/coach-pages.tsx", root), "utf8"),
+    readFile(new URL("scripts/verify-production-edge.ps1", root), "utf8"),
+    readFile(new URL("app/mobile/sheets.tsx", root), "utf8"),
+    readFile(new URL("app/mobile/views/bookings-view.tsx", root), "utf8"),
+    readFile(new URL("app/mobile/views/coach-detail-view.tsx", root), "utf8"),
+  ]);
+  assert.doesNotMatch(homepage, /真实排期|未发布真实场馆与时段/u);
+  assert.doesNotMatch(mobileApi, /coachCreateSlot|\/api\/v1\/coach\/slots/u);
+  assert.match(coachPages, /无需预先发布时段/u);
+  assert.match(productionEdge, /\/login\?next=%2Fops/u);
+  assert.doesNotMatch(productionEdge, /Contains\('\/login\?next=\/ops'\)/u);
+  assert.doesNotMatch(`${mobileSheets}\n${mobileBookings}`, /短信通知|短信提醒/u);
+  assert.match(mobileBookings, /已结束/u);
+  assert.doesNotMatch(coachDetail, /小宇妈妈|★★★★★/u);
 });
 
 test("anonymous visitors have no workspace permissions", () => {

@@ -57,7 +57,6 @@ export function buildJPushPayload(row: Row) {
           targetMode,
           type: text(row.type),
         },
-        intent: { url: deepLink },
         title: text(row.title),
       },
     },

@@ -46,10 +46,11 @@ test("Beijing schedule input is timezone-stable and validates duration fields", 
 });
 
 test("matching applies the locked 30/25/25/15/5 weights", () => {
-  const availableCoach = { ...demoCoaches[0], availability: ["周六 10:00"] };
+  const availableCoach = { ...demoCoaches[0], bookable: true, bookingEnabled: true };
   assert.deepEqual(getMatchResult(availableCoach, preferences).score, 100);
   assert.equal(getMatchResult(availableCoach, { ...preferences, goal: "兴趣入门" }).score, 70);
   assert.equal(getMatchResult(demoCoaches[0], preferences).score, 75);
+  assert.ok(getMatchResult(availableCoach, preferences).reasons.includes("周末可申请"));
   assert.deepEqual(getMatchResult({ ...availableCoach, sport: "游泳" }, preferences), { eligible: false, reasons: [], score: 0 });
   assert.deepEqual(getMatchResult({ ...availableCoach, verified: false }, preferences), { eligible: false, reasons: [], score: 0 });
 });

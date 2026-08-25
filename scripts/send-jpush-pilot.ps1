@@ -34,7 +34,7 @@ try {
     -Body (@{ installationId = $InstallationId; type = $Type } | ConvertTo-Json -Compress) `
     -ContentType 'application/json; charset=utf-8' `
     -Headers @{
-      'x-operator-actor' = 'codex-vivo-pilot'
+      'x-operator-actor' = 'xuzerui6@gmail.com'
       'x-operator-secret' = $operatorSecret
       'x-zhuguang-app-key' = $pilotAppKey
     } `

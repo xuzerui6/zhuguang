@@ -74,7 +74,7 @@ try {
     SiteStatus = [int]$site.StatusCode
     SiteBrandPresent = $siteBody.Contains('href="/coaches"')
     WorkspaceStatus = [int]$workspace.StatusCode
-    WorkspaceProtected = $workspaceBody.Contains('/login?next=/ops')
+    WorkspaceProtected = $workspaceBody.Contains('/login?next=%2Fops') -and -not $workspaceBody.Contains('/api/v1/operator/overview')
     RecoveryStatus = [int]$recovery.StatusCode
     RecoveryProtected = $recoveryLocation.Host -eq $accessOrigin.Host -and $recoveryLocation.AbsolutePath.StartsWith('/cdn-cgi/access/login')
     WwwStatus = [int]$www.StatusCode

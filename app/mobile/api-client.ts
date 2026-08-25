@@ -187,10 +187,6 @@ export const mobileApi = {
     headers: { "idempotency-key": createRequestId("coach-booking") },
     method: "POST",
   }),
-  coachCreateSlot: (input: { endsAt: number; startsAt: number; venueId: string }) => request(`/api/v1/coach/slots`, {
-    body: JSON.stringify(input),
-    method: "POST",
-  }),
   coachSetAvailability: (online: boolean) => request<{ effectiveOnline: boolean; online: boolean }>("/api/v1/coach/availability", {
     body: JSON.stringify({ online }), method: "PATCH",
   }),

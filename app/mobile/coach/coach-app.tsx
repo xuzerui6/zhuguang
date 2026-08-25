@@ -47,7 +47,7 @@ type AppointmentFilter = "active" | "completed" | "pending";
 const tabItems: Array<{ icon: typeof LayoutDashboard; label: string; tab: CoachTab }> = [
   { icon: LayoutDashboard, label: "工作台", tab: "workspace" },
   { icon: CalendarDays, label: "预约", tab: "appointments" },
-  { icon: Grid2X2, label: "排期", tab: "schedule" },
+  { icon: Grid2X2, label: "日程", tab: "schedule" },
   { icon: MessageCircle, label: "消息", tab: "messages" },
   { icon: UserRound, label: "我的", tab: "profile" },
 ];
@@ -229,8 +229,9 @@ export function CoachApp({ initialTab, onOpenUpdates, onSwitchStudent, onTabChan
 
   const pending = overview.bookings.filter((booking) => booking.status === "pending_coach" || booking.status === "reschedule_requested");
   const active = overview.bookings.filter((booking) => booking.status === "confirmed");
-  const completed = overview.bookings.filter((booking) => ["cancelled_by_coach", "cancelled_by_student", "completed", "rejected"].includes(booking.status));
-  const filteredBookings = appointmentFilter === "pending" ? pending : appointmentFilter === "active" ? active : completed;
+  const ended = overview.bookings.filter((booking) => ["cancelled_by_coach", "cancelled_by_student", "completed", "expired", "rejected"].includes(booking.status));
+  const completedCount = overview.bookings.filter((booking) => booking.status === "completed").length;
+  const filteredBookings = appointmentFilter === "pending" ? pending : appointmentFilter === "active" ? active : ended;
   const unread = conversations.reduce((sum, item) => sum + item.unreadCount, 0);
   const selectedConversation = conversations.find((item) => item.id === selectedConversationId) ?? null;
 
@@ -251,7 +252,7 @@ export function CoachApp({ initialTab, onOpenUpdates, onSwitchStudent, onTabChan
           <section className="zg-coach-kpis">
             <button onClick={() => openAppointments("pending")} type="button"><span>待确认</span><strong>{pending.length}</strong></button>
             <button onClick={() => openAppointments("active")} type="button"><span>进行中</span><strong>{active.length}</strong></button>
-            <button onClick={() => openAppointments("completed")} type="button"><span>本月完成</span><strong>{demoMode ? Math.max(18, completed.length) : completed.length}</strong></button>
+            <button onClick={() => openAppointments("completed")} type="button"><span>完成课程</span><strong>{demoMode ? Math.max(18, completedCount) : completedCount}</strong></button>
           </section>
           <section className="zg-coach-section">
             <header><h2>待处理预约</h2><button onClick={() => openAppointments("pending")} type="button">全部({pending.length})<ChevronRight aria-hidden size={15} /></button></header>
@@ -272,7 +273,7 @@ export function CoachApp({ initialTab, onOpenUpdates, onSwitchStudent, onTabChan
           <div className="zg-coach-segmented" role="tablist">
             <button aria-selected={appointmentFilter === "pending"} className={appointmentFilter === "pending" ? "is-active" : ""} onClick={() => setAppointmentFilter("pending")} role="tab" type="button">待处理 {pending.length}</button>
             <button aria-selected={appointmentFilter === "active"} className={appointmentFilter === "active" ? "is-active" : ""} onClick={() => setAppointmentFilter("active")} role="tab" type="button">进行中 {active.length}</button>
-            <button aria-selected={appointmentFilter === "completed"} className={appointmentFilter === "completed" ? "is-active" : ""} onClick={() => setAppointmentFilter("completed")} role="tab" type="button">已完成 {completed.length}</button>
+            <button aria-selected={appointmentFilter === "completed"} className={appointmentFilter === "completed" ? "is-active" : ""} onClick={() => setAppointmentFilter("completed")} role="tab" type="button">已结束 {ended.length}</button>
           </div>
           <section className="zg-coach-appointment-list">
             {filteredBookings.length ? filteredBookings.map((booking) => <BookingRow booking={booking} key={booking.id} onAction={updateBooking} sport={overview.coach.sport} />) : <p className="zg-coach-empty">该分组暂无预约</p>}

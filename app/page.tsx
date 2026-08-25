@@ -79,7 +79,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         <section className={styles.spotlightSection} data-motion>
           <div className={styles.spotlightHeading}>
             <div><p className="zg-eyebrow">北京试点教练</p><h2 className="zg-section-title">资料真实，比数字热闹更重要</h2></div>
-            <p>平台只展示已经提供并可核验的信息。没有评价、课量或排期时，会如实说明。</p>
+            <p>平台只展示已经提供并可核验的信息。没有评价、课量或经营数据时，会如实说明。</p>
           </div>
           <CoachSpotlightCarousel count={featuredCoaches.length}>
             {featuredCoaches.map((coach) => (
@@ -124,7 +124,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </div>
           <ol className={styles.processList}>
             <li data-motion="process"><span>01</span><div><strong>明确训练需求</strong><p>项目、区域、时间、预算和训练目标进入同一份需求档案。</p></div></li>
-            <li data-motion="process"><span>02</span><div><strong>比较教练档案</strong><p>查看经历、服务对象、训练方向、价格和真实排期。</p></div></li>
+            <li data-motion="process"><span>02</span><div><strong>比较教练档案</strong><p>查看经历、服务对象、训练方向、价格和接单状态。</p></div></li>
             <li data-motion="process"><span>03</span><div><strong>提交服务申请</strong><p>教练确认后预约生效，首版采用线下支付。</p></div></li>
             <li data-motion="process"><span>04</span><div><strong>沉淀训练记录</strong><p>课程状态、沟通与训练记录留在账号中持续可查。</p></div></li>
           </ol>
@@ -171,7 +171,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           <div>
             <p className="zg-eyebrow">训练咨询</p>
             <h2>把需求说清楚，再决定是否预约</h2>
-            <p>提交后只进入逐光运营工作台。未发布真实场馆与时段的教练当前只提供咨询，不会生成虚假预约。</p>
+            <p>提交后只进入逐光运营工作台。资料或接单条件尚未完善的教练只提供咨询，不会生成虚假预约。</p>
           </div>
           <ServiceLeadForm coach={requestedCoach ? { id: requestedCoach.id, name: requestedCoach.name, sport: requestedCoach.sport } : undefined} siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} />
         </section>

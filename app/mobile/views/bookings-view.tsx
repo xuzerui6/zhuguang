@@ -36,7 +36,7 @@ export function BookingsView({
         {([
           ["pending", "待确认"],
           ["active", "进行中"],
-          ["completed", "已完成"],
+          ["completed", "已结束"],
         ] as const).map(([id, label]) => (
           <button aria-selected={tab === id} className={tab === id ? "is-active" : ""} key={id} onClick={() => onTab(id)} role="tab" type="button">
             {label}
@@ -80,11 +80,11 @@ export function BookingsView({
           })}
         </div>
       ) : (
-        <EmptyState action="去找教练" description={tab === "completed" ? "完成的课程和训练反馈会沉淀在这里。" : "找到合适教练并提交试课后，服务进度会出现在这里。"} onAction={onDiscover} title={tab === "completed" ? "还没有已完成课程" : "暂时没有这类预约"} />
+        <EmptyState action="去找教练" description={tab === "completed" ? "完成、取消、拒绝或失效的预约记录会保留在这里。" : "找到合适教练并提交试课后，服务进度会出现在这里。"} onAction={onDiscover} title={tab === "completed" ? "还没有已结束预约" : "暂时没有这类预约"} />
       )}
 
       {tab === "active" && visibleBookings.length ? (
-        <section className="zg-upcoming-note"><Clock3 aria-hidden size={20} /><span><strong>课程前提醒</strong><small>开始前 2 小时会通过站内消息和短信提醒。</small></span></section>
+        <section className="zg-upcoming-note"><Clock3 aria-hidden size={20} /><span><strong>课程前提醒</strong><small>开始前 2 小时会通过站内消息提醒。</small></span></section>
       ) : null}
     </div>
   );

@@ -61,7 +61,7 @@ test("JPush payloads use fixed channels, private lock-screen copy and role deep 
   assert.equal(payload.notification.android.channel_id, "zhuguang_message");
   assert.equal(payload.notification.android.extras.deepLink, "zhuguang://student/messages");
   assert.equal(payload.notification.android.extras.targetMode, "student");
-  assert.equal(payload.notification.android.intent.url, "zhuguang://student/messages");
+  assert.equal("intent" in payload.notification.android, false);
   assert.notEqual(payload.notification.android.alert, "private conversation text");
   assert.equal("small_icon" in payload.notification.android, false);
 
@@ -73,7 +73,7 @@ test("JPush payloads use fixed channels, private lock-screen copy and role deep 
     title: "booking",
     type: "booking_status",
   });
-  assert.equal(operatorPayload.notification.android.intent.url, "zhuguang://student/bookings");
+  assert.equal("intent" in operatorPayload.notification.android, false);
   assert.equal(operatorPayload.notification.android.extras.targetMode, "student");
 });
 

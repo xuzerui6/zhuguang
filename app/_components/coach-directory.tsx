@@ -127,7 +127,7 @@ export function CoachDirectory({ embedded = false, initialCoaches = fallbackCoac
     <section aria-busy={isNavigating} className={`${styles.directory} ${embedded ? styles.embedded : styles.standalone}`}>
       <header className={styles.directoryHeader}>
         <div><p>{embedded ? "学员服务 / 北京" : "北京教练服务"}</p><h1>找到适合你的教练</h1></div>
-        {!embedded ? <p>所有评分、评价、课量和排期都来自真实业务数据；缺失信息会明确标注。</p> : null}
+        {!embedded ? <p>所有评分、评价、课量和接单状态都来自真实业务数据；缺失信息会明确标注。</p> : null}
       </header>
 
       <div className={`${styles.filters} ${filtersExpanded ? styles.filtersExpanded : ""}`} aria-label="教练筛选条件">

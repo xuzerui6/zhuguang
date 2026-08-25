@@ -106,7 +106,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
   const [bookingCustomDistrict, setBookingCustomDistrict] = useState("");
   const [bookingCustomAddress, setBookingCustomAddress] = useState("");
   const [bookingCustomNote, setBookingCustomNote] = useState("");
-  const [bookingNote, setBookingNote] = useState("希望先沟通训练目标，真实场地与时段确认后再提交预约。");
+  const [bookingNote, setBookingNote] = useState("希望先沟通训练目标，并由教练确认我选择的时间和地点。");
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [conversations, setConversations] = useState<MobileConversation[]>(() => demoMode ? createDemoConversations() : []);

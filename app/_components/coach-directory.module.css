@@ -111,7 +111,7 @@
   color: var(--zg-ink);
   font-size: 13px;
   font-weight: 700;
-  min-height: 30px;
+  min-height: 44px;
   min-width: 0;
   outline: 0;
   width: 100%;
@@ -190,7 +190,7 @@
   border-radius: 4px;
   color: var(--zg-muted);
   font-size: 12px;
-  min-height: 34px;
+  min-height: 44px;
   padding: 0 13px;
 }
 
@@ -210,7 +210,7 @@
   font-size: 12px;
   gap: 7px;
   justify-self: end;
-  min-height: 40px;
+  min-height: 44px;
 }
 
 .favoriteFilter[aria-pressed="true"] {
@@ -401,7 +401,7 @@
   font-size: 12px;
   gap: 6px;
   margin-top: 14px;
-  min-height: 38px;
+  min-height: 44px;
   padding: 0;
 }
 
@@ -517,6 +517,12 @@
 .inspector section header span {
   color: var(--zg-muted);
   font-size: 12px;
+}
+
+.inspector section header a {
+  align-items: center;
+  display: inline-flex;
+  min-height: 44px;
 }
 
 .credentials {

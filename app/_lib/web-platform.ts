@@ -65,7 +65,7 @@ export const studentNavigation: NavItem[] = [
 export const coachNavigation: NavItem[] = [
   { group: "工作", href: "/coach-workspace", icon: "dashboard", id: "coach-home", label: "今日工作", permission: "coach:work" },
   { group: "履约", href: "/coach-workspace/bookings", icon: "calendar", id: "coach-bookings", label: "预约管理", permission: "coach:work" },
-  { group: "履约", href: "/coach-workspace/schedule", icon: "schedule", id: "coach-schedule", label: "排期与场馆", permission: "coach:work" },
+  { group: "履约", href: "/coach-workspace/schedule", icon: "schedule", id: "coach-schedule", label: "接单状态与日程", permission: "coach:work" },
   { group: "沟通", href: "/coach-workspace/messages", icon: "message", id: "coach-messages", label: "学员消息", permission: "coach:work" },
   { group: "经营", href: "/coach-workspace/courses", icon: "course", id: "coach-courses", label: "课程记录", permission: "coach:work" },
   { group: "经营", href: "/coach-workspace/payments", icon: "payment", id: "coach-payments", label: "线下收款", permission: "coach:work" },

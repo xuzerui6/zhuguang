@@ -197,7 +197,7 @@ export function BookingSuccessSheet({ coach, onClose, onViewBooking }: { coach: 
       <div className="zg-success-sheet">
         <span><Check aria-hidden size={30} /></span>
         <h3>等待 {coach.name} 教练确认</h3>
-        <p>教练将在 24 小时内处理。确认、拒绝或改期都会通过站内消息与短信通知。</p>
+        <p>教练将在 24 小时内处理。确认、拒绝或改期都会通过站内消息同步。</p>
         <button className="zg-sheet-primary" onClick={onViewBooking} type="button">查看预约进度</button>
         <button onClick={onClose} type="button">继续浏览教练</button>
       </div>
@@ -211,7 +211,7 @@ export function CancelBookingSheet({ onCancel, onClose }: { onCancel: () => void
       <div className="zg-danger-sheet">
         <span><Trash2 aria-hidden size={27} /></span>
         <h3>确认取消这次预约？</h3>
-        <p>取消后时段会重新释放。试课开始前 24 小时内取消可能需要人工审核。</p>
+        <p>取消规则以预约确认页及已发布的服务协议为准；如有争议可提交站内工单。</p>
         <div><button onClick={onClose} type="button">保留预约</button><button onClick={onCancel} type="button">确认取消</button></div>
       </div>
     </Sheet>

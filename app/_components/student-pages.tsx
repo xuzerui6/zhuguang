@@ -25,7 +25,7 @@ import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal } from "../../sha
 import type { BookingOptions, LearnerProfile, MobileBooking, MobileCoach, MobileConversation } from "../mobile/types";
 import { coaches as fallbackCoaches } from "../_lib/web-platform";
 import { CoachDirectory } from "./coach-directory";
-import { formatBeijingDate, formatFen, platformRequest } from "./platform-client";
+import { describeBookingOptionsFailure, formatBeijingDate, formatFen, platformRequest } from "./platform-client";
 import styles from "./platform-pages.module.css";
 
 export type StudentSection = "home" | "coaches" | "bookings" | "messages" | "training" | "profile";
@@ -164,6 +164,8 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
   const bookingPriceLabel = hasPriorEffectiveBooking ? "常规课" : "首次试课";
   const [options, setOptions] = useState<BookingOptions | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(Boolean(selectedCoach));
+  const [optionsError, setOptionsError] = useState<unknown>(null);
+  const [optionsReloadKey, setOptionsReloadKey] = useState(0);
   const [busy, setBusy] = useState("");
   const [profileBusy, setProfileBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -185,17 +187,18 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
   useEffect(() => {
     if (!selectedCoach) return;
     let active = true;
-    queueMicrotask(() => { setOptionsLoading(true); setError(""); });
+    queueMicrotask(() => { setOptionsLoading(true); setOptionsError(null); setError(""); });
     void platformRequest<BookingOptions>(`/api/v1/coaches/${selectedCoach.id}/booking-options`).then((value) => {
       if (!active) return;
       setOptions(value);
+      setOptionsError(null);
       setVenueId(value.venues[0]?.id || "");
       setStartsAt(formatBeijingDateTimeLocal(value.earliestStartsAt + 5 * 60_000));
     }).catch((loadError: unknown) => {
-      if (active) { setOptions(null); setError(loadError instanceof Error ? loadError.message : "预约配置加载失败，请重试"); }
+      if (active) { setOptions(null); setOptionsError(loadError); }
     }).finally(() => { if (active) setOptionsLoading(false); });
     return () => { active = false; };
-  }, [initialSlotId, selectedCoach]);
+  }, [initialSlotId, optionsReloadKey, selectedCoach]);
   useEffect(() => {
     if (!selectedLearnerId && data.learnerProfiles[0]?.id) queueMicrotask(() => setSelectedLearnerId(data.learnerProfiles[0].id));
   }, [data.learnerProfiles, selectedLearnerId]);
@@ -291,7 +294,17 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
           <section className={styles.bookingSummary}><span><strong>{bookingPriceLabel} · {durationMinutes}分钟</strong><small>申请提交后价格生成快照，教练不能修改</small></span><b>{formatFen(calculateDurationPriceFen(hasPriorEffectiveBooking ? options.regularBasePriceFen : options.trialBasePriceFen, durationMinutes))}</b></section>
           <label className={styles.consentRow}><input checked={agreementAccepted} onChange={(event) => setAgreementAccepted(event.target.checked)} type="checkbox" /><span>我已阅读服务与取消规则。申请需教练确认后生效，24小时未处理或到达训练开始时间会自动失效，采用线下支付。</span></label>
           <button className={styles.primary} disabled={busy === "submit" || !selectedLearnerId || !agreementAccepted || (locationType === "venue" ? !venueId : !customDistrict.trim() || !customAddress.trim())} type="submit">{busy === "submit" ? "正在提交" : "提交时间申请"}</button>
-        </form> : <EmptyState copy={selectedCoach.unavailableReason || "该教练当前未上线接单，你可以稍后再试或先发起咨询。"} title="暂时不能预约" />}
+        </form> : (() => {
+          const failure = describeBookingOptionsFailure(optionsError, selectedCoach.unavailableReason);
+          const action = failure.action === "retry"
+            ? <button className={styles.primary} onClick={() => setOptionsReloadKey((value) => value + 1)} type="button"><RefreshCw aria-hidden size={17} />重新加载</button>
+            : failure.action === "login"
+              ? <Link className={styles.primary} href={`/login?next=${encodeURIComponent(`/student/bookings?coach=${selectedCoach.id}`)}`}>重新登录</Link>
+              : failure.action === "choose"
+                ? <Link className={styles.primary} href="/student/coaches">重新选择教练</Link>
+                : undefined;
+          return <EmptyState action={action} copy={failure.copy} title={failure.title} />;
+        })()}
       </section> : null}
       {proposals.some((item) => item.status === "pending") ? <section className={styles.panel}><header className={styles.panelHeader}><div><h2>待确认改期</h2><p>确认前请核对新时间和场馆</p></div></header><div className={styles.list}>{proposals.filter((item) => item.status === "pending").map((proposal) => <article className={styles.listItem} key={proposal.id}><span className={styles.listIcon}><Clock3 aria-hidden size={19} /></span><div><h3>{formatBeijingDate(proposal.starts_at)}</h3><p>{proposal.venue_name || "训练场馆"} · {proposal.note || "教练提出新的训练时间"}</p></div><span className={styles.rowActions}><button className={styles.danger} disabled={busy === proposal.id} onClick={() => void respondToReschedule(proposal.id, "rejected")} type="button">拒绝</button><button className={styles.primary} disabled={busy === proposal.id} onClick={() => void respondToReschedule(proposal.id, "accepted")} type="button">接受改期</button></span></article>)}</div></section> : null}
       <section className={styles.panel}>

@@ -14,6 +14,8 @@ import {
 import { canAccessArea, createWebSession } from "../app/_lib/web-session";
 import { applyWebSecurityHeaders } from "../app/_lib/web-security";
 import { removeTurnstileWidget } from "../app/_lib/turnstile";
+import { allowedForPlatformSession } from "../app/_lib/platform-proxy-policy";
+import { describeBookingOptionsFailure, PlatformRequestError } from "../app/_components/platform-client";
 import { resolveCloudflareAccessToken, verifyCloudflareAccessToken } from "../app/_lib/cloudflare-access";
 import { BEIJING_DISTRICTS, coachCatalog, SPORT_OPTIONS } from "../shared/coach-catalog";
 
@@ -145,6 +147,28 @@ test("signed-in accounts receive student access by default", () => {
   assert.deepEqual(session.availableAreas, ["student"]);
   assert.equal(canAccessArea(session, "student"), true);
   assert.equal(canAccessArea(session, "coach"), false);
+});
+
+test("the web proxy exposes booking options without broadening protected writes", () => {
+  assert.equal(allowedForPlatformSession("/api/v1/coaches/5/booking-options", "GET", []), true);
+  assert.equal(allowedForPlatformSession("/api/v1/coaches/5/booking-options", "POST", []), false);
+  assert.equal(allowedForPlatformSession("/api/v1/bookings", "POST", []), false);
+  assert.equal(allowedForPlatformSession("/api/v1/bookings", "POST", ["student:read"]), true);
+  assert.equal(allowedForPlatformSession("/api/v1/operator/coaches/5", "GET", ["student:read"]), false);
+});
+
+test("booking options failures distinguish session errors from an offline coach", () => {
+  assert.deepEqual(describeBookingOptionsFailure(new PlatformRequestError("forbidden", 403, "role_forbidden")), {
+    action: "login",
+    copy: "当前登录状态未能取得学员预约权限，请重新验证账号后再试。",
+    title: "预约权限需要重新验证",
+  });
+  assert.deepEqual(describeBookingOptionsFailure(new PlatformRequestError("offline", 410, "coach_not_accepting_requests"), "暂停接单"), {
+    action: "none",
+    copy: "暂停接单",
+    title: "教练暂未接单",
+  });
+  assert.equal(describeBookingOptionsFailure(new Error("网络异常")).action, "retry");
 });
 
 test("coach access uses the server allowlist and operations is locked to the primary email", () => {

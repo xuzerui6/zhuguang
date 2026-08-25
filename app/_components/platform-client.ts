@@ -14,6 +14,30 @@ export class PlatformRequestError extends Error {
   }
 }
 
+export type BookingOptionsFailure = {
+  action: "choose" | "login" | "none" | "retry";
+  copy: string;
+  title: string;
+};
+
+export function describeBookingOptionsFailure(error: unknown, unavailableReason?: string): BookingOptionsFailure {
+  if (error instanceof PlatformRequestError) {
+    if (error.status === 401 || error.code === "authentication_required") {
+      return { action: "login", copy: "登录状态已失效。重新登录后会返回当前教练的预约页面。", title: "请重新登录" };
+    }
+    if (error.status === 403 || error.code === "role_forbidden") {
+      return { action: "login", copy: "当前登录状态未能取得学员预约权限，请重新验证账号后再试。", title: "预约权限需要重新验证" };
+    }
+    if (error.status === 404 || error.code === "coach_not_found") {
+      return { action: "choose", copy: "该教练档案已不存在或不再公开展示，请重新选择教练。", title: "未找到教练" };
+    }
+    if (error.status === 410 || error.code === "coach_not_accepting_requests") {
+      return { action: "none", copy: unavailableReason || error.message || "该教练当前暂不接受新的时间申请。", title: "教练暂未接单" };
+    }
+  }
+  return { action: "retry", copy: error instanceof Error ? error.message : "预约配置加载失败，请检查网络后重试。", title: "预约配置暂时无法加载" };
+}
+
 export async function platformRequest<T>(
   path: string,
   options: { body?: unknown; idempotencyKey?: string; method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT" } = {},

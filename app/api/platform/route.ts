@@ -1,21 +1,9 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { allowedForPlatformSession } from "../../_lib/platform-proxy-policy";
 import { getWebSession, WEB_ACCESS_COOKIE } from "../../_lib/web-session";
 
 const fallbackApiUrl = "https://api.beijingzhuguang.top";
-
-const publicPatterns = [
-  /^\/api\/v1\/coaches(?:\/\d+\/(?:slots|reviews)|\/\d+)?(?:\?.*)?$/u,
-  /^\/api\/v1\/health$/u,
-];
-
-function allowedForSession(path: string, method: string, permissions: string[]) {
-  if (publicPatterns.some((pattern) => pattern.test(path))) return method === "GET";
-  if (path === "/api/v1/service-leads") return method === "POST";
-  if (path.startsWith("/api/v1/operator/")) return permissions.includes("ops:manage");
-  if (path.startsWith("/api/v1/coach/")) return permissions.includes("coach:work");
-  return permissions.includes("student:read") && /^\/api\/v1\/(?:bootstrap|bookings|conversations|favorites|learner-profiles|me|notifications|reschedule-proposals|reviews|support-tickets|training-records)(?:\/.*)?(?:\?.*)?$/u.test(path);
-}
 
 async function relay(request: Request) {
   const method = request.method.toUpperCase();
@@ -25,7 +13,7 @@ async function relay(request: Request) {
     return NextResponse.json({ error: { code: "invalid_path", message: "接口路径无效" } }, { status: 422 });
   }
   const session = await getWebSession();
-  if (!allowedForSession(path, method, session.permissions)) {
+  if (!allowedForPlatformSession(path, method, session.permissions)) {
     const authenticated = session.isAuthenticated;
     return NextResponse.json({ error: {
       code: authenticated ? "role_forbidden" : "authentication_required",

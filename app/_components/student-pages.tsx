@@ -418,6 +418,18 @@ function ProfilePage({ data, reload }: { data: BootstrapData; reload: () => Prom
     try { await platformRequest("/api/v1/me", { method: "DELETE" }); window.location.assign("/"); }
     catch (deleteError) { setError(deleteError instanceof Error ? deleteError.message : "账号注销失败"); setDeleteOpen(false); setBusy(false); }
   }
+  async function logout() {
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/auth/email/logout", { method: "POST" });
+      if (!response.ok) throw new Error("退出登录失败，请稍后重试");
+      window.location.assign("/login");
+    } catch (logoutError) {
+      setError(logoutError instanceof Error ? logoutError.message : "退出登录失败，请稍后重试");
+      setBusy(false);
+    }
+  }
   return <div className={styles.page}>
     <header className={styles.heading}><div><p className={styles.eyebrow}>账号与档案</p><h1>把必要信息交给正确的人</h1><p>敏感资料不会出现在公开教练目录中，仅用于已确认的服务。</p></div></header>
     <div className={styles.split}>
@@ -436,7 +448,7 @@ function ProfilePage({ data, reload }: { data: BootstrapData; reload: () => Prom
       <aside className={styles.panel}><header className={styles.panelHeader}><div><h2>账号管理</h2><p>隐私、收藏和服务记录</p></div></header><div className={styles.list}>
         <div className={styles.listItem}><span className={styles.listIcon}><Heart aria-hidden size={19} /></span><div><h3>我的收藏</h3><p>{data.favoriteCoachIds.length} 位教练已同步</p></div></div>
         <Link className={styles.listItem} href="/service-guarantee"><span className={styles.listIcon}><ShieldCheck aria-hidden size={19} /></span><div><h3>协议与隐私</h3><p>查看服务保障与个人信息规则</p></div><ArrowRight aria-hidden size={17} /></Link>
-        <form action="/api/auth/email/logout" method="post" className={styles.listItem}><span className={styles.listIcon}><UserRound aria-hidden size={19} /></span><div><h3>登录状态</h3><p>退出后公开教练目录仍可浏览</p></div><button className={styles.secondary} type="submit">退出登录</button></form>
+        <div className={styles.listItem}><span className={styles.listIcon}><UserRound aria-hidden size={19} /></span><div><h3>登录状态</h3><p>退出后公开教练目录仍可浏览</p></div><button className={styles.secondary} disabled={busy} onClick={() => void logout()} type="button">{busy ? "正在退出" : "退出登录"}</button></div>
         <div className={styles.listItem}><span className={styles.listIcon}><CircleAlert aria-hidden size={19} /></span><div><h3>注销账号</h3><p>最高权限账号受保护，其他账号可提交注销</p></div><button className={styles.danger} onClick={() => setDeleteOpen(true)} type="button">注销</button></div>
       </div></aside>
     </div>

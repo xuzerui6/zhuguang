@@ -115,6 +115,15 @@ test("new web and Android clients do not restore legacy or unverified service cl
   assert.doesNotMatch(coachDetail, /小宇妈妈|★★★★★/u);
 });
 
+test("web logout clears the session before navigating away", async () => {
+  const source = await readFile("app/_components/student-pages.tsx", "utf8");
+  const route = await readFile("app/api/auth/email/logout/route.ts", "utf8");
+  assert.equal(source.includes('action="/api/auth/email/logout"'), false);
+  assert.equal(source.includes('fetch("/api/auth/email/logout", { method: "POST" })'), true);
+  assert.equal(source.includes('window.location.assign("/login")'), true);
+  assert.equal(route.includes('"CF_Authorization"'), true);
+});
+
 test("anonymous visitors have no workspace permissions", () => {
   const session = createWebSession(null);
   assert.equal(session.isAuthenticated, false);

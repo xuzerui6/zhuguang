@@ -26,7 +26,8 @@ export function PublicFooter() {
         </div>
         <div>
           <strong>服务说明</strong>
-          <Link href="/service-guarantee#privacy">隐私与未成年人保护</Link>
+          <Link href="/privacy">隐私政策</Link>
+          <Link href="/terms">用户服务协议</Link>
           <Link href="/service-guarantee#booking">预约与取消规则</Link>
           <Link href="/service-guarantee#feedback">意见反馈</Link>
         </div>

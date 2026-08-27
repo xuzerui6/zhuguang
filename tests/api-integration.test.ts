@@ -179,7 +179,7 @@ async function migrate(database: D1Adapter) {
   database.sqlite.exec("PRAGMA foreign_keys = ON");
 }
 
-test("registered code 16 Android devices can request email OTP when Turnstile is unreachable", async () => {
+test("registered Android and iOS devices can request email OTP when Turnstile is unreachable", async () => {
   const database = new D1Adapter();
   await migrate(database);
   const deviceId = "device_123e4567-e89b-42d3-a456-426614174000";
@@ -227,6 +227,25 @@ test("registered code 16 Android devices can request email OTP when Turnstile is
     );
     assert.equal(result.expiresIn, 300);
     assert.equal(database.sqlite.prepare("SELECT status FROM email_deliveries LIMIT 1").get()?.status, "sent");
+
+    const iosDeviceId = "device_223e4567-e89b-42d3-a456-426614174001";
+    const iosHeaders = {
+      "x-app-platform": "ios",
+      "x-app-version-code": "19",
+      "x-device-id": iosDeviceId,
+      "x-zhuguang-app-key": "test-app-key",
+    };
+    database.sqlite.prepare(`
+      INSERT INTO app_installations
+        (id, platform, app_version_code, app_version_name, status, last_seen_at, created_at, updated_at)
+      VALUES (?, 'ios', 19, '1.3.4', 'active', ?, ?, ?)
+    `).run(iosDeviceId, now, now, now);
+    const iosResult = await requestEmailOtpD1(
+      new Request("https://api.local/api/v1/auth/email/request", { headers: iosHeaders }),
+      { email: "ios-learner@example.com" },
+      env,
+    );
+    assert.equal(iosResult.expiresIn, 300);
   } finally {
     globalThis.fetch = originalFetch;
   }

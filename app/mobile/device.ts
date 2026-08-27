@@ -23,6 +23,13 @@ export function isNativeMobile() {
   return Capacitor.isNativePlatform();
 }
 
+export type MobilePlatform = "android" | "ios" | "web";
+
+export function getMobilePlatform(): MobilePlatform {
+  const platform = Capacitor.getPlatform();
+  return platform === "android" || platform === "ios" ? platform : "web";
+}
+
 export async function showNativeKeyboard() {
   if (!isNativeMobile()) return;
   try {

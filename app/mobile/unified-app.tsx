@@ -8,6 +8,7 @@ import { mobileApi, usesBundledDemoData } from "./api-client";
 import { CoachApp } from "./coach/coach-app";
 import {
   acceptPrivacyConsent,
+  getMobilePlatform,
   hasPrivacyConsent,
   getOrCreateDeviceId,
   listenForAppResume,
@@ -55,6 +56,8 @@ function timeout<T>(promise: Promise<T>, durationMs: number) {
 
 export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   const demoMode = useMemo(() => usesBundledDemoData(), []);
+  const mobilePlatform = useMemo(() => getMobilePlatform(), []);
+  const nativePushSupported = pushBridge.isSupported();
   const [booting, setBooting] = useState(true);
   const [showBootBrand, setShowBootBrand] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState<boolean | null>(null);
@@ -127,7 +130,7 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   }, [applyDeepLink]);
 
   const checkForUpdates = useCallback(async () => {
-    if (demoMode) return;
+    if (demoMode || mobilePlatform !== "android") return;
     try {
       const latest = await timeout(mobileApi.latestRelease(), 4_000);
       const currentVersionCode = Number((import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_APP_VERSION_CODE ?? 3);
@@ -142,7 +145,7 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
     } catch {
       // Update checks are silent during offline startup; users can retry from Version Center.
     }
-  }, [demoMode]);
+  }, [demoMode, mobilePlatform]);
 
   const initializePush = useCallback(async () => {
     let push = await pushBridge.setPrivacyConsent(true);
@@ -229,11 +232,12 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
     setSurface("app");
     void writeAccountMode(nextMode);
     if (nextMode === "coach") {
+      if (!nativePushSupported) return;
       void pushBridge.getPermissionStatus().then(({ granted }) => {
         if (!granted) setNotificationPrompt(true);
       });
     }
-  }, [hasCoachMode]);
+  }, [hasCoachMode, nativePushSupported]);
 
   const handleSessionChange = useCallback((session: MobileSession | null) => {
     const nextIdentity: MobileIdentity = demoMode
@@ -259,8 +263,8 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
         <section>
           <ShieldCheck aria-hidden size={29} />
           <h1>欢迎使用逐光</h1>
-          <p>在开始前，请阅读并同意《用户协议》和《隐私政策》。逐光仅使用账号、预约与设备必要信息提供服务；你同意后才会初始化消息推送。</p>
-          <div><button type="button">用户协议</button><button type="button">隐私政策</button></div>
+          <p>在开始前，请阅读并同意《用户协议》和《隐私政策》。逐光仅使用账号、预约与设备必要信息提供服务；{nativePushSupported ? "你同意后才会初始化消息推送。" : "iOS 首个测试版本通过应用内刷新获取消息，不会申请通知权限。"}</p>
+          <div><a href="https://beijingzhuguang.top/terms" rel="noreferrer" target="_blank">用户协议</a><a href="https://beijingzhuguang.top/privacy" rel="noreferrer" target="_blank">隐私政策</a></div>
           <button className="zg-privacy-accept" onClick={() => {
             void acceptPrivacyConsent().then(initializePush);
             setPrivacyAccepted(true);

@@ -250,9 +250,12 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   }
 
   if (request.method === "PUT" && path === "/api/v1/app/installations") {
-    const body = await readJson<{ installationId?: unknown; pushRegistrationId?: unknown; versionCode?: unknown; versionName?: unknown }>(request);
+    const body = await readJson<{ installationId?: unknown; platform?: unknown; pushRegistrationId?: unknown; versionCode?: unknown; versionName?: unknown }>(request);
+    const requestPlatform = request.headers.get("x-app-platform");
+    const platform = body.platform === "ios" || requestPlatform === "ios" ? "ios" : "android";
     const input = {
       installationId: requireString(body.installationId, "installationId", 180),
+      platform,
       pushRegistrationId: typeof body.pushRegistrationId === "string" ? body.pushRegistrationId.slice(0, 300) : undefined,
       versionCode: positiveInteger(body.versionCode, "versionCode"),
       versionName: requireString(body.versionName, "versionName", 40),

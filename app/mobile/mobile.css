@@ -2997,7 +2997,8 @@
 .zg-privacy-gate h1 { font-size: 26px; margin: 17px 0 12px; }
 .zg-privacy-gate p { color: #4f5d57; font-size: 15px; line-height: 1.75; margin: 0; }
 .zg-privacy-gate section > div { display: flex; gap: 18px; margin-top: 18px; }
-.zg-privacy-gate section > div button { background: none; border: 0; color: var(--zg-brand); min-height: 44px; padding: 0; }
+.zg-privacy-gate section > div button,
+.zg-privacy-gate section > div a { align-items: center; background: none; border: 0; color: var(--zg-brand); display: inline-flex; min-height: 44px; padding: 0; text-decoration: none; }
 .zg-privacy-accept {
   background: var(--zg-brand);
   border: 0;

@@ -115,6 +115,8 @@ test("all public and workspace routes support direct rendering", async () => {
     ["/service-guarantee", "预约与履约"],
     ["/coach-partnership", "定向邀请和人工审核"],
     ["/download", "训练服务，随时在手边"],
+    ["/privacy", "只处理完成训练服务"],
+    ["/terms", "教练确认后生效"],
     ["/login", "登录逐光"],
     ["/student", "学员平台导航"],
     ["/student/coaches", "学员平台导航"],
@@ -144,6 +146,30 @@ test("all public and workspace routes support direct rendering", async () => {
     assert.equal(response.status, 200, path);
     assert.match(await response.text(), new RegExp(copy), path);
   }
+});
+
+test("iOS source uses platform-aware auth and TestFlight updates", async () => {
+  const [apiClient, bridge, emailAuth, infoPlist, updateCenter, workflow] = await Promise.all([
+    read("app/mobile/api-client.ts"),
+    read("app/mobile/native-bridge.ts"),
+    read("server/api/email-auth.ts"),
+    read("ios/App/App/Info.plist"),
+    read("app/mobile/update/update-center.tsx"),
+    read("codemagic.yaml"),
+  ]);
+
+  assert.match(apiClient, /headers\.set\("x-app-platform", getMobilePlatform\(\)\)/);
+  assert.match(bridge, /getMobilePlatform\(\) !== "android"/);
+  assert.match(emailAuth, /android: 16, ios: 19/);
+  assert.match(infoPlist, /<string>逐光<\/string>/);
+  assert.match(infoPlist, /ITSAppUsesNonExemptEncryption/);
+  assert.match(updateCenter, /通过 TestFlight 管理更新/);
+  assert.doesNotMatch(updateCenter.match(/if \(mobilePlatform === "ios"\)[\s\S]*?return \([\s\S]*?\n  \}/)?.[0] ?? "", /downloadAndInstall|createDownloadTicket/);
+  assert.match(workflow, /ios-simulator-check:/);
+  assert.match(workflow, /CODE_SIGNING_ALLOWED=NO/);
+  assert.match(workflow, /ios-testflight:/);
+  assert.match(workflow, /submit_to_testflight: true/);
+  assert.match(workflow, /submit_to_app_store: false/);
 });
 
 test("rejects configured operator aliases that are not the primary account", async () => {

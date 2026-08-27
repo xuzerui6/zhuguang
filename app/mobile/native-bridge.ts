@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import type { AccountMode } from "./types";
+import { getMobilePlatform } from "./device";
 
 export type InstalledAppInfo = {
   certificateSha256: string;
@@ -70,34 +71,42 @@ function webInstalledInfo(): InstalledAppInfo {
 }
 
 export const appUpdater = {
+  isSupported() {
+    return getMobilePlatform() === "android";
+  },
   async getInstalledInfo() {
-    return Capacitor.isNativePlatform() ? NativeAppUpdater.getInstalledInfo() : webInstalledInfo();
+    return getMobilePlatform() === "android" ? NativeAppUpdater.getInstalledInfo() : webInstalledInfo();
   },
   async canInstallPackages() {
-    return Capacitor.isNativePlatform() ? NativeAppUpdater.canInstallPackages() : { allowed: false };
+    return getMobilePlatform() === "android" ? NativeAppUpdater.canInstallPackages() : { allowed: false };
   },
   async openInstallPermission() {
-    if (Capacitor.isNativePlatform()) await NativeAppUpdater.openInstallPermission();
+    if (getMobilePlatform() === "android") await NativeAppUpdater.openInstallPermission();
   },
   async downloadAndInstall(options: Parameters<AppUpdaterPlugin["downloadAndInstall"]>[0]) {
-    if (!Capacitor.isNativePlatform()) throw new Error("请在 Android App 中完成安全更新");
+    if (getMobilePlatform() !== "android") throw new Error("iOS 版本请通过 TestFlight 更新");
     return NativeAppUpdater.downloadAndInstall(options);
   },
   async onProgress(listener: (event: UpdateDownloadProgress) => void) {
-    if (!Capacitor.isNativePlatform()) return { remove: async () => {} } satisfies PluginListenerHandle;
+    if (getMobilePlatform() !== "android") return { remove: async () => {} } satisfies PluginListenerHandle;
     return NativeAppUpdater.addListener("downloadProgress", listener);
   },
 };
 
 export const pushBridge = {
+  isSupported() {
+    return getMobilePlatform() === "android";
+  },
   async setPrivacyConsent(accepted: boolean) {
     if (!Capacitor.isNativePlatform()) return { initialized: accepted, provider: "web-preview" };
+    if (getMobilePlatform() !== "android") return { initialized: false, provider: "unavailable", registrationReady: false };
     return NativePushBridge.setPrivacyConsent({ accepted });
   },
   async getPermissionStatus() {
     if (!Capacitor.isNativePlatform()) {
       return { granted: typeof Notification !== "undefined" && Notification.permission === "granted", canAskAgain: true };
     }
+    if (getMobilePlatform() !== "android") return { granted: false, canAskAgain: false };
     return NativePushBridge.getPermissionStatus();
   },
   async requestPermission() {
@@ -105,17 +114,19 @@ export const pushBridge = {
       const permission = typeof Notification === "undefined" ? "denied" : await Notification.requestPermission();
       return { granted: permission === "granted", canAskAgain: permission !== "denied" };
     }
+    if (getMobilePlatform() !== "android") return { granted: false, canAskAgain: false };
     return NativePushBridge.requestPermission();
   },
   async consumePendingDeepLink() {
     if (!Capacitor.isNativePlatform()) return { deepLink: "" };
+    if (getMobilePlatform() !== "android") return { deepLink: "" };
     return NativePushBridge.consumePendingDeepLink();
   },
   async simulateNotification(options: Parameters<PushBridgePlugin["simulateNotification"]>[0]) {
-    if (Capacitor.isNativePlatform()) await NativePushBridge.simulateNotification(options);
+    if (getMobilePlatform() === "android") await NativePushBridge.simulateNotification(options);
   },
   async onOpen(listener: (deepLink: string) => void) {
-    if (!Capacitor.isNativePlatform()) return { remove: async () => {} } satisfies PluginListenerHandle;
+    if (!Capacitor.isNativePlatform() || getMobilePlatform() !== "android") return { remove: async () => {} } satisfies PluginListenerHandle;
     return NativePushBridge.addListener("pushOpened", ({ deepLink }) => listener(deepLink));
   },
 };

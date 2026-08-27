@@ -16,7 +16,7 @@ import {
 
 type Row = Record<string, unknown>;
 const PRIMARY_OPERATOR_EMAIL = "xuzerui6@gmail.com";
-const NATIVE_OTP_MIN_VERSION_CODE = 16;
+const NATIVE_OTP_MIN_VERSION_CODE = { android: 16, ios: 19 } as const;
 const NATIVE_INSTALLATION_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
 const NATIVE_DEVICE_ID_PATTERN = /^device_[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
@@ -35,22 +35,23 @@ function numberValue(value: unknown) {
 
 async function isRegisteredNativeOtpRequest(request: Request, env: ApiEnv, db: D1Database) {
   const deviceId = request.headers.get("x-device-id")?.trim() ?? "";
+  const platform = request.headers.get("x-app-platform");
   const versionCode = Number(request.headers.get("x-app-version-code") ?? 0);
   if (
-    request.headers.get("x-app-platform") !== "android"
+    (platform !== "android" && platform !== "ios")
     || !NATIVE_DEVICE_ID_PATTERN.test(deviceId)
     || !Number.isInteger(versionCode)
-    || versionCode < NATIVE_OTP_MIN_VERSION_CODE
+    || versionCode < NATIVE_OTP_MIN_VERSION_CODE[platform]
     || !env.PILOT_APP_KEY
     || request.headers.get("x-zhuguang-app-key") !== env.PILOT_APP_KEY
   ) return false;
 
   const installation = await db.prepare(`
     SELECT id FROM app_installations
-    WHERE id = ? AND platform = 'android' AND status = 'active'
+    WHERE id = ? AND platform = ? AND status = 'active'
       AND app_version_code >= ? AND last_seen_at >= ?
     LIMIT 1
-  `).bind(deviceId, NATIVE_OTP_MIN_VERSION_CODE, Date.now() - NATIVE_INSTALLATION_MAX_AGE_MS).first<Row>();
+  `).bind(deviceId, platform, NATIVE_OTP_MIN_VERSION_CODE[platform], Date.now() - NATIVE_INSTALLATION_MAX_AGE_MS).first<Row>();
   return Boolean(installation);
 }
 

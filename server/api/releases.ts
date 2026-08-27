@@ -175,28 +175,34 @@ export async function createPublicDownloadTicketD1(
 
 export async function registerInstallationD1(
   identity: StudentIdentity | null,
-  input: { installationId: string; pushRegistrationId?: string; versionCode: number; versionName: string },
+  input: { installationId: string; platform: "android" | "ios"; pushRegistrationId?: string; versionCode: number; versionName: string },
   env: ApiEnv,
 ) {
   const now = Date.now();
+  const pushProvider = input.platform === "android" && input.pushRegistrationId ? "jpush" : null;
+  const pushRegistrationId = pushProvider ? input.pushRegistrationId : null;
   await database(env).prepare(`
     INSERT INTO app_installations
       (id, user_id, platform, app_version_code, app_version_name, push_provider, push_registration_id, push_enabled, status, last_seen_at, created_at, updated_at)
-    VALUES (?, ?, 'android', ?, ?, 'jpush', ?, ?, 'active', ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       user_id = coalesce(excluded.user_id, app_installations.user_id),
+      platform = excluded.platform,
       app_version_code = excluded.app_version_code,
       app_version_name = excluded.app_version_name,
-      push_registration_id = coalesce(excluded.push_registration_id, app_installations.push_registration_id),
-      push_enabled = CASE WHEN excluded.push_registration_id IS NOT NULL THEN 1 ELSE app_installations.push_enabled END,
+      push_provider = excluded.push_provider,
+      push_registration_id = excluded.push_registration_id,
+      push_enabled = excluded.push_enabled,
       status = 'active', last_seen_at = excluded.last_seen_at, updated_at = excluded.updated_at
   `).bind(
     input.installationId,
     identity?.userId ?? null,
+    input.platform,
     input.versionCode,
     input.versionName,
-    input.pushRegistrationId ?? null,
-    Boolean(input.pushRegistrationId),
+    pushProvider,
+    pushRegistrationId,
+    Boolean(pushRegistrationId),
     now,
     now,
     now,

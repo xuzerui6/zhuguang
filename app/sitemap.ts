@@ -10,6 +10,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${origin}/coaches`, lastModified: now, changeFrequency: "daily", priority: 0.9 },
     ...publicCoaches.map((coach) => ({ url: `${origin}/coaches/${coach.id}`, lastModified: now, changeFrequency: "weekly" as const, priority: 0.8 })),
     { url: `${origin}/service-guarantee`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
+    { url: `${origin}/privacy`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
+    { url: `${origin}/terms`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
     { url: `${origin}/coach-partnership`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
     { url: `${origin}/download`, lastModified: now, changeFrequency: "weekly", priority: 0.8 },
   ];

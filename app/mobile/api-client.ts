@@ -1,5 +1,5 @@
 import { createRequestId } from "./domain";
-import { getOrCreateDeviceId, readSession, writeSession } from "./device";
+import { getMobilePlatform, getOrCreateDeviceId, readSession, writeSession } from "./device";
 import type {
   AppRelease,
   BookingSlot,
@@ -71,7 +71,7 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   const headers = new Headers(init.headers);
   const deviceId = await getOrCreateDeviceId();
   headers.set("accept", "application/json");
-  headers.set("x-app-platform", "android");
+  headers.set("x-app-platform", getMobilePlatform());
   headers.set("x-app-version", getBuildValue("VITE_APP_VERSION") ?? "1.1.0");
   headers.set("x-app-version-code", getBuildValue("VITE_APP_VERSION_CODE") ?? "3");
   headers.set("x-device-id", deviceId);
@@ -206,7 +206,7 @@ export const mobileApi = {
     method: "POST",
   }),
   registerInstallation: (input: { installationId: string; pushRegistrationId?: string; versionCode: number; versionName: string }) => request<{ installationId: string }>("/api/v1/app/installations", {
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...input, platform: getMobilePlatform() }),
     method: "PUT",
   }),
   recordUpdateEvent: (input: { eventType: string; installationId: string; versionCode: number; detail?: Record<string, unknown> }) => request<void>("/api/v1/app/update-events", {

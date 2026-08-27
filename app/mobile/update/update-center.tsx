@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { mobileApi, usesBundledDemoData } from "../api-client";
 import { deferUpdateFor24Hours, listenForAppResume } from "../device";
+import { getMobilePlatform } from "../device";
 import { appUpdater, type InstalledAppInfo, type UpdateDownloadProgress } from "../native-bridge";
 import type { AppRelease } from "../types";
 import {
@@ -38,6 +39,7 @@ function sizeLabel(bytes: number) {
 
 export function UpdateCenter({ forcedRelease, onBack }: UpdateCenterProps) {
   const demoMode = useMemo(() => usesBundledDemoData(), []);
+  const mobilePlatform = useMemo(() => getMobilePlatform(), []);
   const [installed, setInstalled] = useState<InstalledAppInfo | null>(null);
   const [release, setRelease] = useState<AppRelease | null>(forcedRelease ?? null);
   const [checking, setChecking] = useState(!forcedRelease);
@@ -55,6 +57,11 @@ export function UpdateCenter({ forcedRelease, onBack }: UpdateCenterProps) {
       const info = await appUpdater.getInstalledInfo();
       setInstalled(info);
 
+      if (mobilePlatform === "ios") {
+        setRelease(null);
+        return;
+      }
+
       const latest = demoMode ? previewRelease : await mobileApi.latestRelease();
       setRelease(latest.versionCode > info.versionCode ? latest : null);
     } catch (checkError) {
@@ -63,7 +70,7 @@ export function UpdateCenter({ forcedRelease, onBack }: UpdateCenterProps) {
     } finally {
       setChecking(false);
     }
-  }, [demoMode]);
+  }, [demoMode, mobilePlatform]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -130,6 +137,24 @@ export function UpdateCenter({ forcedRelease, onBack }: UpdateCenterProps) {
         if (resumeGate.current.isWaiting()) setError("无法读取系统安装权限，请稍后重试");
       });
   }), [startUpdate]);
+
+  if (mobilePlatform === "ios") {
+    return (
+      <main className="zg-mobile-app zg-update-center">
+        <header className="zg-update-header">
+          <button aria-label="返回" onClick={onBack} type="button"><ArrowLeft aria-hidden /></button>
+          <h1>版本更新</h1>
+          <span aria-hidden />
+        </header>
+        <section className="zg-update-product">
+          <span className="zg-update-logo"><Image alt="" height={58} src="./logo-mark.svg" unoptimized width={58} /></span>
+          <div><h2>逐光 <small>{installed?.versionName ?? "1.3.4"}</small></h2><p>iOS 测试版本由 TestFlight 安全分发</p></div>
+        </section>
+        <section className="zg-update-current"><CheckCircle2 aria-hidden /><h2>通过 TestFlight 管理更新</h2><p>新版本可用时，TestFlight 会提供安装与更新入口。逐光不会在 iOS 内下载或安装 Android APK。</p></section>
+        <footer className="zg-update-security"><ShieldCheck aria-hidden size={20} /><span><strong>平台签名</strong>构建由 Apple 签名与 TestFlight 分发流程验证。</span></footer>
+      </main>
+    );
+  }
 
   return (
     <main className="zg-mobile-app zg-update-center">

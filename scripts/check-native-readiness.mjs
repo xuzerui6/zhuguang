@@ -17,6 +17,7 @@ const files = [
   "android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml",
   "android/app/src/main/res/mipmap-anydpi-v33/ic_launcher.xml",
   "ios/App/App/Info.plist",
+  "codemagic.yaml",
   "src-tauri/tauri.conf.json",
   "src-tauri/Cargo.toml",
   "native/desktop/www/index.html",
@@ -28,7 +29,7 @@ for (const file of files) {
   await access(join(root, file));
 }
 
-const [capacitorConfig, nativeMobileEntry, tauriConfigRaw, packageJsonRaw, adaptiveIconV26, adaptiveIconV33, notificationIcon, androidManifest, jpushService, pushReceiver, pushBridge] = await Promise.all([
+const [capacitorConfig, nativeMobileEntry, tauriConfigRaw, packageJsonRaw, adaptiveIconV26, adaptiveIconV33, notificationIcon, androidManifest, jpushService, pushReceiver, pushBridge, iosInfoPlist, codemagicWorkflow] = await Promise.all([
   readFile(join(root, "capacitor.config.ts"), "utf8"),
   readFile(join(root, "native/mobile/src/main.tsx"), "utf8"),
   readFile(join(root, "src-tauri/tauri.conf.json"), "utf8"),
@@ -40,6 +41,8 @@ const [capacitorConfig, nativeMobileEntry, tauriConfigRaw, packageJsonRaw, adapt
   readFile(join(root, "android/app/src/main/java/com/zhuguang/coachos/ZhuguangJCommonService.java"), "utf8"),
   readFile(join(root, "android/app/src/main/java/com/zhuguang/coachos/ZhuguangPushReceiver.java"), "utf8"),
   readFile(join(root, "android/app/src/main/java/com/zhuguang/coachos/PushBridgePlugin.java"), "utf8"),
+  readFile(join(root, "ios/App/App/Info.plist"), "utf8"),
+  readFile(join(root, "codemagic.yaml"), "utf8"),
 ]);
 
 async function digest(file) {
@@ -87,6 +90,10 @@ const checks = [
   ["Android push opens are persisted before activity launch", pushReceiver.includes("deliverPushOpen(context, deepLink)") && pushBridge.includes("PENDING_DEEP_LINK")],
   ["Android pending push deep links are consumed once", pushBridge.includes("consumePendingDeepLink") && pushBridge.includes("remove(PENDING_DEEP_LINK)")],
   ["iOS branded icon synced", iosSourceIcon === iosAppIcon],
+  ["iOS display name localized", iosInfoPlist.includes("<string>逐光</string>")],
+  ["iOS export compliance declared", iosInfoPlist.includes("ITSAppUsesNonExemptEncryption")],
+  ["Codemagic unsigned iOS check present", codemagicWorkflow.includes("ios-simulator-check:") && codemagicWorkflow.includes("CODE_SIGNING_ALLOWED=NO")],
+  ["Codemagic TestFlight workflow is manual", codemagicWorkflow.includes("ios-testflight:") && codemagicWorkflow.includes("submit_to_testflight: true") && codemagicWorkflow.includes("submit_to_app_store: false")],
   ["Native CI workflow present", packageJson.scripts?.["native:toolchain"] === "node scripts/check-native-toolchain.mjs"],
 ];
 

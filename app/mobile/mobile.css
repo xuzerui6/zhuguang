@@ -76,6 +76,71 @@
 .zg-mobile-loading p,
 .zg-mobile-loading small { color: var(--zg-muted); margin: 0; }
 
+.zg-pull-refresh {
+  --zg-pull-distance: 0px;
+  align-items: center;
+  color: var(--zg-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 48px;
+  justify-content: center;
+  left: 50%;
+  opacity: 0;
+  pointer-events: none;
+  position: fixed;
+  top: env(safe-area-inset-top);
+  transform: translate(-50%, calc(var(--zg-pull-distance) - 54px));
+  transition: opacity 120ms ease, transform 180ms cubic-bezier(.2, .8, .2, 1);
+  width: min(430px, 100%);
+  z-index: 60;
+}
+
+.zg-pull-refresh[data-visible="true"] {
+  opacity: 1;
+}
+
+.zg-pull-refresh-icon {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(16, 27, 23, 0.08);
+  border-radius: 50%;
+  box-shadow: 0 5px 16px rgba(15, 32, 25, 0.11);
+  color: var(--zg-brand);
+  display: inline-flex;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+
+.zg-pull-refresh-copy {
+  color: var(--zg-ink);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+  min-height: 11px;
+  text-shadow: 0 1px 5px var(--zg-surface);
+}
+
+.zg-pull-refresh.is-armed .zg-pull-refresh-icon {
+  background: var(--zg-brand);
+  color: #ffffff;
+}
+
+.zg-pull-refresh.is-refreshing .zg-pull-refresh-icon svg {
+  animation: zg-spin 800ms linear infinite;
+}
+
+.zg-pull-refresh.is-success .zg-pull-refresh-icon {
+  background: var(--zg-brand-soft);
+  color: var(--zg-brand-strong);
+}
+
+.zg-pull-refresh.is-error .zg-pull-refresh-icon {
+  background: #fff0ed;
+  color: var(--zg-coral);
+}
+
 .zg-offline-banner {
   align-items: center;
   background: #fff4dc;
@@ -3319,6 +3384,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .zg-pull-refresh,
+  .zg-pull-refresh-icon svg {
+    animation: none !important;
+    transition: opacity 120ms linear !important;
+  }
+
   .zg-mobile-app *,
   .zg-mobile-app *::before,
   .zg-mobile-app *::after {

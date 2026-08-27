@@ -1,5 +1,13 @@
 export type MobileTab = "home" | "discover" | "bookings" | "messages" | "profile";
 
+export type PullRefreshState = "idle" | "pulling" | "armed" | "refreshing" | "success" | "error";
+
+export type PullRefreshResult = {
+  status: "success" | "error";
+  message?: string;
+  updatedAt?: number;
+};
+
 export type MobileView = MobileTab | "coach" | "booking" | "conversation";
 
 export type AccountMode = "student" | "coach";

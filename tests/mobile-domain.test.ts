@@ -23,6 +23,14 @@ import { pushLockScreenBody } from "../server/api/push";
 import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal, validateScheduleDraft } from "../shared/scheduling";
 import { matchesAudience, matchesTrainingGoal } from "../shared/coach-catalog";
 import { calculateDurationPriceFen, durationMinutesBetween } from "../shared/pricing";
+import {
+  canStartPullRefresh,
+  isVerticalPull,
+  PULL_REFRESH_MAX_DISTANCE,
+  PULL_REFRESH_THRESHOLD,
+  pullRefreshDistance,
+  pullRefreshState,
+} from "../app/mobile/pull-refresh-domain";
 
 const preferences: MatchPreferences = {
   audience: "青少年儿童",
@@ -88,6 +96,28 @@ test("booking prices scale from the 60-minute base rate", () => {
   assert.equal(calculateDurationPriceFen(24_000, 120), 48_000);
   assert.equal(calculateDurationPriceFen(9_900, 90), 14_850);
   assert.equal(durationMinutesBetween(1_000, 1_000 + 90 * 60_000), 90);
+});
+
+test("native pull refresh applies threshold, damping, and a bounded travel distance", () => {
+  assert.equal(pullRefreshDistance(-10), 0);
+  assert.equal(pullRefreshDistance(36), 36);
+  assert.equal(pullRefreshDistance(PULL_REFRESH_THRESHOLD), PULL_REFRESH_THRESHOLD);
+  assert.ok(pullRefreshDistance(100) > PULL_REFRESH_THRESHOLD);
+  assert.equal(pullRefreshDistance(10_000), PULL_REFRESH_MAX_DISTANCE);
+  assert.equal(pullRefreshState(0), "idle");
+  assert.equal(pullRefreshState(PULL_REFRESH_THRESHOLD - 1), "pulling");
+  assert.equal(pullRefreshState(PULL_REFRESH_THRESHOLD), "armed");
+});
+
+test("native pull refresh rejects horizontal, nested, multi-touch, and concurrent gestures", () => {
+  assert.equal(isVerticalPull(3, 20), true);
+  assert.equal(isVerticalPull(20, 20), false);
+  assert.equal(isVerticalPull(0, -20), false);
+  assert.equal(canStartPullRefresh({ atTop: true, blocked: false, refreshing: false, touchCount: 1 }), true);
+  assert.equal(canStartPullRefresh({ atTop: false, blocked: false, refreshing: false, touchCount: 1 }), false);
+  assert.equal(canStartPullRefresh({ atTop: true, blocked: true, refreshing: false, touchCount: 1 }), false);
+  assert.equal(canStartPullRefresh({ atTop: true, blocked: false, refreshing: true, touchCount: 1 }), false);
+  assert.equal(canStartPullRefresh({ atTop: true, blocked: false, refreshing: false, touchCount: 2 }), false);
 });
 
 const approvedCoach: CoachAccountSummary = {

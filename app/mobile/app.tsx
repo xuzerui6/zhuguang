@@ -26,6 +26,7 @@ import {
 import { createRequestId, getMatchResult, mergeFavoriteIds } from "./domain";
 import { calculateDurationPriceFen } from "../../shared/pricing";
 import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal } from "../../shared/scheduling";
+import { PullToRefresh } from "./pull-to-refresh";
 import {
   AccountSheet,
   AuthSheet,
@@ -46,6 +47,7 @@ import type {
   MobileCoach,
   MobileConversation,
   MobileNotification,
+  PullRefreshResult,
   MobileSession,
   MobileStudentAppProps,
   MobileTab,
@@ -136,6 +138,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     profile: 0,
   });
   const detailScrollPosition = useRef(0);
+  const refreshInFlight = useRef<Promise<PullRefreshResult> | null>(null);
 
   const selectedCoach = coaches.find((coach) => coach.id === selectedCoachId) ?? coaches[0] ?? demoCoaches[0];
   const unreadMessages = conversations.reduce((total, conversation) => total + conversation.unreadCount, 0);
@@ -152,28 +155,51 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     window.requestAnimationFrame(() => window.scrollTo(0, top));
   }, []);
 
-  const refreshRemoteData = useCallback(async () => {
-    if (!navigator.onLine) return;
-    try {
-      const [bootstrap, remoteNotifications] = await Promise.all([
-        mobileApi.bootstrap(),
-        mobileApi.notifications().catch(() => []),
-      ]);
-      setCoaches(bootstrap.coaches);
-      if (bootstrap.learnerProfiles.length) setLearner(bootstrap.learnerProfiles[0]);
-      if (!demoMode || remoteNotifications.length) setNotifications(remoteNotifications);
-      setBookings(bootstrap.bookings);
-      setConversations(bootstrap.conversations);
-      if (bootstrap.favoriteCoachIds.length) {
+  const refreshRemoteData = useCallback((): Promise<PullRefreshResult> => {
+    if (refreshInFlight.current) return refreshInFlight.current;
+    if (!navigator.onLine) return Promise.resolve({ status: "error", message: "当前离线，无法刷新" });
+    const request = (async (): Promise<PullRefreshResult> => {
+      try {
+        const [bootstrap, remoteNotifications] = await Promise.all([
+          mobileApi.bootstrap(),
+          mobileApi.notifications().catch(() => []),
+        ]);
+        setCoaches(bootstrap.coaches);
+        if (bootstrap.learnerProfiles.length) setLearner(bootstrap.learnerProfiles[0]);
+        if (!demoMode || remoteNotifications.length) setNotifications(remoteNotifications);
+        setBookings(bootstrap.bookings);
+        setConversations(bootstrap.conversations);
         setSavedCoachIds((current) => mergeFavoriteIds(current, bootstrap.favoriteCoachIds));
+        setApiConnected(true);
+        setBootstrapped(true);
+        return { status: "success", updatedAt: Date.now() };
+      } catch (error) {
+        setApiConnected(false);
+        setBootstrapped(true);
+        return { status: "error", message: error instanceof Error ? error.message : "刷新失败，请重试" };
       }
-      setApiConnected(true);
-      setBootstrapped(true);
-    } catch {
-      setApiConnected(false);
-      setBootstrapped(true);
-    }
+    })();
+    refreshInFlight.current = request;
+    void request.finally(() => {
+      if (refreshInFlight.current === request) refreshInFlight.current = null;
+    });
+    return request;
   }, [demoMode]);
+
+  const handlePullRefresh = useCallback(async (): Promise<PullRefreshResult> => {
+    const result = await refreshRemoteData();
+    if (result.status === "error" || view !== "booking") return result;
+    try {
+      const options = await mobileApi.coachBookingOptions(selectedCoachId);
+      setBookingOptions(options);
+      if (!options.venues.some((venue) => venue.id === bookingVenue.id) && options.venues[0]) {
+        setBookingVenue(options.venues[0]);
+      }
+      return result;
+    } catch (error) {
+      return { status: "error", message: error instanceof Error ? error.message : "预约配置刷新失败" };
+    }
+  }, [bookingVenue.id, refreshRemoteData, selectedCoachId, view]);
 
   useEffect(() => {
     let cancelled = false;
@@ -541,6 +567,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
 
   return (
     <main className={online ? "zg-mobile-app" : "zg-mobile-app is-offline"}>
+      <PullToRefresh disabled={Boolean(sheet) || Boolean(selectedConversation)} onRefresh={handlePullRefresh} />
       {!online ? <div className="zg-offline-banner"><WifiOff aria-hidden size={15} />当前离线，可继续浏览已缓存内容</div> : null}
       {online && bootstrapped && !apiConnected && !demoMode ? <div className="zg-offline-banner is-service-fallback"><WifiOff aria-hidden size={15} />服务连接不稳定，已显示审核教练缓存</div> : null}
       {view === "home" ? <AppHeader city={preferences.district === "全北京" ? "北京" : preferences.district} notificationCount={unreadNotifications} onCity={() => setSheet("city")} onNotifications={() => setSheet("notifications")} onProfile={() => navigateTab("profile")} /> : null}

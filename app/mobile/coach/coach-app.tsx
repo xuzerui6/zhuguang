@@ -20,10 +20,11 @@ import {
   X,
 } from "lucide-react";
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { mobileApi, usesBundledDemoData } from "../api-client";
 import { createDemoBooking, createDemoConversations, demoCoaches } from "../demo-data";
 import { impact, listenForAppResume } from "../device";
+import { PullToRefresh } from "../pull-to-refresh";
 import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal } from "../../../shared/scheduling";
 import type {
   BookingStatus,
@@ -32,6 +33,7 @@ import type {
   CoachTab,
   MobileBooking,
   MobileConversation,
+  PullRefreshResult,
 } from "../types";
 
 type CoachAppProps = {
@@ -137,21 +139,32 @@ export function CoachApp({ initialTab, onOpenUpdates, onSwitchStudent, onTabChan
   const [proposalStartsAt, setProposalStartsAt] = useState("");
   const [proposalVenueId, setProposalVenueId] = useState("");
   const [proposalNote, setProposalNote] = useState("");
+  const refreshInFlight = useRef<Promise<PullRefreshResult> | null>(null);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 2200);
   }, []);
 
-  const refresh = useCallback(async () => {
-    if (demoMode) return;
-    try {
-      const remote = await mobileApi.coachOverview();
-      setOverview(remote);
-    } catch {
-      if (!demoMode) showToast("工作台暂时离线，已保留最近数据");
-    }
-  }, [demoMode, showToast]);
+  const refresh = useCallback((): Promise<PullRefreshResult> => {
+    if (refreshInFlight.current) return refreshInFlight.current;
+    if (!navigator.onLine) return Promise.resolve({ status: "error", message: "当前离线，无法刷新" });
+    if (demoMode) return Promise.resolve({ status: "success", updatedAt: Date.now() });
+    const request = (async (): Promise<PullRefreshResult> => {
+      try {
+        const remote = await mobileApi.coachOverview();
+        setOverview(remote);
+        return { status: "success", updatedAt: Date.now() };
+      } catch (error) {
+        return { status: "error", message: error instanceof Error ? error.message : "工作台刷新失败，请重试" };
+      }
+    })();
+    refreshInFlight.current = request;
+    void request.finally(() => {
+      if (refreshInFlight.current === request) refreshInFlight.current = null;
+    });
+    return request;
+  }, [demoMode]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void refresh(), 0);
@@ -237,6 +250,7 @@ export function CoachApp({ initialTab, onOpenUpdates, onSwitchStudent, onTabChan
 
   return (
     <main className="zg-mobile-app zg-coach-app">
+      <PullToRefresh disabled={Boolean(proposalBooking) || Boolean(selectedConversationId)} onRefresh={refresh} />
       <header className="zg-coach-topbar">
         <div className="zg-coach-brand"><Image alt="" height={28} priority src="./logo-mark.svg" unoptimized width={28} /><strong>逐光</strong><button onClick={onSwitchStudent} type="button">教练模式<ChevronRight aria-hidden size={14} /></button></div>
         <button aria-label="通知" type="button"><Bell aria-hidden size={21} />{pending.length ? <em>{pending.length}</em> : null}</button>

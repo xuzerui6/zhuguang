@@ -15,8 +15,9 @@ import {
   Star,
   UserRound,
 } from "lucide-react";
+import Image from "next/image";
 import { ProfileAvatar, VerifiedPhone } from "../components";
-import type { CoachAccountSummary, LearnerProfile } from "../types";
+import type { AccountProfile, CoachAccountSummary, LearnerProfile } from "../types";
 
 const menuRows = [
   { icon: CalendarDays, label: "我的预约", detail: "查看全部服务进度", action: "bookings" },
@@ -37,6 +38,7 @@ export function ProfileView({
   savedCount,
   coachSummary,
   onOpenCoachMode,
+  profile,
 }: {
   activeBookingCount: number;
   completedCount: number;
@@ -46,9 +48,10 @@ export function ProfileView({
   savedCount: number;
   coachSummary?: CoachAccountSummary;
   onOpenCoachMode?: () => void;
+  profile?: AccountProfile;
 }) {
-  const ownerName = learner.guardianName?.trim() || (contactMasked ? "已验证用户" : "访客");
-  const ownerRole = learner.relation === "child" ? `${learner.name}的家长 · 北京` : "学员 · 北京";
+  const ownerName = profile?.nickname || (contactMasked ? "待完善昵称" : "访客");
+  const ownerRole = `${profile?.district || "北京"} · 学员账号`;
   const learnerInitial = learner.name.trim().slice(0, 1) || "学";
   const learnerMeta = [
     learner.gender === "male" ? "男" : learner.gender === "female" ? "女" : "性别待完善",
@@ -64,9 +67,9 @@ export function ProfileView({
       </header>
 
       <section className="zg-profile-summary">
-        <ProfileAvatar label={`${ownerName}头像`} />
+        {profile?.avatarUrl ? <span className="zg-profile-account-avatar"><Image alt={`${ownerName}头像`} height={64} src={profile.avatarUrl} unoptimized width={64} /></span> : <ProfileAvatar label={`${ownerName}头像`} />}
         <div><h1>{ownerName}</h1><p>{ownerRole}</p></div>
-        <button onClick={() => onAction(contactMasked ? "privacy" : "authenticate")} type="button"><VerifiedPhone masked={contactMasked} /></button>
+        <button onClick={() => onAction(contactMasked ? "edit-profile" : "authenticate")} type="button"><VerifiedPhone masked={contactMasked} /></button>
       </section>
 
       {coachSummary?.auditStatus === "approved" && onOpenCoachMode ? (

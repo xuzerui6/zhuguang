@@ -321,12 +321,108 @@ export async function listOpsCoachStatusEventsD1(id: number, env: ApiEnv) {
 export async function listOpsUsersD1(env: ApiEnv) {
   const result = await db(env).prepare(`
     SELECT u.id, u.email_domain, u.phone_last4, u.status, u.created_at, u.updated_at,
+      p.nickname, p.district, p.bio, p.avatar_object_key, p.completed_at, p.updated_at AS profile_updated_at,
       group_concat(r.role) AS roles,
       (SELECT count(*) FROM booking_requests b WHERE b.user_id = u.id) AS booking_count
     FROM users u LEFT JOIN user_roles r ON r.user_id = u.id AND r.status = 'active'
+    LEFT JOIN user_profiles p ON p.user_id = u.id
     GROUP BY u.id ORDER BY u.created_at DESC LIMIT 200
   `).all<Row>();
   return rows(result);
+}
+
+export async function resetOpsUserProfileD1(userId: string, action: "reset_avatar" | "reset_nickname", reason: string, actor: string, requestId: string, env: ApiEnv) {
+  if (!reason.trim()) throw new ApiError(422, "reason_required", "请填写重置原因");
+  const database = db(env);
+  const profile = await database.prepare("SELECT nickname, avatar_object_key FROM user_profiles WHERE user_id = ?").bind(userId).first<Row>();
+  if (!profile) throw new ApiError(404, "user_profile_not_found", "未找到该账号资料");
+  const now = Date.now();
+  const statement = action === "reset_avatar"
+    ? database.prepare("UPDATE user_profiles SET avatar_object_key = NULL, avatar_updated_at = ?, updated_at = ? WHERE user_id = ?").bind(now, now, userId)
+    : database.prepare("UPDATE user_profiles SET nickname = '', completed_at = NULL, updated_at = ? WHERE user_id = ?").bind(now, userId);
+  await database.batch([
+    statement,
+    database.prepare("INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, request_id, created_at) VALUES (?, ?, ?, 'user_profile', ?, ?, ?, ?)")
+      .bind(randomId("audit"), actor, `user_profile.${action}`, userId, JSON.stringify({ previous: action === "reset_avatar" ? Boolean(profile.avatar_object_key) : profile.nickname, reason: reason.trim() }), requestId, now),
+  ]);
+  if (action === "reset_avatar" && env.MEDIA && profile.avatar_object_key) await env.MEDIA.delete(String(profile.avatar_object_key)).catch(() => undefined);
+  return { action, updatedAt: now, userId };
+}
+
+export async function listAccountMergeRequestsD1(env: ApiEnv) {
+  const result = await db(env).prepare(`
+    SELECT m.*, requested.nickname AS requested_nickname, conflicting.nickname AS conflicting_nickname
+    FROM account_merge_requests m
+    LEFT JOIN user_profiles requested ON requested.user_id = m.requested_by_user_id
+    LEFT JOIN user_profiles conflicting ON conflicting.user_id = m.conflicting_user_id
+    ORDER BY CASE m.status WHEN 'pending' THEN 0 ELSE 1 END, m.created_at DESC LIMIT 200
+  `).all<Row>();
+  return rows(result);
+}
+
+export async function reviewAccountMergeRequestD1(id: string, input: { decision: "approved" | "rejected"; note: string; primaryUserId?: string }, actor: string, requestId: string, env: ApiEnv) {
+  if (!input.note.trim()) throw new ApiError(422, "review_note_required", "请填写处理意见");
+  const database = db(env);
+  const merge = await database.prepare("SELECT * FROM account_merge_requests WHERE id = ? AND status = 'pending'").bind(id).first<Row>();
+  if (!merge) throw new ApiError(404, "merge_request_not_found", "未找到待处理的账号合并工单");
+  const now = Date.now();
+  if (input.decision === "rejected") {
+    await database.batch([
+      database.prepare("UPDATE account_merge_requests SET status = 'rejected', reviewed_by = ?, review_note = ?, reviewed_at = ?, updated_at = ? WHERE id = ?").bind(actor, input.note.trim(), now, now, id),
+      database.prepare("INSERT INTO ops_audit_logs (id,actor,action,entity_type,entity_id,detail_json,request_id,created_at) VALUES (?,?,'account.merge.reject','account_merge_request',?,?,?,?)").bind(randomId("audit"), actor, id, JSON.stringify({ note: input.note.trim() }), requestId, now),
+    ]);
+    return { id, status: "rejected" as const };
+  }
+  const first = String(merge.requested_by_user_id);
+  const second = String(merge.conflicting_user_id);
+  const primary = input.primaryUserId;
+  if (primary !== first && primary !== second) throw new ApiError(422, "invalid_primary_account", "请选择工单内的一个账号作为主账号");
+  const secondary = primary === first ? second : first;
+  const role = await database.prepare("SELECT role FROM user_roles WHERE user_id = ? AND status = 'active' AND role IN ('coach','operator') LIMIT 1").bind(secondary).first<Row>();
+  if (role) throw new ApiError(409, "merge_role_requires_manual_resolution", "副账号包含教练或运营权限，不能自动迁移");
+  const duplicateConversation = await database.prepare("SELECT 1 FROM conversations a JOIN conversations b ON a.coach_id = b.coach_id WHERE a.student_user_id = ? AND b.student_user_id = ? LIMIT 1").bind(primary, secondary).first<Row>();
+  if (duplicateConversation) throw new ApiError(409, "merge_conversation_conflict", "两个账号存在同一教练会话，请先人工整理会话");
+  const secondaryUser = await database.prepare("SELECT email_encrypted FROM users WHERE id = ?").bind(secondary).first<Row>();
+  if (secondaryUser?.email_encrypted) {
+    const email = (await decryptContact(String(secondaryUser.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? "")).toLowerCase();
+    if (email === "xuzerui6@gmail.com") throw new ApiError(403, "protected_operator_account", "最高权限账号不能作为副账号合并");
+  }
+  const [primaryProfile, secondaryProfile] = await Promise.all([
+    database.prepare("SELECT avatar_object_key FROM user_profiles WHERE user_id = ?").bind(primary).first<Row>(),
+    database.prepare("SELECT avatar_object_key FROM user_profiles WHERE user_id = ?").bind(secondary).first<Row>(),
+  ]);
+  const secondaryAvatarWasAdopted = !primaryProfile?.avatar_object_key && Boolean(secondaryProfile?.avatar_object_key);
+  await database.batch([
+    database.prepare("INSERT OR IGNORE INTO user_profiles (user_id,nickname,avatar_object_key,district,bio,completed_at,avatar_updated_at,created_at,updated_at) SELECT ?,nickname,avatar_object_key,district,bio,completed_at,avatar_updated_at,created_at,? FROM user_profiles WHERE user_id = ?").bind(primary, now, secondary),
+    database.prepare(`UPDATE user_profiles SET
+      nickname = CASE WHEN nickname = '' THEN coalesce((SELECT nickname FROM user_profiles WHERE user_id = ?), '') ELSE nickname END,
+      avatar_object_key = coalesce(avatar_object_key, (SELECT avatar_object_key FROM user_profiles WHERE user_id = ?)),
+      district = CASE WHEN district = '' THEN coalesce((SELECT district FROM user_profiles WHERE user_id = ?), '') ELSE district END,
+      bio = CASE WHEN bio = '' THEN coalesce((SELECT bio FROM user_profiles WHERE user_id = ?), '') ELSE bio END,
+      completed_at = coalesce(completed_at, (SELECT completed_at FROM user_profiles WHERE user_id = ?)),
+      avatar_updated_at = coalesce(avatar_updated_at, (SELECT avatar_updated_at FROM user_profiles WHERE user_id = ?)),
+      updated_at = ? WHERE user_id = ?`).bind(secondary, secondary, secondary, secondary, secondary, secondary, now, primary),
+    database.prepare("INSERT OR IGNORE INTO favorites (user_id,coach_id,created_at) SELECT ?,coach_id,created_at FROM favorites WHERE user_id = ?").bind(primary, secondary),
+    database.prepare("DELETE FROM favorites WHERE user_id = ?").bind(secondary),
+    database.prepare("UPDATE learner_profiles SET user_id = ? WHERE user_id = ?").bind(primary, secondary),
+    database.prepare("UPDATE booking_requests SET user_id = ? WHERE user_id = ?").bind(primary, secondary),
+    database.prepare("UPDATE conversations SET student_user_id = ? WHERE student_user_id = ?").bind(primary, secondary),
+    database.prepare("UPDATE notifications SET user_id = ? WHERE user_id = ?").bind(primary, secondary),
+    database.prepare("UPDATE coach_reviews SET user_id = ? WHERE user_id = ?").bind(primary, secondary),
+    database.prepare("UPDATE support_tickets SET created_by_user_id = ? WHERE created_by_user_id = ?").bind(primary, secondary),
+    database.prepare("UPDATE training_records SET user_id = ? WHERE user_id = ?").bind(primary, secondary),
+    database.prepare("UPDATE app_installations SET user_id = ? WHERE user_id = ?").bind(primary, secondary),
+    database.prepare("DELETE FROM notification_preferences WHERE user_id = ?").bind(secondary),
+    database.prepare("DELETE FROM user_profiles WHERE user_id = ?").bind(secondary),
+    database.prepare("UPDATE sessions SET revoked_at = coalesce(revoked_at, ?) WHERE user_id = ?").bind(now, secondary),
+    database.prepare("UPDATE users SET phone_hash = ?, phone_encrypted = NULL, phone_last4 = NULL, email_hash = ?, email_encrypted = NULL, email_domain = NULL, status = 'merged', deleted_at = ?, updated_at = ? WHERE id = ?").bind(`merged_${randomId("phone")}`, `merged_${randomId("email")}`, now, now, secondary),
+    database.prepare("UPDATE account_merge_requests SET status = 'approved', primary_user_id = ?, reviewed_by = ?, review_note = ?, reviewed_at = ?, updated_at = ? WHERE id = ?").bind(primary, actor, input.note.trim(), now, now, id),
+    database.prepare("INSERT INTO ops_audit_logs (id,actor,action,entity_type,entity_id,detail_json,request_id,created_at) VALUES (?,?,'account.merge.approve','account_merge_request',?,?,?,?)").bind(randomId("audit"), actor, id, JSON.stringify({ primary, secondary }), requestId, now),
+  ]);
+  if (env.MEDIA && secondaryProfile?.avatar_object_key && !secondaryAvatarWasAdopted) {
+    await env.MEDIA.delete(String(secondaryProfile.avatar_object_key)).catch(() => undefined);
+  }
+  return { id, primaryUserId: primary, status: "approved" as const };
 }
 
 export async function listContentDocumentsD1(env: ApiEnv) {
@@ -598,7 +694,7 @@ export async function createCoachRescheduleProposalD1(identity: CoachIdentity, i
   const pending = await database.prepare("SELECT id FROM booking_reschedule_proposals WHERE booking_id = ? AND status = 'pending'").bind(input.bookingId).first<Row>();
   if (pending) throw new ApiError(409, "reschedule_already_pending", "该预约已有待确认的改期方案");
   let slotId = input.slotId || "";
-  let locationType = input.locationType || "venue";
+  const locationType = input.locationType || "venue";
   let venueId = input.venueId || "";
   if (slotId) {
     const legacySlot = await database.prepare("SELECT id, venue_id, starts_at, status FROM availability_slots WHERE id = ? AND coach_id = ?").bind(slotId, identity.coachId).first<Row>();

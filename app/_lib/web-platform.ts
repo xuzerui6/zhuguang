@@ -39,12 +39,14 @@ export type NavItem = {
 
 export type WebSession = {
   accountId: string | null;
+  avatarUrl?: string;
   availableAreas: Array<Exclude<WebArea, "public">>;
   authorizationSource: "access" | "allowlist" | "anonymous" | "email" | "siwc";
   displayName: string;
   email: string | null;
   isAuthenticated: boolean;
   permissions: Permission[];
+  profileCompleted?: boolean;
 };
 
 export type CoachProfile = CoachPublicProfile & { image: string };

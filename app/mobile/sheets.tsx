@@ -2,10 +2,54 @@
 
 import { Check, ChevronRight, Headphones, LockKeyhole, Mail, MessageCircle, ShieldCheck, Smartphone, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { removeTurnstileWidget } from "../_lib/turnstile";
 import { AUDIENCE_OPTIONS, BEIJING_DISTRICTS, SPORT_OPTIONS, TRAINING_GOAL_OPTIONS } from "../../shared/coach-catalog";
 import { CoachAvatar, EmptyState, Sheet } from "./components";
-import type { LearnerProfile, MatchPreferences, MobileCoach, MobileNotification, MobileSession } from "./types";
+import type { AccountProfile, LearnerProfile, MatchPreferences, MobileCoach, MobileNotification, MobileSession } from "./types";
+
+async function mobileAvatarWebp(file: File) {
+  const image = await createImageBitmap(file);
+  const side = Math.min(image.width, image.height);
+  const canvas = document.createElement("canvas");
+  canvas.width = 512; canvas.height = 512;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("当前设备暂不支持头像处理");
+  context.drawImage(image, (image.width - side) / 2, (image.height - side) / 2, side, side, 0, 0, 512, 512);
+  image.close();
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", .86));
+  if (!blob || blob.size > 1024 * 1024) throw new Error("头像处理失败，请选择另一张图片");
+  return blob;
+}
+
+export function AccountProfileSheet({ onClose, onDeleteAvatar, onSave, onUploadAvatar, profile }: {
+  onClose: () => void;
+  onDeleteAvatar: () => Promise<void>;
+  onSave: (input: { bio: string; district: string; nickname: string }) => Promise<void>;
+  onUploadAvatar: (blob: Blob) => Promise<void>;
+  profile?: AccountProfile;
+}) {
+  const [nickname, setNickname] = useState(profile?.nickname || "");
+  const [district, setDistrict] = useState(profile?.district || "");
+  const [bio, setBio] = useState(profile?.bio || "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [contactKind, setContactKind] = useState<"email" | "phone">("email");
+  const [contactValue, setContactValue] = useState("");
+  const [challengeId, setChallengeId] = useState("");
+  const [contactCode, setContactCode] = useState("");
+  async function run(task: () => Promise<void>) { setBusy(true); setError(""); try { await task(); } catch (reason) { setError(reason instanceof Error ? reason.message : "操作失败，请重试"); } finally { setBusy(false); } }
+  return <Sheet onClose={onClose} title="编辑账号资料"><div className="zg-account-profile-sheet">
+    <div className="zg-account-avatar-editor"><span>{profile?.avatarUrl ? <Image alt="账号头像" height={72} src={profile.avatarUrl} unoptimized width={72} /> : (nickname || "逐").slice(0,1)}</span><div><strong>账号头像</strong><small>仅在账号与服务关系中展示</small><label>选择图片<input accept="image/jpeg,image/png,image/webp" disabled={busy} hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void run(async () => onUploadAvatar(await mobileAvatarWebp(file))); }} type="file" /></label>{profile?.avatarUrl ? <button disabled={busy} onClick={() => void run(onDeleteAvatar)} type="button">移除</button> : null}</div></div>
+    <label><span>昵称</span><input maxLength={20} minLength={2} onChange={(event) => setNickname(event.target.value)} placeholder="2 至 20 个字" value={nickname} /></label>
+    <label><span>北京所在区</span><select onChange={(event) => setDistrict(event.target.value)} value={district}><option value="">暂不填写</option>{BEIJING_DISTRICTS.map((item) => <option key={item}>{item}</option>)}</select></label>
+    <label><span>个性签名</span><textarea maxLength={80} onChange={(event) => setBio(event.target.value)} placeholder="最多 80 个字" value={bio} /></label>
+    <div className="zg-account-contact"><span><strong>邮箱</strong><small>{profile?.contact.emailMasked || "未绑定"}</small></span><span><strong>手机号</strong><small>{profile?.contact.phoneMasked || "未绑定"}</small></span></div>
+    <div className="zg-account-contact-form"><select disabled={Boolean(challengeId)} onChange={(event) => setContactKind(event.target.value as "email" | "phone")} value={contactKind}><option value="email">邮箱</option><option value="phone">手机号</option></select>{challengeId ? <input autoComplete="one-time-code" inputMode="numeric" maxLength={6} onChange={(event) => setContactCode(event.target.value.replace(/\D/gu, "").slice(0,6))} placeholder="6 位验证码" value={contactCode} /> : <input inputMode={contactKind === "email" ? "email" : "tel"} onChange={(event) => setContactValue(event.target.value)} placeholder={contactKind === "email" ? "新邮箱地址" : "新手机号"} value={contactValue} />}<button disabled={busy || (challengeId ? contactCode.length !== 6 : !contactValue.trim())} onClick={() => void run(async () => { const { mobileApi } = await import("./api-client"); if (!challengeId) { const result = await mobileApi.requestContactChallenge(contactKind, contactValue); setChallengeId(result.challengeId); return; } const result = await mobileApi.verifyContactChallenge(challengeId, contactCode); if (result.mergeRequired) throw new Error("该联系方式已属于其他账号，已创建人工合并工单"); setChallengeId(""); setContactCode(""); setContactValue(""); })} type="button">{challengeId ? "确认绑定" : "发送验证码"}</button></div>
+    {error ? <p className="zg-auth-error" role="alert">{error}</p> : null}
+    <button className="zg-sheet-primary" disabled={busy || nickname.trim().length < 2} onClick={() => void run(async () => { await onSave({ bio, district, nickname }); onClose(); })} type="button">{busy ? "保存中..." : "保存资料"}</button>
+  </div></Sheet>;
+}
 
 export function FilterSheet({
   onChange,
@@ -256,7 +300,7 @@ export function AccountSheet({ onClose, onDelete, onLogout, session }: { onClose
         <section><strong>登录状态</strong><p>{session ? `${session.contactMasked || session.phoneMasked} 已验证` : "当前为匿名浏览，提交预约时再验证邮箱。"}</p></section>
         <section><strong>隐私与数据</strong><p>可查看并管理个人资料授权、训练档案、消息记录与账号注销。</p></section>
         <button onClick={() => setPolicy(policy === "privacy" ? null : "privacy")} type="button">隐私政策<ChevronRight size={17} /></button>
-        {policy === "privacy" ? <p>逐光仅处理预约履约所需的邮箱、学员档案与消息记录；资质原件和敏感会话通过鉴权访问，消息最多保留 90 天用于服务保障。</p> : null}
+        {policy === "privacy" ? <p>逐光仅处理账号昵称、私有头像、北京所在区、邮箱、学员档案与消息记录；头像仅在账号和已建立的服务关系中展示，注销后删除，消息最多保留 90 天用于服务保障。</p> : null}
         <button onClick={() => setPolicy(policy === "terms" ? null : "terms")} type="button">用户协议<ChevronRight size={17} /></button>
         {policy === "terms" ? <p>预约需经教练确认后生效，首版费用在线下支付；取消、改期与争议处理以预约页面展示的服务规则为准。</p> : null}
         {session && !confirmingDelete ? <button onClick={() => setConfirmingDelete(true)} type="button">申请注销账号<ChevronRight size={17} /></button> : null}

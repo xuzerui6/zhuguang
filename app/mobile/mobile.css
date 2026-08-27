@@ -203,6 +203,7 @@
   padding: 0;
   position: relative;
 }
+.zg-avatar-button img { border-radius: 50%; height: 100%; object-fit: cover; width: 100%; }
 
 .zg-location-button {
   font-size: 13px;
@@ -2094,6 +2095,34 @@
   grid-template-columns: 64px 1fr;
   padding: 12px 18px 18px;
 }
+.zg-profile-account-avatar { background: #e8f3ed; border-radius: 50%; display: block; height: 64px; overflow: hidden; width: 64px; }
+.zg-profile-account-avatar img { height: 100%; object-fit: cover; width: 100%; }
+
+.zg-account-profile-sheet { display: grid; gap: 16px; padding: 18px 20px calc(24px + env(safe-area-inset-bottom)); }
+.zg-account-profile-sheet > label { display: grid; gap: 7px; }
+.zg-account-profile-sheet > label > span { color: #536159; font-size: 12px; font-weight: 700; }
+.zg-account-profile-sheet input,.zg-account-profile-sheet select,.zg-account-profile-sheet textarea { background: #fff; border: 1px solid #d8e1dc; border-radius: 7px; font: inherit; min-height: 48px; padding: 11px 13px; width: 100%; }
+.zg-account-profile-sheet textarea { min-height: 86px; resize: vertical; }
+.zg-account-avatar-editor { align-items: center; background: #f5f8f6; border: 1px solid #e0e7e3; border-radius: 8px; display: grid; gap: 14px; grid-template-columns: 72px 1fr; padding: 14px; }
+.zg-account-avatar-editor > span { align-items: center; background: #deede5; border-radius: 50%; color: #087a50; display: flex; font-size: 24px; font-weight: 800; height: 72px; justify-content: center; overflow: hidden; width: 72px; }
+.zg-account-avatar-editor > span img { height: 100%; object-fit: cover; width: 100%; }
+.zg-account-avatar-editor > div { align-items: center; display: grid; gap: 5px; grid-template-columns: 1fr auto; }
+.zg-account-avatar-editor strong,.zg-account-avatar-editor small { grid-column: 1 / -1; }
+.zg-account-avatar-editor small { color: #68776f; font-size: 11px; }
+.zg-account-avatar-editor label,.zg-account-avatar-editor button { background: #fff; border: 1px solid #d6dfda; border-radius: 6px; color: #203129; font-size: 12px; font-weight: 700; min-height: 38px; padding: 0 12px; }
+.zg-account-avatar-editor label { align-items: center; display: inline-flex; justify-content: center; }
+.zg-account-contact { background: #f5f8f6; border-radius: 7px; display: grid; gap: 10px; grid-template-columns: 1fr 1fr; padding: 13px; }
+.zg-account-contact span { display: grid; gap: 3px; }
+.zg-account-contact strong { font-size: 11px; }
+.zg-account-contact small { color: #68776f; font-size: 10px; }
+.zg-account-contact-form { display: grid; gap: 8px; grid-template-columns: 88px 1fr; }
+.zg-account-contact-form button { background: #eef5f1; border: 1px solid #d7e4dd; border-radius: 7px; color: #087a50; font-weight: 750; grid-column: 1 / -1; min-height: 44px; }
+.zg-coach-account-card { align-items: center; background: #f4f8f6; border: 1px solid #dfe8e3; border-radius: 8px; display: grid; gap: 13px; grid-template-columns: 52px 1fr; padding: 14px; }
+.zg-coach-account-card > span { align-items: center; background: #deede5; border-radius: 50%; color: #087a50; display: flex; font-size: 18px; font-weight: 800; height: 52px; justify-content: center; overflow: hidden; width: 52px; }
+.zg-coach-account-card img { height: 100%; object-fit: cover; width: 100%; }
+.zg-coach-account-card div { display: grid; gap: 3px; }
+.zg-coach-account-card strong { font-size: 15px; }
+.zg-coach-account-card small,.zg-coach-account-card p { color: #68776f; font-size: 10px; margin: 0; }
 
 .zg-profile-avatar {
   align-items: center;

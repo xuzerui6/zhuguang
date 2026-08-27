@@ -58,6 +58,18 @@ export async function platformRequest<T>(
   return payload.data;
 }
 
+export async function platformUploadAvatar(blob: Blob) {
+  const response = await fetch(`/api/platform?path=${encodeURIComponent("/api/v1/me/avatar")}`, {
+    body: blob,
+    cache: "no-store",
+    headers: { "content-type": "image/webp" },
+    method: "POST",
+  });
+  const payload = await response.json() as { data?: import("../mobile/types").AccountProfile; error?: { message?: string } };
+  if (!response.ok || !payload.data) throw new PlatformRequestError(payload.error?.message || "头像上传失败，请稍后重试", response.status);
+  return payload.data;
+}
+
 export function formatBeijingDate(value: number | string | undefined) {
   if (!value) return "时间待确认";
   const date = new Date(typeof value === "number" ? value : Number.isFinite(Number(value)) ? Number(value) : value);

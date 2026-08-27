@@ -3,6 +3,7 @@ import { matchesAudience, matchesTrainingGoal } from "../../shared/coach-catalog
 import { calculateDurationPriceFen, durationMinutesBetween } from "../../shared/pricing";
 import { validateScheduleDraft } from "../../shared/scheduling";
 import type {
+  AccountProfile,
   AccountMode,
   BookingStatus,
   CoachAccountSummary,
@@ -13,6 +14,7 @@ import type {
   MobileMessage,
   MobileSession,
 } from "../../app/mobile/types";
+import { BEIJING_DISTRICTS } from "../../shared/coach-catalog";
 import { ApiError, type ApiEnv } from "./contracts";
 import {
   decryptPhone,
@@ -30,6 +32,7 @@ import {
   sha256Hex,
 } from "./security";
 import { sendBookingStatusSms, sendOtpSms } from "./sms";
+import { sendEmailOtp } from "./email";
 
 export type StudentIdentity = {
   authMethod: "phone_otp" | "email_otp";
@@ -71,6 +74,223 @@ function jsonArray(value: unknown) {
   } catch {
     return [];
   }
+}
+
+const RESERVED_NICKNAME = /(逐光\s*(官方|客服|运营)|平台\s*(官方|客服|运营)|官方客服|管理员)/iu;
+const CONTACT_IN_NICKNAME = /(https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.\w{2,}|1[3-9]\d{9})/iu;
+
+function normalizeNickname(value: unknown) {
+  const nickname = typeof value === "string" ? value.trim().replace(/\s+/gu, " ") : "";
+  const length = [...nickname].length;
+  if (length < 2 || length > 20) throw new ApiError(422, "invalid_nickname", "昵称需为 2 至 20 个字", { nickname: "请输入 2 至 20 个字的昵称" });
+  if (/\p{Cc}/u.test(nickname) || CONTACT_IN_NICKNAME.test(nickname)) throw new ApiError(422, "nickname_contains_contact", "昵称不能包含联系方式或网址", { nickname: "请移除联系方式或网址" });
+  if (RESERVED_NICKNAME.test(nickname)) throw new ApiError(422, "nickname_reserved", "该昵称包含平台保留身份用语", { nickname: "请更换普通用户昵称" });
+  return nickname;
+}
+
+function normalizeProfileInput(input: { bio?: unknown; district?: unknown; nickname?: unknown }) {
+  const district = typeof input.district === "string" ? input.district.trim() : "";
+  if (district && !BEIJING_DISTRICTS.includes(district as (typeof BEIJING_DISTRICTS)[number])) {
+    throw new ApiError(422, "invalid_district", "请选择北京市内的区域", { district: "区域不在可选范围内" });
+  }
+  const bio = typeof input.bio === "string" ? input.bio.trim() : "";
+  if ([...bio].length > 80 || /\p{Cc}/u.test(bio)) throw new ApiError(422, "invalid_profile_bio", "个性签名不能超过 80 个字", { bio: "最多填写 80 个字" });
+  return { bio, district, nickname: normalizeNickname(input.nickname) };
+}
+
+async function avatarUrl(userId: string, avatarUpdatedAt: number, env: ApiEnv) {
+  if (!avatarUpdatedAt || !env.MOBILE_API_ORIGIN) return undefined;
+  const expires = Date.now() + 10 * 60_000;
+  const token = await keyedHash(`account-avatar:${userId}:${avatarUpdatedAt}:${expires}`, env.UPDATE_DOWNLOAD_SECRET ?? env.AUTH_HASH_SECRET ?? "");
+  return `${env.MOBILE_API_ORIGIN.replace(/\/$/u, "")}/api/v1/account-avatar/${encodeURIComponent(userId)}?expires=${expires}&token=${token}`;
+}
+
+async function profileEvent(identity: StudentIdentity, request: Request, eventType: string, detail: Record<string, unknown>, env: ApiEnv) {
+  const now = Date.now();
+  const secret = env.AUTH_HASH_SECRET ?? "";
+  const [ipHash, deviceHash] = await Promise.all([
+    keyedHash(getClientIp(request), secret),
+    keyedHash(request.headers.get("x-device-id")?.slice(0, 160) || identity.deviceId || "unknown-device", secret),
+  ]);
+  const recent = await db(env).prepare("SELECT count(*) AS count FROM account_profile_events WHERE user_id = ? AND created_at >= ?").bind(identity.userId, now - 60 * 60_000).first<Row>();
+  if (numberValue(recent?.count) >= 30) throw new ApiError(429, "profile_rate_limited", "资料修改过于频繁，请稍后再试");
+  await db(env).prepare("INSERT INTO account_profile_events (id, user_id, event_type, ip_hash, device_hash, detail_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .bind(randomId("profile_event"), identity.userId, eventType, ipHash, deviceHash, JSON.stringify(detail), now).run();
+}
+
+export async function getAccountProfileD1(identity: StudentIdentity, env: ApiEnv): Promise<AccountProfile> {
+  const database = db(env);
+  const now = Date.now();
+  await database.prepare("INSERT OR IGNORE INTO user_profiles (user_id, created_at, updated_at) VALUES (?, ?, ?)").bind(identity.userId, now, now).run();
+  const row = await database.prepare(`
+    SELECT p.*, u.email_encrypted, u.phone_last4
+    FROM user_profiles p JOIN users u ON u.id = p.user_id
+    WHERE p.user_id = ? AND u.status = 'active' AND u.deleted_at IS NULL
+  `).bind(identity.userId).first<Row>();
+  if (!row) throw new ApiError(404, "profile_not_found", "账号资料不存在");
+  const email = row.email_encrypted ? await decryptPhone(stringValue(row.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? "") : "";
+  const updatedAt = numberValue(row.updated_at);
+  return {
+    avatarUrl: row.avatar_object_key ? await avatarUrl(identity.userId, numberValue(row.avatar_updated_at) || updatedAt, env) : undefined,
+    bio: stringValue(row.bio),
+    completed: Boolean(row.completed_at && stringValue(row.nickname)),
+    contact: {
+      emailMasked: email ? maskEmail(email) : undefined,
+      emailVerified: Boolean(email),
+      phoneMasked: row.phone_last4 ? maskPhone(stringValue(row.phone_last4)) : undefined,
+      phoneVerified: Boolean(row.phone_last4),
+    },
+    district: stringValue(row.district),
+    nickname: stringValue(row.nickname),
+    updatedAt,
+    userId: identity.userId,
+  };
+}
+
+export async function updateAccountProfileD1(identity: StudentIdentity, input: { bio?: unknown; district?: unknown; nickname?: unknown }, request: Request, env: ApiEnv) {
+  const value = normalizeProfileInput(input);
+  await profileEvent(identity, request, "profile_updated", { district: value.district, hasBio: Boolean(value.bio) }, env);
+  const now = Date.now();
+  await db(env).prepare(`
+    INSERT INTO user_profiles (user_id, nickname, district, bio, completed_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET nickname = excluded.nickname, district = excluded.district,
+      bio = excluded.bio, completed_at = coalesce(user_profiles.completed_at, excluded.completed_at), updated_at = excluded.updated_at
+  `).bind(identity.userId, value.nickname, value.district, value.bio, now, now, now).run();
+  return getAccountProfileD1(identity, env);
+}
+
+function isWebp(bytes: Uint8Array) {
+  return bytes.length >= 12 && String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP";
+}
+
+export async function uploadAccountAvatarD1(identity: StudentIdentity, request: Request, env: ApiEnv) {
+  if (!env.MEDIA) throw new ApiError(503, "media_unavailable", "头像存储暂时不可用");
+  if ((request.headers.get("content-type") ?? "").split(";")[0] !== "image/webp") throw new ApiError(415, "avatar_type_invalid", "头像仅支持 WebP 图片");
+  const declared = Number(request.headers.get("content-length") ?? 0);
+  if (declared > 1024 * 1024) throw new ApiError(413, "avatar_too_large", "头像文件不能超过 1MB");
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (!bytes.length || bytes.length > 1024 * 1024) throw new ApiError(413, "avatar_too_large", "头像文件不能超过 1MB");
+  if (!isWebp(bytes)) throw new ApiError(415, "avatar_signature_invalid", "头像文件格式无效");
+  await profileEvent(identity, request, "avatar_uploaded", { size: bytes.length }, env);
+  const database = db(env);
+  const previous = await database.prepare("SELECT avatar_object_key FROM user_profiles WHERE user_id = ?").bind(identity.userId).first<Row>();
+  const now = Date.now();
+  const key = `users/${identity.userId}/avatars/${randomId("avatar")}.webp`;
+  await env.MEDIA.put(key, bytes.buffer, { httpMetadata: { contentType: "image/webp" }, customMetadata: { owner: identity.userId } });
+  try {
+    await database.prepare(`
+      INSERT INTO user_profiles (user_id, avatar_object_key, avatar_updated_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET avatar_object_key = excluded.avatar_object_key,
+        avatar_updated_at = excluded.avatar_updated_at, updated_at = excluded.updated_at
+    `).bind(identity.userId, key, now, now, now).run();
+  } catch (error) {
+    await env.MEDIA.delete(key);
+    throw error;
+  }
+  if (previous?.avatar_object_key) await env.MEDIA.delete(stringValue(previous.avatar_object_key)).catch(() => undefined);
+  return getAccountProfileD1(identity, env);
+}
+
+export async function deleteAccountAvatarD1(identity: StudentIdentity, request: Request, env: ApiEnv) {
+  const database = db(env);
+  const previous = await database.prepare("SELECT avatar_object_key FROM user_profiles WHERE user_id = ?").bind(identity.userId).first<Row>();
+  await profileEvent(identity, request, "avatar_deleted", {}, env);
+  await database.prepare("UPDATE user_profiles SET avatar_object_key = NULL, avatar_updated_at = ?, updated_at = ? WHERE user_id = ?").bind(Date.now(), Date.now(), identity.userId).run();
+  if (env.MEDIA && previous?.avatar_object_key) await env.MEDIA.delete(stringValue(previous.avatar_object_key)).catch(() => undefined);
+  return getAccountProfileD1(identity, env);
+}
+
+export async function readAccountAvatarD1(userId: string, expires: number, token: string, env: ApiEnv) {
+  if (!env.MEDIA || expires < Date.now() || expires > Date.now() + 11 * 60_000) throw new ApiError(403, "avatar_ticket_invalid", "头像访问链接已失效");
+  const row = await db(env).prepare("SELECT avatar_object_key, avatar_updated_at, updated_at FROM user_profiles WHERE user_id = ?").bind(userId).first<Row>();
+  if (!row?.avatar_object_key) throw new ApiError(404, "avatar_not_found", "头像不存在");
+  const version = numberValue(row.avatar_updated_at) || numberValue(row.updated_at);
+  const expected = await keyedHash(`account-avatar:${userId}:${version}:${expires}`, env.UPDATE_DOWNLOAD_SECRET ?? env.AUTH_HASH_SECRET ?? "");
+  if (expected !== token) throw new ApiError(403, "avatar_ticket_invalid", "头像访问链接无效");
+  const object = await env.MEDIA.get(stringValue(row.avatar_object_key));
+  if (!object) throw new ApiError(404, "avatar_not_found", "头像不存在");
+  const headers = new Headers({ "cache-control": "private, max-age=600", "content-type": "image/webp", etag: object.httpEtag, "x-content-type-options": "nosniff" });
+  return new Response(object.body, { headers });
+}
+
+export async function assertAccountProfileCompleteD1(userId: string, env: ApiEnv) {
+  const row = await db(env).prepare("SELECT completed_at, nickname FROM user_profiles WHERE user_id = ?").bind(userId).first<Row>();
+  if (!row?.completed_at || !stringValue(row.nickname)) throw new ApiError(409, "profile_required", "请先完善账号昵称，再继续此操作");
+}
+
+export async function requestAccountContactChallengeD1(identity: StudentIdentity, input: { kind: unknown; value: unknown }, request: Request, env: ApiEnv) {
+  const kind = input.kind === "email" ? "email" : input.kind === "phone" ? "phone" : null;
+  if (!kind) throw new ApiError(422, "invalid_contact_kind", "请选择邮箱或手机号");
+  const value = kind === "email" ? normalizeEmail(input.value) : normalizePhone(input.value);
+  const now = Date.now();
+  const secret = env.AUTH_HASH_SECRET ?? "";
+  const valueHash = await keyedHash(value, secret);
+  const [ipHash, deviceHash, valueEncrypted] = await Promise.all([
+    keyedHash(getClientIp(request), secret),
+    keyedHash(request.headers.get("x-device-id")?.slice(0,160) || identity.deviceId || "unknown-device", secret),
+    encryptPhone(value, env.PHONE_ENCRYPTION_KEY ?? ""),
+  ]);
+  const database = db(env);
+  const latest = await database.prepare("SELECT resend_after FROM account_contact_challenges WHERE user_id = ? AND kind = ? ORDER BY created_at DESC LIMIT 1").bind(identity.userId, kind).first<Row>();
+  if (numberValue(latest?.resend_after) > now) throw new ApiError(429, "contact_resend_too_soon", `请在 ${Math.ceil((numberValue(latest?.resend_after) - now) / 1000)} 秒后重试`);
+  const count = await database.prepare("SELECT count(*) AS count FROM account_contact_challenges WHERE (user_id = ? OR ip_hash = ? OR device_hash = ?) AND created_at >= ?").bind(identity.userId, ipHash, deviceHash, now - 60 * 60_000).first<Row>();
+  if (numberValue(count?.count) >= 10) throw new ApiError(429, "contact_rate_limited", "联系方式验证过于频繁，请稍后再试");
+  const id = randomId("contact_challenge");
+  const code = env.APP_ENV === "production" ? randomOtp() : "888888";
+  const codeHash = await keyedHash(`${id}:${code}`, secret);
+  await database.prepare(`INSERT INTO account_contact_challenges
+    (id,user_id,kind,value_hash,value_encrypted,value_hint,code_hash,ip_hash,device_hash,expires_at,resend_after,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id, identity.userId, kind, valueHash, valueEncrypted, kind === "email" ? maskEmail(value) : maskPhone(value), codeHash, ipHash, deviceHash, now + 5 * 60_000, now + 60_000, now).run();
+  try {
+    if (kind === "email") await sendEmailOtp(value, code, env, "bind");
+    else await sendOtpSms(value, code, id, env);
+  } catch (error) {
+    await database.prepare("DELETE FROM account_contact_challenges WHERE id = ?").bind(id).run();
+    throw error;
+  }
+  return { challengeId: id, expiresIn: 300, retryAfter: 60, valueHint: kind === "email" ? maskEmail(value) : maskPhone(value) };
+}
+
+export async function verifyAccountContactChallengeD1(identity: StudentIdentity, challengeId: string, code: string, request: Request, env: ApiEnv) {
+  const database = db(env);
+  const challenge = await database.prepare("SELECT * FROM account_contact_challenges WHERE id = ? AND user_id = ?").bind(challengeId, identity.userId).first<Row>();
+  const now = Date.now();
+  if (!challenge || challenge.consumed_at) throw new ApiError(400, "contact_challenge_invalid", "验证请求无效，请重新获取");
+  if (numberValue(challenge.expires_at) <= now) throw new ApiError(400, "contact_challenge_expired", "验证码已过期，请重新获取");
+  if (numberValue(challenge.attempts) >= 5 || numberValue(challenge.locked_until) > now) throw new ApiError(423, "contact_challenge_locked", "验证次数过多，请稍后再试");
+  const expected = await keyedHash(`${challengeId}:${code}`, env.AUTH_HASH_SECRET ?? "");
+  if (expected !== challenge.code_hash) {
+    const attempts = numberValue(challenge.attempts) + 1;
+    await database.prepare("UPDATE account_contact_challenges SET attempts = ?, locked_until = ? WHERE id = ?").bind(attempts, attempts >= 5 ? now + 30 * 60_000 : null, challengeId).run();
+    throw new ApiError(attempts >= 5 ? 423 : 400, attempts >= 5 ? "contact_challenge_locked" : "invalid_otp", attempts >= 5 ? "验证次数过多，请稍后再试" : "验证码不正确");
+  }
+  const kind = challenge.kind === "email" ? "email" : "phone";
+  const conflict = await database.prepare(`SELECT id FROM users WHERE ${kind === "email" ? "email_hash" : "phone_hash"} = ? AND id <> ? AND deleted_at IS NULL LIMIT 1`).bind(challenge.value_hash, identity.userId).first<Row>();
+  if (conflict) {
+    const mergeId = randomId("merge");
+    await database.batch([
+      database.prepare(`INSERT OR IGNORE INTO account_merge_requests
+        (id,requested_by_user_id,conflicting_user_id,contact_kind,contact_hint,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,'pending',?,?)`).bind(mergeId, identity.userId, conflict.id, kind, challenge.value_hint, now, now),
+      database.prepare("UPDATE account_contact_challenges SET consumed_at = ? WHERE id = ?").bind(now, challengeId),
+    ]);
+    return { mergeRequired: true, status: "pending" as const };
+  }
+  if (kind === "email") {
+    const current = await database.prepare("SELECT email_encrypted FROM users WHERE id = ?").bind(identity.userId).first<Row>();
+    if (current?.email_encrypted) {
+      const currentEmail = (await decryptPhone(stringValue(current.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? "")).toLowerCase();
+      if (currentEmail === PRIMARY_OPERATOR_EMAIL) throw new ApiError(403, "protected_operator_contact", "最高权限账号的登录邮箱不能在此处更换");
+    }
+  }
+  const update = kind === "email"
+    ? database.prepare("UPDATE users SET email_hash = ?, email_encrypted = ?, email_domain = ?, updated_at = ? WHERE id = ?").bind(challenge.value_hash, challenge.value_encrypted, (await decryptPhone(stringValue(challenge.value_encrypted), env.PHONE_ENCRYPTION_KEY ?? "")).split("@")[1] || "", now, identity.userId)
+    : database.prepare("UPDATE users SET phone_hash = ?, phone_encrypted = ?, phone_last4 = ?, updated_at = ? WHERE id = ?").bind(challenge.value_hash, challenge.value_encrypted, (await decryptPhone(stringValue(challenge.value_encrypted), env.PHONE_ENCRYPTION_KEY ?? "")).slice(-4), now, identity.userId);
+  await database.batch([update, database.prepare("UPDATE account_contact_challenges SET consumed_at = ? WHERE id = ?").bind(now, challengeId)]);
+  await profileEvent(identity, request, `${kind}_bound`, {}, env);
+  return { mergeRequired: false, profile: await getAccountProfileD1(identity, env), status: "verified" as const };
 }
 
 function publicCoachMediaUrl(row: Row, kind: "avatar" | "card" | "hero", env?: ApiEnv) {
@@ -333,6 +553,7 @@ export async function getMobileIdentityD1(identity: StudentIdentity, env: ApiEnv
   const contactMasked = email
     ? maskEmail(email)
     : maskPhone(stringValue(user.phone_last4));
+  const profile = await getAccountProfileD1(identity, env);
   return {
     authMethod: user.email_encrypted ? "email_otp" as const : "phone_otp" as const,
     availableModes: [...roles],
@@ -340,6 +561,7 @@ export async function getMobileIdentityD1(identity: StudentIdentity, env: ApiEnv
     contactMasked,
     email,
     phoneMasked: contactMasked,
+    profile,
     roles: [...new Set((roleRows.results ?? []).map((row) => stringValue(row.role)).filter((role): role is "student" | "coach" | "operator" => role === "student" || role === "coach" || role === "operator"))],
     userId: identity.userId,
   };
@@ -493,6 +715,7 @@ export async function verifyOtpD1(
     contactMasked: session.contactMasked,
     expiresAt: session.expiresAt,
     phoneMasked: session.phoneMasked,
+    profile: mobileIdentity.profile,
     refreshToken: session.refreshToken,
   };
 }
@@ -543,6 +766,7 @@ export async function refreshSessionD1(refreshToken: string, deviceId: string, e
     contactMasked,
     expiresAt: session.expiresAt,
     phoneMasked: session.phoneMasked,
+    profile: mobileIdentity.profile,
     refreshToken: session.refreshToken,
   };
 }
@@ -553,7 +777,11 @@ export async function logoutD1(identity: StudentIdentity, env: ApiEnv) {
 
 export async function deleteAccountD1(identity: StudentIdentity, env: ApiEnv) {
   const database = db(env);
-  const account = await database.prepare("SELECT email_encrypted FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").bind(identity.userId).first<Row>();
+  const account = await database.prepare(`
+    SELECT u.email_encrypted, p.avatar_object_key
+    FROM users u LEFT JOIN user_profiles p ON p.user_id = u.id
+    WHERE u.id = ? AND u.status = 'active' AND u.deleted_at IS NULL
+  `).bind(identity.userId).first<Row>();
   if (account?.email_encrypted) {
     const email = (await decryptPhone(stringValue(account.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? "")).trim().toLowerCase();
     if (email === PRIMARY_OPERATOR_EMAIL) throw new ApiError(403, "protected_operator_account", "最高权限账号不能被注销");
@@ -569,11 +797,13 @@ export async function deleteAccountD1(identity: StudentIdentity, env: ApiEnv) {
     database.prepare("UPDATE sessions SET revoked_at = coalesce(revoked_at, ?) WHERE user_id = ?").bind(now, identity.userId),
     database.prepare("DELETE FROM favorites WHERE user_id = ?").bind(identity.userId),
     database.prepare("DELETE FROM notifications WHERE user_id = ?").bind(identity.userId),
+    database.prepare("DELETE FROM user_profiles WHERE user_id = ?").bind(identity.userId),
     database.prepare(`
       UPDATE learner_profiles SET name = '已注销学员', guardian_name = NULL, guardian_phone_encrypted = NULL, goal = '', updated_at = ?
       WHERE user_id = ?
     `).bind(now, identity.userId),
   ]);
+  if (env.MEDIA && account?.avatar_object_key) await env.MEDIA.delete(stringValue(account.avatar_object_key)).catch(() => undefined);
   return { deletionEffectiveAt: now, retainedForDisputesDays: 90 };
 }
 
@@ -722,11 +952,12 @@ async function listConversations(userId: string, env: ApiEnv): Promise<MobileCon
 export async function bootstrapD1(request: Request, env: ApiEnv) {
   const [coaches, identity] = await Promise.all([listCoachesD1(env, new URLSearchParams()), authenticateStudent(request, env, false)]);
   if (!identity) return { bookings: [], coaches, conversations: [], favoriteCoachIds: [], learnerProfiles: [], minimumAppVersion: "1.0.0" };
-  const [bookings, conversations, favoriteRows, learnerProfiles] = await Promise.all([
+  const [bookings, conversations, favoriteRows, learnerProfiles, accountProfile] = await Promise.all([
     listBookings(identity.userId, env),
     listConversations(identity.userId, env),
     db(env).prepare("SELECT coach_id FROM favorites WHERE user_id = ? ORDER BY coach_id").bind(identity.userId).all<Row>(),
     listLearners(identity.userId, env),
+    getAccountProfileD1(identity, env),
   ]);
   return {
     bookings,
@@ -734,6 +965,7 @@ export async function bootstrapD1(request: Request, env: ApiEnv) {
     conversations,
     favoriteCoachIds: (favoriteRows.results ?? []).map((row) => numberValue(row.coach_id)),
     learnerProfiles,
+    accountProfile,
     minimumAppVersion: "1.0.0",
   };
 }

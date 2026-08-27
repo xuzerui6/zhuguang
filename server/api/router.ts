@@ -39,10 +39,12 @@ import {
   createTimeRequestBookingD1,
   createCoachSlotD1,
   createConversationD1,
+  deleteAccountAvatarD1,
   deleteAccountD1,
   deleteCoachSlotD1,
   getCoachD1,
   getCoachBookingOptionsD1,
+  getAccountProfileD1,
   getMobileIdentityD1,
   listCoachesD1,
   listNotificationsD1,
@@ -51,14 +53,20 @@ import {
   markOfflinePaidD1,
   refreshSessionD1,
   requestOtpD1,
+  requestAccountContactChallengeD1,
+  readAccountAvatarD1,
   sendCoachBookingStatusSms,
   sendCoachMessageD1,
   sendStudentBookingStatusSms,
   sendStudentMessageD1,
   setFavoriteD1,
+  assertAccountProfileCompleteD1,
   upsertLearnerD1,
   updateCoachBookingAvailabilityD1,
+  updateAccountProfileD1,
+  uploadAccountAvatarD1,
   verifyOtpD1,
+  verifyAccountContactChallengeD1,
 } from "./repository";
 import {
   assertOperator,
@@ -101,6 +109,7 @@ import {
   listOpsReviewsD1,
   listOpsSupportTicketsD1,
   listOpsUsersD1,
+  listAccountMergeRequestsD1,
   listPublicCoachReviewsD1,
   listStudentTrainingRecordsD1,
   listStudentRescheduleProposalsD1,
@@ -108,6 +117,8 @@ import {
   markNotificationReadD1,
   moderateReviewD1,
   publishContentDocumentD1,
+  resetOpsUserProfileD1,
+  reviewAccountMergeRequestD1,
   reviewCoachProfileChangeD1,
   respondStudentRescheduleProposalD1,
   saveContentDocumentD1,
@@ -139,9 +150,10 @@ export async function handleApiRequest(request: Request, env: ApiEnv, ctx: ApiEx
 
   try {
     const publicCoachMedia = /^\/api\/v1\/media\/coaches\/\d+\/(avatar|card|hero)$/u.test(url.pathname);
+    const publicAccountAvatar = /^\/api\/v1\/account-avatar\/[^/]+$/u.test(url.pathname);
     const publicRelease = url.pathname === "/api/v1/public/app/releases/latest"
       || /^\/api\/v1\/public\/app\/releases\/\d+\/download-ticket$/u.test(url.pathname);
-    if (url.pathname !== "/api/v1/health" && url.pathname !== "/api/v1/app/releases/download" && !publicCoachMedia && !publicRelease) assertPilotApp(request, env);
+    if (url.pathname !== "/api/v1/health" && url.pathname !== "/api/v1/app/releases/download" && !publicCoachMedia && !publicAccountAvatar && !publicRelease) assertPilotApp(request, env);
     const response = await route(request, url, env, ctx, requestId);
     return withCors(response, request, env, requestId);
   } catch (error) {
@@ -175,6 +187,16 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
       ok: true,
       releases: Boolean(env.RELEASES),
     }, requestId);
+  }
+
+  const accountAvatarMatch = path.match(/^\/api\/v1\/account-avatar\/([^/]+)$/u);
+  if (request.method === "GET" && accountAvatarMatch) {
+    return readAccountAvatarD1(
+      decodeURIComponent(accountAvatarMatch[1]),
+      Number(url.searchParams.get("expires") ?? 0),
+      url.searchParams.get("token") ?? "",
+      env,
+    );
   }
 
   if (request.method === "GET" && path === "/api/v1/public/app/releases/latest") {
@@ -252,7 +274,7 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   if (request.method === "PUT" && path === "/api/v1/app/installations") {
     const body = await readJson<{ installationId?: unknown; platform?: unknown; pushRegistrationId?: unknown; versionCode?: unknown; versionName?: unknown }>(request);
     const requestPlatform = request.headers.get("x-app-platform");
-    const platform = body.platform === "ios" || requestPlatform === "ios" ? "ios" : "android";
+    const platform: "android" | "ios" = body.platform === "ios" || requestPlatform === "ios" ? "ios" : "android";
     const input = {
       installationId: requireString(body.installationId, "installationId", 180),
       platform,
@@ -417,6 +439,33 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   if (request.method === "GET" && path === "/api/v1/operator/users") {
     assertOperator(request, env);
     return success(await listOpsUsersD1(env), requestId);
+  }
+
+  const operatorUserProfileMatch = path.match(/^\/api\/v1\/operator\/users\/([^/]+)\/profile$/u);
+  if (request.method === "PATCH" && operatorUserProfileMatch) {
+    assertOperator(request, env);
+    const body = await readJson<{ action?: unknown; reason?: unknown }>(request);
+    const action = requireString(body.action, "action", 30);
+    if (action !== "reset_avatar" && action !== "reset_nickname") throw new ApiError(422, "invalid_profile_action", "资料处置操作无效");
+    return success(await resetOpsUserProfileD1(decodeURIComponent(operatorUserProfileMatch[1]), action, requireString(body.reason, "reason", 300), operatorActor(request), requestId, env), requestId);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/operator/account-merge-requests") {
+    assertOperator(request, env);
+    return success(await listAccountMergeRequestsD1(env), requestId);
+  }
+
+  const operatorMergeMatch = path.match(/^\/api\/v1\/operator\/account-merge-requests\/([^/]+)$/u);
+  if (request.method === "PATCH" && operatorMergeMatch) {
+    assertOperator(request, env);
+    const body = await readJson<{ decision?: unknown; note?: unknown; primaryUserId?: unknown }>(request);
+    const decision = requireString(body.decision, "decision", 20);
+    if (decision !== "approved" && decision !== "rejected") throw new ApiError(422, "invalid_merge_decision", "工单处理结果无效");
+    return success(await reviewAccountMergeRequestD1(decodeURIComponent(operatorMergeMatch[1]), {
+      decision,
+      note: requireString(body.note, "note", 1000),
+      primaryUserId: typeof body.primaryUserId === "string" ? body.primaryUserId : undefined,
+    }, operatorActor(request), requestId, env), requestId);
   }
 
   if (request.method === "GET" && path === "/api/v1/operator/profile-change-requests") {
@@ -671,6 +720,44 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     return success(await getMobileIdentityD1(identity!, env), requestId);
   }
 
+
+  if (request.method === "GET" && path === "/api/v1/me/profile") {
+    if (local) throw new ApiError(501, "local_profile_unavailable", "本地预览未连接账号资料服务");
+    return success(await getAccountProfileD1((await authenticateStudent(request, env))!, env), requestId);
+  }
+
+  if (request.method === "PATCH" && path === "/api/v1/me/profile") {
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不写入账号资料");
+    const identity = (await authenticateStudent(request, env))!;
+    const body = await readJson<{ bio?: unknown; district?: unknown; nickname?: unknown }>(request);
+    return success(await updateAccountProfileD1(identity, body, request, env), requestId);
+  }
+
+  if (request.method === "POST" && path === "/api/v1/me/avatar") {
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不写入头像");
+    return success(await uploadAccountAvatarD1((await authenticateStudent(request, env))!, request, env), requestId, undefined, 201);
+  }
+
+  if (request.method === "DELETE" && path === "/api/v1/me/avatar") {
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不写入头像");
+    return success(await deleteAccountAvatarD1((await authenticateStudent(request, env))!, request, env), requestId);
+  }
+
+  if (request.method === "POST" && path === "/api/v1/me/contact-challenges") {
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不写入联系方式");
+    const body = await readJson<{ kind?: unknown; value?: unknown }>(request);
+    return success(await requestAccountContactChallengeD1((await authenticateStudent(request, env))!, { kind: body.kind, value: body.value }, request, env), requestId, undefined, 201);
+  }
+
+  const contactChallengeMatch = path.match(/^\/api\/v1\/me\/contact-challenges\/([^/]+)\/verify$/u);
+  if (request.method === "POST" && contactChallengeMatch) {
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不写入联系方式");
+    const body = await readJson<{ code?: unknown }>(request);
+    const code = requireString(body.code, "code", 6);
+    if (!/^\d{6}$/u.test(code)) throw new ApiError(422, "invalid_otp", "请输入 6 位验证码");
+    return success(await verifyAccountContactChallengeD1((await authenticateStudent(request, env))!, decodeURIComponent(contactChallengeMatch[1]), code, request, env), requestId);
+  }
+
   if (request.method === "DELETE" && path === "/api/v1/users/me") {
     if (local) {
       logoutLocal(request);
@@ -708,12 +795,14 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     const coachId = positiveInteger(body.coachId, "coachId");
     const learnerId = requireString(body.learnerId, "learnerId", 160);
     const note = typeof body.note === "string" ? body.note.trim().slice(0, 500) : "";
+    const bookingIdentity = local ? null : (await authenticateStudent(request, env))!;
+    if (bookingIdentity) await assertAccountProfileCompleteD1(bookingIdentity.userId, env);
     let booking;
     if (body.startsAt !== undefined || body.durationMinutes !== undefined || body.locationType !== undefined) {
       if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不写入时间申请");
       const locationType = requireString(body.locationType, "locationType", 20);
       if (locationType !== "venue" && locationType !== "custom") throw new ApiError(422, "invalid_location_type", "请选择训练地点方式");
-      booking = await createTimeRequestBookingD1((await authenticateStudent(request, env))!, {
+      booking = await createTimeRequestBookingD1(bookingIdentity!, {
         coachId,
         customAddress: typeof body.customAddress === "string" ? body.customAddress : undefined,
         customDistrict: typeof body.customDistrict === "string" ? body.customDistrict : undefined,
@@ -764,7 +853,9 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
       if (!conversation) throw new ApiError(404, "conversation_not_found", "本地试点数据中没有该会话");
       return success(conversation, requestId, undefined, 201);
     }
-    return success(await createConversationD1((await authenticateStudent(request, env))!, coachId, env), requestId, undefined, 201);
+    const identity = (await authenticateStudent(request, env))!;
+    await assertAccountProfileCompleteD1(identity.userId, env);
+    return success(await createConversationD1(identity, coachId, env), requestId, undefined, 201);
   }
 
   const messageMatch = path.match(/^\/api\/v1\/conversations\/([^/]+)\/messages$/u);
@@ -772,9 +863,13 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     const body = await readJson<{ body?: unknown }>(request);
     const message = requireString(body.body, "body", 1000);
     const conversationId = decodeURIComponent(messageMatch[1]);
-    const conversation = local
-      ? (authenticateLocal(request), localSendMessage(conversationId, message))
-      : await sendStudentMessageD1((await authenticateStudent(request, env))!, conversationId, message, env);
+    let conversation;
+    if (local) conversation = (authenticateLocal(request), localSendMessage(conversationId, message));
+    else {
+      const identity = (await authenticateStudent(request, env))!;
+      await assertAccountProfileCompleteD1(identity.userId, env);
+      conversation = await sendStudentMessageD1(identity, conversationId, message, env);
+    }
     if (!local) ctx.waitUntil(dispatchPushDeliveriesD1(env));
     return success(conversation, requestId, undefined, 201);
   }

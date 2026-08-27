@@ -48,12 +48,14 @@ export function Brand({ compact = false }: { compact?: boolean }) {
 }
 
 export function AppHeader({
+  avatarUrl,
   city,
   notificationCount,
   onCity,
   onNotifications,
   onProfile,
 }: {
+  avatarUrl?: string;
   city: string;
   notificationCount: number;
   onCity: () => void;
@@ -74,7 +76,7 @@ export function AppHeader({
         {notificationCount > 0 ? <b>{Math.min(notificationCount, 9)}</b> : null}
       </button>
       <button aria-label="个人中心" className="zg-avatar-button" onClick={onProfile} type="button">
-        <UserRound aria-hidden size={18} />
+        {avatarUrl ? <Image alt="" height={34} src={avatarUrl} unoptimized width={34} /> : <UserRound aria-hidden size={18} />}
       </button>
     </header>
   );

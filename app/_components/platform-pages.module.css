@@ -342,6 +342,18 @@
 .dialogNotice { background: #edf7f2; border-radius: 6px; color: #087a50; font-size: 13px; padding: 11px 13px; }
 .formActions { align-items: center; display: flex; gap: 12px; justify-content: flex-end; }
 .formActions p { color: #637169; font-size: 13px; margin: 0 auto 0 0; }
+.accountProfileLayout { display: grid; gap: 20px; grid-template-columns: minmax(240px, .72fr) minmax(0, 1.28fr); padding: 20px; }
+.avatarEditor { align-items: flex-start; border-right: 1px solid #e3e9e5; display: grid; gap: 16px; grid-template-columns: 96px 1fr; padding-right: 20px; }
+.avatarEditor strong { font-size: 15px; }
+.avatarEditor p { color: #68776f; font-size: 12px; line-height: 1.65; margin: 6px 0 14px; }
+.accountAvatar { align-items: center; background: #e6f1eb; border: 1px solid #d5e3db; border-radius: 50%; color: #087a50; display: flex; font-size: 30px; font-weight: 750; height: 96px; justify-content: center; overflow: hidden; width: 96px; }
+.accountAvatar img { height: 100%; object-fit: cover; width: 100%; }
+.contactSummary { background: #f7faf8; border: 1px solid #e2e8e4; border-radius: 7px; display: grid; gap: 12px; grid-template-columns: repeat(2,minmax(0,1fr)); padding: 13px 15px; }
+.contactSummary span { display: grid; gap: 3px; }
+.contactSummary strong { font-size: 12px; }
+.contactSummary small { color: #68776f; font-size: 12px; }
+.contactBinding { display: grid; gap: 10px; grid-template-columns: 110px minmax(0,1fr) auto; }
+.contactBinding input,.contactBinding select { background: #fff; border: 1px solid #d8e1dc; border-radius: 6px; min-height: 44px; padding: 0 12px; }
 .panel > .formGrid { padding: 18px 20px 0; }
 .quickProfile {
   background: #f7faf8;
@@ -405,6 +417,8 @@
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 900px) {
+  .accountProfileLayout { grid-template-columns: 1fr; }
+  .avatarEditor { border-bottom: 1px solid #e3e9e5; border-right: 0; padding-bottom: 20px; padding-right: 0; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metrics article:nth-child(3) { border-left: 0; border-top: 1px solid #dfe5e1; }
   .metrics article:nth-child(4) { border-top: 1px solid #dfe5e1; }
@@ -417,6 +431,10 @@
 }
 
 @media (max-width: 640px) {
+  .avatarEditor { grid-template-columns: 72px 1fr; }
+  .accountAvatar { font-size: 24px; height: 72px; width: 72px; }
+  .contactSummary { grid-template-columns: 1fr; }
+  .contactBinding { grid-template-columns: 1fr; }
   .page { gap: 18px; }
   .heading { align-items: stretch; flex-direction: column; gap: 14px; }
   .heading h1 { font-size: 24px; }

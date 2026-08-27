@@ -196,6 +196,14 @@ export async function verifyEmailOtpD1(
     `).bind(userId, now, coachId));
   }
   await db.batch(statements);
+  const accountProfile = await import("./repository").then(({ getAccountProfileD1 }) => getAccountProfileD1({
+    authMethod: "email_otp",
+    contactMasked: maskEmail(email),
+    deviceId,
+    phoneLast4: "",
+    sessionId,
+    userId,
+  }, env));
 
   const availableModes = new Set<AccountMode>(["student"]);
   let coachSummary: CoachAccountSummary | undefined;
@@ -218,6 +226,7 @@ export async function verifyEmailOtpD1(
     contactMasked: maskEmail(email),
     expiresAt: now + 15 * 60_000,
     phoneMasked: maskEmail(email),
+    profile: accountProfile,
     refreshToken,
   };
 }

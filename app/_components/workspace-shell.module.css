@@ -3,6 +3,17 @@
   background: var(--zg-canvas);
   min-height: 100vh;
 }
+.profilePromptBackdrop { align-items: center; background: rgba(5,18,14,.34); display: flex; inset: 0; justify-content: center; padding: 20px; position: fixed; z-index: 100; }
+.profilePrompt { background: #fff; border: 1px solid #dfe7e2; border-radius: 8px; box-shadow: 0 24px 70px rgba(8,28,20,.18); display: grid; gap: 16px; max-width: 420px; padding: 26px; position: relative; width: 100%; }
+.profilePrompt > button { background: transparent; border: 0; color: #637169; cursor: pointer; padding: 8px; position: absolute; right: 10px; top: 10px; }
+.profilePrompt > span { align-items: center; background: #e9f4ee; border-radius: 50%; color: var(--zg-brand); display: flex; height: 46px; justify-content: center; width: 46px; }
+.profilePrompt h2 { font-size: 22px; margin: 3px 0 9px; }
+.profilePrompt p { color: #637169; font-size: 13px; line-height: 1.7; margin: 0; }
+.profilePrompt div > p:first-child { color: var(--zg-brand); font-size: 11px; font-weight: 700; }
+.profilePrompt footer { display: flex; gap: 10px; justify-content: flex-end; }
+.profilePrompt footer button,.profilePrompt footer a { align-items: center; border-radius: 6px; display: inline-flex; font-size: 13px; font-weight: 700; justify-content: center; min-height: 44px; padding: 0 17px; }
+.profilePrompt footer button { background: #fff; border: 1px solid #dce4df; }
+.profilePrompt footer a { background: var(--zg-brand); color: #fff; }
 
 .studentHeader {
   align-items: center;
@@ -310,6 +321,7 @@
   justify-content: center;
   width: 34px;
 }
+.avatar img { height: 100%; object-fit: cover; width: 100%; }
 
 .accountText {
   display: grid;

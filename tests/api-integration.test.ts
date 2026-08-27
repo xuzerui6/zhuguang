@@ -172,7 +172,7 @@ function json(body: unknown, headers: Record<string, string> = {}): RequestInit 
 
 async function migrate(database: D1Adapter) {
   const directory = new URL("../drizzle/", import.meta.url);
-  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql", "0006_verified_coach_profiles.sql", "0007_operational_closure.sql", "0008_public_app_downloads.sql", "0009_business_scheduling.sql", "0010_student_time_requests.sql"]) {
+  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql", "0006_verified_coach_profiles.sql", "0007_operational_closure.sql", "0008_public_app_downloads.sql", "0009_business_scheduling.sql", "0010_student_time_requests.sql", "0011_user_account_profiles.sql"]) {
     const source = await readFile(new URL(file, directory), "utf8");
     for (const statement of source.split("--> statement-breakpoint").map((item) => item.trim()).filter(Boolean)) database.sqlite.exec(statement);
   }
@@ -278,8 +278,103 @@ async function authenticate(env: ApiEnv, phone: string, favoriteCoachIds: number
   const challengeId = ((challengeResult.payload?.data as Record<string, unknown>).challengeId) as string;
   const verifyResult = await request(env, "/api/v1/auth/otp/verify", json({ challengeId, code: "888888", favoriteCoachIds }));
   assert.equal(verifyResult.response.status, 200);
-  return verifyResult.payload?.data as { accessToken: string; refreshToken: string };
+  const session = verifyResult.payload?.data as { accessToken: string; refreshToken: string };
+  const profile = await request(env, "/api/v1/me/profile", {
+    body: JSON.stringify({ bio: "", district: "通州区", nickname: `测试用户${phone.slice(-2)}` }),
+    headers: { authorization: `Bearer ${session.accessToken}`, "content-type": "application/json", "x-device-id": "device-test" },
+    method: "PATCH",
+  });
+  assert.equal(profile.response.status, 200);
+  return session;
 }
+
+test("account profiles validate identity claims, protect avatar tickets and merge duplicate contacts safely", async () => {
+  const database = new D1Adapter();
+  const media = new MemoryR2();
+  await migrate(database);
+  const operatorSecret = "operator-test-secret";
+  const env: ApiEnv = {
+    APP_ENV: "test",
+    AUTH_HASH_SECRET: "profile-test-auth-secret-with-adequate-length",
+    DB: database,
+    MEDIA: media,
+    MOBILE_API_ORIGIN: "https://api.beijingzhuguang.top",
+    OPERATOR_API_SECRET: operatorSecret,
+    PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 19).toString("base64"),
+    TENCENTCLOUD_SECRET_ID: "test-secret-id",
+    TENCENTCLOUD_SECRET_KEY: "test-secret-key",
+    TENCENT_SES_FROM_EMAIL: "no-reply@notify.beijingzhuguang.top",
+    TENCENT_SES_REGION: "ap-guangzhou",
+    UPDATE_DOWNLOAD_SECRET: "profile-avatar-ticket-secret",
+  };
+  const first = await authenticate(env, "13800000101");
+  const second = await authenticate(env, "13800000102");
+  const firstMe = await request(env, "/api/v1/me", { headers: { authorization: `Bearer ${first.accessToken}` } });
+  const secondMe = await request(env, "/api/v1/me", { headers: { authorization: `Bearer ${second.accessToken}` } });
+  const firstUserId = String((firstMe.payload?.data as { userId: string }).userId);
+  const secondUserId = String((secondMe.payload?.data as { userId: string }).userId);
+
+  const reserved = await request(env, "/api/v1/me/profile", {
+    body: JSON.stringify({ bio: "", district: "通州区", nickname: "逐光官方客服" }),
+    headers: { authorization: `Bearer ${first.accessToken}`, "content-type": "application/json" },
+    method: "PATCH",
+  });
+  assert.equal(reserved.response.status, 422);
+  assert.equal((reserved.payload?.error as { code: string }).code, "nickname_reserved");
+  const contactNickname = await request(env, "/api/v1/me/profile", {
+    body: JSON.stringify({ bio: "", district: "通州区", nickname: "联系13800000000" }),
+    headers: { authorization: `Bearer ${first.accessToken}`, "content-type": "application/json" },
+    method: "PATCH",
+  });
+  assert.equal((contactNickname.payload?.error as { code: string }).code, "nickname_contains_contact");
+
+  const webp = Buffer.from([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]);
+  for (const session of [first, second]) {
+    const uploaded = await request(env, "/api/v1/me/avatar", {
+      body: webp,
+      headers: { authorization: `Bearer ${session.accessToken}`, "content-type": "image/webp", "x-device-id": "device-profile-test" },
+      method: "POST",
+    });
+    assert.equal(uploaded.response.status, 201);
+  }
+  assert.equal(media.objects.size, 2);
+  const firstProfile = await request(env, "/api/v1/me/profile", { headers: { authorization: `Bearer ${first.accessToken}` } });
+  const avatarUrl = new URL(String((firstProfile.payload?.data as { avatarUrl: string }).avatarUrl));
+  const avatar = await request(env, `${avatarUrl.pathname}${avatarUrl.search}`);
+  assert.equal(avatar.response.status, 200);
+  const tampered = await request(env, `${avatarUrl.pathname}?expires=${avatarUrl.searchParams.get("expires")}&token=invalid`);
+  assert.equal(tampered.response.status, 403);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ Response: { MessageId: "bind-message", RequestId: "bind-request" } });
+  try {
+    const bindEmail = async (accessToken: string) => {
+      const challenge = await request(env, "/api/v1/me/contact-challenges", json({ kind: "email", value: "shared@example.com" }, { authorization: `Bearer ${accessToken}` }));
+      assert.equal(challenge.response.status, 201);
+      const challengeId = String((challenge.payload?.data as { challengeId: string }).challengeId);
+      return request(env, `/api/v1/me/contact-challenges/${challengeId}/verify`, json({ code: "888888" }, { authorization: `Bearer ${accessToken}` }));
+    };
+    assert.equal((await bindEmail(first.accessToken)).response.status, 200);
+    const conflict = await bindEmail(second.accessToken);
+    assert.equal((conflict.payload?.data as { mergeRequired: boolean }).mergeRequired, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const operatorHeaders = { "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": operatorSecret };
+  const merges = await request(env, "/api/v1/operator/account-merge-requests", { headers: operatorHeaders });
+  const mergeId = String((merges.payload?.data as Array<{ id: string }>)[0].id);
+  const approved = await request(env, `/api/v1/operator/account-merge-requests/${mergeId}`, {
+    body: JSON.stringify({ decision: "approved", note: "测试账号重复联系方式合并", primaryUserId: firstUserId }),
+    headers: { ...operatorHeaders, "content-type": "application/json" },
+    method: "PATCH",
+  });
+  assert.equal(approved.response.status, 200);
+  assert.equal(database.sqlite.prepare("SELECT status FROM users WHERE id = ?").get(secondUserId)?.status, "merged");
+  assert.equal(media.objects.size, 1);
+  assert.equal(database.sqlite.prepare("SELECT count(*) AS count FROM ops_audit_logs WHERE action = 'account.merge.approve'").get()?.count, 1);
+  database.sqlite.close();
+});
 
 test("D1 migration, auth rotation, favorite merge and slot concurrency form a real API loop", async () => {
   const database = new D1Adapter();

@@ -21,7 +21,7 @@ export default function PrivacyPage() {
         </section>
         <section className={styles.guaranteeBand}>
           <div><p>01 / 信息范围</p><h2>账号、训练服务与安全信息</h2></div>
-          <div className={styles.guaranteeCopy}><p>我们会处理邮箱或手机号、学员档案、预约与改期记录、训练总结、站内消息、收藏、反馈工单，以及保障账号和服务安全所需的设备标识、应用版本和请求日志。</p><p>教练提交的身份、经历、资质和媒体材料仅用于审核及经同意的公开展示；资质原件保存在受控存储中，不作为公共页面资源。</p></div>
+          <div className={styles.guaranteeCopy}><p>我们会处理账号昵称、头像、北京所在区、个性签名、邮箱或手机号、学员档案、预约与改期记录、训练总结、站内消息、收藏、反馈工单，以及保障账号和服务安全所需的设备标识、应用版本和请求日志。</p><p>账号头像不进入官网、教练目录或公开评价，仅向本人及已经建立咨询、预约或教练服务关系的相应用户展示；教练公开姓名和照片仍使用独立的审核档案。</p></div>
         </section>
         <section className={styles.guaranteeBand}>
           <div><p>02 / 使用目的</p><h2>用于匹配、预约、履约和服务保障</h2></div>
@@ -37,7 +37,7 @@ export default function PrivacyPage() {
         </section>
         <section className={styles.guaranteeBand}>
           <div><p>05 / 保存与权利</p><h2>可查询、更正、撤回授权或申请注销</h2></div>
-          <div className={styles.guaranteeCopy}><p>资料在提供服务和履行法定义务所需期限内保存；站内沟通记录通常保留 90 天用于履约和争议处理，依法或因未结工单需要延长的除外。</p><p>你可以在“我的—账号与隐私”查看和更正资料，或通过站内工单申请导出、更正、删除和注销。注销申请会在核验账号及处理未完成预约后执行。</p></div>
+          <div className={styles.guaranteeCopy}><p>昵称、头像、地区和签名在账号有效期间保存，用于账号识别和服务沟通；站内沟通记录通常保留 90 天用于履约和争议处理，依法或因未结工单需要延长的除外。</p><p>你可以在“我的—账号与隐私”随时更正或移除头像等资料。账号注销后头像对象会删除，账号展示信息会清除；依法需保留的历史履约数据会去标识化并按争议处理规则保存。</p></div>
         </section>
         <section className={styles.pageCta}><LockKeyhole aria-hidden size={28} /><div><h2>需要处理个人信息问题？</h2><p>登录后从账号设置提交隐私工单，运营处理过程会保留状态记录。</p></div><ShieldCheck aria-hidden size={24} /></section>
       </main>

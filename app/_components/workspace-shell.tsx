@@ -3,6 +3,7 @@
 import { BadgeCheck, CalendarDays, CalendarRange, ChartNoAxesCombined, ChevronDown, ClipboardCheck, CircleDollarSign, FileCheck2, Home, LayoutDashboard, Menu, MessageCircle, Search, Settings2, ShieldCheck, UsersRound, UserRound, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { IconName, NavItem, WebArea, WebSession } from "../_lib/web-platform";
@@ -44,6 +45,7 @@ function getNavigation(area: Exclude<WebArea, "public">): NavItem[] {
 export function WorkspaceShell({ area, children, session }: { area: Exclude<WebArea, "public">; children: React.ReactNode; session: WebSession }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [profilePromptOpen, setProfilePromptOpen] = useState(() => !session.profileCompleted && typeof sessionStorage !== "undefined" && sessionStorage.getItem("zhuguang:profile-prompt-dismissed") !== "true");
   const navigation = useMemo(() => getNavigation(area).filter((item) => session.permissions.includes(item.permission)), [area, session.permissions]);
   const active = navigation.find((item) => item.href === pathname) ?? [...navigation].sort((a, b) => b.href.length - a.href.length).find((item) => pathname.startsWith(`${item.href}/`)) ?? navigation[0];
 
@@ -51,11 +53,13 @@ export function WorkspaceShell({ area, children, session }: { area: Exclude<WebA
     localStorage.setItem(`zhuguang:last-route:${area}`, pathname);
   }, [area, pathname]);
 
+  const profilePrompt = profilePromptOpen ? <ProfilePrompt onDismiss={() => { sessionStorage.setItem("zhuguang:profile-prompt-dismissed", "true"); setProfilePromptOpen(false); }} /> : null;
+
   if (area === "student") {
     return (
       <div className={styles.studentShell}>
         <header className={styles.studentHeader}><Brand compact /><nav aria-label="学员平台导航">{navigation.map((item) => <NavLink active={active?.id === item.id} item={item} key={item.id} />)}</nav><AccountMenu area={area} session={session} /></header>
-        <main className={styles.studentMain} key={pathname}>{children}</main>
+        <main className={styles.studentMain} key={pathname}>{children}</main>{profilePrompt}
         <nav className={styles.studentMobileNav} aria-label="学员平台移动导航">{navigation.filter((item) => item.id !== "student-training").slice(0, 5).map((item) => <NavLink active={active?.id === item.id} item={item} key={item.id} />)}</nav>
       </div>
     );
@@ -74,10 +78,14 @@ export function WorkspaceShell({ area, children, session }: { area: Exclude<WebA
       {menuOpen ? <button aria-label="关闭菜单遮罩" className={styles.scrim} onClick={() => setMenuOpen(false)} type="button" /> : null}
       <div className={styles.workspaceBody}>
         <header className={styles.workspaceTopbar}><button aria-label="打开菜单" className={styles.mobileMenuButton} onClick={() => setMenuOpen(true)} type="button"><Menu aria-hidden size={21} /></button><div><p>北京试点 / {active?.label}</p><strong>{active?.label}</strong></div><AccountMenu area={area} session={session} /></header>
-        <main className={styles.workspaceMain} key={pathname}>{children}</main>
+        <main className={styles.workspaceMain} key={pathname}>{children}</main>{profilePrompt}
       </div>
     </div>
   );
+}
+
+function ProfilePrompt({ onDismiss }: { onDismiss: () => void }) {
+  return <div className={styles.profilePromptBackdrop} role="presentation"><section aria-labelledby="profile-prompt-title" aria-modal="true" className={styles.profilePrompt} role="dialog"><button aria-label="稍后完善" onClick={onDismiss} type="button"><X aria-hidden size={18} /></button><span><UserRound aria-hidden size={22} /></span><div><p>账号资料</p><h2 id="profile-prompt-title">先设置一个称呼</h2><p>昵称用于预约和沟通中的账号识别。头像可以稍后上传，也不会进入公开评价。</p></div><footer><button onClick={onDismiss} type="button">稍后</button><Link href="/student/profile">完善资料</Link></footer></section></div>;
 }
 
 function NavLink({ active, item, onNavigate }: { active: boolean; item: NavItem; onNavigate?: () => void }) {
@@ -88,7 +96,7 @@ function NavLink({ active, item, onNavigate }: { active: boolean; item: NavItem;
 function AccountMenu({ area, session }: { area: Exclude<WebArea, "public">; session: WebSession }) {
   return (
     <details className={styles.accountMenu}>
-      <summary><span className={styles.avatar}>{session.displayName.slice(0, 1)}</span><span className={styles.accountText}><strong>{session.displayName}</strong><small>{areaMeta[area].short}</small></span><ChevronDown aria-hidden size={16} /></summary>
+      <summary><span className={styles.avatar}>{session.avatarUrl ? <Image alt="" height={34} src={session.avatarUrl} unoptimized width={34} /> : session.displayName.slice(0, 1)}</span><span className={styles.accountText}><strong>{session.displayName}</strong><small>{areaMeta[area].short}</small></span><ChevronDown aria-hidden size={16} /></summary>
       <div><p>切换工作模式</p>{session.availableAreas.includes("student") ? <Link href="/student"><Home aria-hidden size={16} />学员服务</Link> : null}{session.availableAreas.includes("coach") ? <Link href="/coach-workspace"><ClipboardCheck aria-hidden size={16} />教练工作台</Link> : null}{session.availableAreas.includes("ops") ? <Link href="/ops"><Settings2 aria-hidden size={16} />运营工作台</Link> : null}<Link href="/"><Search aria-hidden size={16} />返回官网</Link></div>
     </details>
   );

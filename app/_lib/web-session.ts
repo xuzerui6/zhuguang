@@ -3,6 +3,7 @@ import { getChatGPTUser } from "../chatgpt-auth";
 import type { ChatGPTUser } from "../chatgpt-auth";
 import { resolveCloudflareAccessToken, verifyCloudflareAccessToken } from "./cloudflare-access";
 import type { Permission, WebArea, WebSession } from "./web-platform";
+import type { AccountProfile } from "../mobile/types";
 
 export const WEB_ACCESS_COOKIE = "zg_web_access";
 export const WEB_REFRESH_COOKIE = "zg_web_refresh";
@@ -13,6 +14,7 @@ type MobileIdentity = {
   contactMasked?: string;
   email?: string;
   phoneMasked?: string;
+  profile?: AccountProfile;
   roles?: Array<"student" | "coach" | "operator">;
   userId?: string;
 };
@@ -127,12 +129,14 @@ export async function getWebSession(): Promise<WebSession> {
     }
     return {
       accountId: identity.userId,
+      avatarUrl: identity.profile?.avatarUrl,
       authorizationSource: "email",
       availableAreas,
-      displayName: identity.contactMasked || identity.phoneMasked || "逐光用户",
+      displayName: identity.profile?.nickname || identity.contactMasked || identity.phoneMasked || "逐光用户",
       email,
       isAuthenticated: true,
       permissions,
+      profileCompleted: identity.profile?.completed,
     };
   }
   const roleConfiguration = {

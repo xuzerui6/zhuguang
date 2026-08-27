@@ -181,6 +181,7 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
         coach: session?.coach,
         contactMasked: session?.contactMasked ?? session?.phoneMasked ?? "",
         phoneMasked: session?.phoneMasked ?? "",
+        profile: session?.profile,
       };
       if (demoMode) nextIdentity = { availableModes: ["student", "coach"], coach: demoCoach, contactMasked: "local@example.com", phoneMasked: "138 **** 2026" };
       else if (session) {
@@ -242,7 +243,7 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   const handleSessionChange = useCallback((session: MobileSession | null) => {
     const nextIdentity: MobileIdentity = demoMode
       ? { availableModes: ["student", "coach"], coach: demoCoach, contactMasked: session?.contactMasked ?? "local@example.com", phoneMasked: session?.phoneMasked ?? "138 **** 2026" }
-      : { availableModes: session?.availableModes ?? ["student"], coach: session?.coach, contactMasked: session?.contactMasked ?? session?.phoneMasked ?? "", phoneMasked: session?.phoneMasked ?? "" };
+      : { availableModes: session?.availableModes ?? ["student"], coach: session?.coach, contactMasked: session?.contactMasked ?? session?.phoneMasked ?? "", phoneMasked: session?.phoneMasked ?? "", profile: session?.profile };
     setIdentity(nextIdentity);
     if (!nextIdentity.availableModes.includes("coach")) switchMode("student");
     if (session && privacyAccepted) void initializePush();
@@ -294,6 +295,7 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
         />
       ) : identity.coach ? (
         <CoachApp
+          accountProfile={identity.profile}
           initialTab={coachTab}
           key={`coach-${routeRevision}`}
           onOpenUpdates={() => setSurface("updates")}

@@ -27,6 +27,7 @@ import { impact, listenForAppResume } from "../device";
 import { PullToRefresh } from "../pull-to-refresh";
 import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal } from "../../../shared/scheduling";
 import type {
+  AccountProfile,
   BookingStatus,
   CoachAccountSummary,
   CoachOverview,
@@ -37,6 +38,7 @@ import type {
 } from "../types";
 
 type CoachAppProps = {
+  accountProfile?: AccountProfile;
   initialTab: CoachTab;
   onOpenUpdates: () => void;
   onSwitchStudent: () => void;
@@ -125,7 +127,7 @@ function BookingRow({
   );
 }
 
-export function CoachApp({ initialTab, onOpenUpdates, onSwitchStudent, onTabChange, summary }: CoachAppProps) {
+export function CoachApp({ accountProfile, initialTab, onOpenUpdates, onSwitchStudent, onTabChange, summary }: CoachAppProps) {
   const demoMode = useMemo(() => usesBundledDemoData(), []);
   const [tab, setTab] = useState<CoachTab>(initialTab);
   const [overview, setOverview] = useState<CoachOverview>(() => createDemoCoachOverview(summary));
@@ -340,6 +342,7 @@ export function CoachApp({ initialTab, onOpenUpdates, onSwitchStudent, onTabChan
       {tab === "profile" ? (
         <div className="zg-coach-page">
           <div className="zg-coach-page-title"><div><small>教练模式</small><h1>我的工作台</h1></div><button aria-label="设置" type="button"><Settings aria-hidden /></button></div>
+          <section className="zg-coach-account-card"><span>{accountProfile?.avatarUrl ? <Image alt="账号头像" height={52} src={accountProfile.avatarUrl} unoptimized width={52} /> : (accountProfile?.nickname || "逐").slice(0,1)}</span><div><small>当前登录账号</small><strong>{accountProfile?.nickname || "昵称待完善"}</strong><p>{accountProfile?.district || "北京"} · 账号资料与公开教练档案相互独立</p></div></section>
           <section className="zg-coach-profile-card"><span>{summary.name.slice(0, 1)}</span><div><h2>{summary.name}教练</h2><p><BadgeCheck aria-hidden size={15} />人工审核已通过</p><small>{summary.sport} · {summary.title}</small></div></section>
           <section className="zg-coach-profile-menu">
             <button onClick={() => navigate("schedule")} type="button"><CalendarDays aria-hidden /><span><strong>接单状态与日程</strong><small>控制上线状态并查看确认课程</small></span><ChevronRight aria-hidden /></button>

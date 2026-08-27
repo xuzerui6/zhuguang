@@ -199,6 +199,22 @@ export type MatchResult = {
   reasons: string[];
 };
 
+export type AccountProfile = {
+  avatarUrl?: string;
+  bio: string;
+  completed: boolean;
+  contact: {
+    emailMasked?: string;
+    emailVerified: boolean;
+    phoneMasked?: string;
+    phoneVerified: boolean;
+  };
+  district: string;
+  nickname: string;
+  updatedAt: number;
+  userId: string;
+};
+
 export type MobileSession = {
   accessToken: string;
   refreshToken: string;
@@ -208,6 +224,7 @@ export type MobileSession = {
   authMethod?: "phone_otp" | "email_otp";
   availableModes: AccountMode[];
   coach?: CoachAccountSummary;
+  profile?: AccountProfile;
 };
 
 export type MobileIdentity = {
@@ -218,6 +235,7 @@ export type MobileIdentity = {
   authMethod?: "phone_otp" | "email_otp";
   userId?: string;
   roles?: Array<"student" | "coach" | "operator">;
+  profile?: AccountProfile;
 };
 
 export type AppRelease = {

@@ -1,6 +1,7 @@
 import { createRequestId } from "./domain";
 import { getMobilePlatform, getOrCreateDeviceId, readSession, writeSession } from "./device";
 import type {
+  AccountProfile,
   AppRelease,
   BookingSlot,
   BookingOptions,
@@ -78,7 +79,7 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   headers.set("x-request-id", createRequestId());
   const appKey = getBuildValue("VITE_PILOT_APP_KEY");
   if (appKey) headers.set("x-zhuguang-app-key", appKey);
-  if (init.body) headers.set("content-type", "application/json");
+  if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
   if (session?.accessToken) headers.set("authorization", `Bearer ${session.accessToken}`);
 
   const response = await fetchWithTimeout(`${getApiBaseUrl()}${path}`, { ...init, headers });
@@ -121,6 +122,7 @@ async function refreshSession(refreshToken: string) {
 
 export const mobileApi = {
   bootstrap: () => request<{
+    accountProfile?: AccountProfile;
     bookings: MobileBooking[];
     coaches: MobileCoach[];
     conversations: MobileConversation[];
@@ -129,6 +131,20 @@ export const mobileApi = {
     minimumAppVersion: string;
   }>("/api/v1/bootstrap"),
   me: () => request<MobileIdentity>("/api/v1/me"),
+  profile: () => request<AccountProfile>("/api/v1/me/profile"),
+  updateProfile: (input: { bio: string; district: string; nickname: string }) => request<AccountProfile>("/api/v1/me/profile", {
+    body: JSON.stringify(input), method: "PATCH",
+  }),
+  uploadAvatar: (blob: Blob) => request<AccountProfile>("/api/v1/me/avatar", {
+    body: blob, headers: { "content-type": "image/webp" }, method: "POST",
+  }),
+  deleteAvatar: () => request<AccountProfile>("/api/v1/me/avatar", { method: "DELETE" }),
+  requestContactChallenge: (kind: "email" | "phone", value: string) => request<{ challengeId: string; expiresIn: number; retryAfter: number; valueHint: string }>("/api/v1/me/contact-challenges", {
+    body: JSON.stringify({ kind, value }), method: "POST",
+  }),
+  verifyContactChallenge: (challengeId: string, code: string) => request<{ mergeRequired: boolean; profile?: AccountProfile; status: string }>(`/api/v1/me/contact-challenges/${encodeURIComponent(challengeId)}/verify`, {
+    body: JSON.stringify({ code }), method: "POST",
+  }),
   requestEmailOtp: (email: string, turnstileToken: string) => request<{ challengeId: string; expiresIn: number; retryAfter: number }>("/api/v1/auth/email/request", {
     body: JSON.stringify({ email, turnstileToken }),
     method: "POST",

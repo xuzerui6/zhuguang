@@ -19,24 +19,41 @@ import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { SPORT_OPTIONS, TRAINING_GOAL_OPTIONS } from "../../shared/coach-catalog";
+import { BEIJING_DISTRICTS, SPORT_OPTIONS, TRAINING_GOAL_OPTIONS } from "../../shared/coach-catalog";
 import { calculateDurationPriceFen } from "../../shared/pricing";
 import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal } from "../../shared/scheduling";
-import type { BookingOptions, LearnerProfile, MobileBooking, MobileCoach, MobileConversation } from "../mobile/types";
+import type { AccountProfile, BookingOptions, LearnerProfile, MobileBooking, MobileCoach, MobileConversation } from "../mobile/types";
 import { coaches as fallbackCoaches } from "../_lib/web-platform";
 import { CoachDirectory } from "./coach-directory";
-import { describeBookingOptionsFailure, formatBeijingDate, formatFen, platformRequest } from "./platform-client";
+import { describeBookingOptionsFailure, formatBeijingDate, formatFen, platformRequest, platformUploadAvatar } from "./platform-client";
 import styles from "./platform-pages.module.css";
 
 export type StudentSection = "home" | "coaches" | "bookings" | "messages" | "training" | "profile";
 
 type BootstrapData = {
+  accountProfile?: AccountProfile;
   bookings: MobileBooking[];
   coaches: MobileCoach[];
   conversations: MobileConversation[];
   favoriteCoachIds: number[];
   learnerProfiles: LearnerProfile[];
 };
+
+async function cropAvatarToWebp(file: File) {
+  const bitmap = await createImageBitmap(file);
+  const side = Math.min(bitmap.width, bitmap.height);
+  const canvas = document.createElement("canvas");
+  canvas.height = 512;
+  canvas.width = 512;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("当前浏览器暂不支持头像处理");
+  context.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, 512, 512);
+  bitmap.close();
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", 0.86));
+  if (!blob) throw new Error("头像处理失败，请更换图片重试");
+  if (blob.size > 1024 * 1024) throw new Error("头像处理后仍超过 1MB，请更换图片");
+  return blob;
+}
 
 type TrainingRecord = {
   id: string;
@@ -404,6 +421,11 @@ function ProfilePage({ data, reload }: { data: BootstrapData; reload: () => Prom
   const [busy, setBusy] = useState(false);
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [contactKind, setContactKind] = useState<"email" | "phone">("email");
+  const [contactValue, setContactValue] = useState("");
+  const [contactChallengeId, setContactChallengeId] = useState("");
+  const [contactCode, setContactCode] = useState("");
+  const accountProfile = data.accountProfile;
   const loadTickets = useCallback(async () => { try { setTickets(await platformRequest<SupportTicket[]>("/api/v1/support-tickets")); } catch { setTickets([]); } }, []);
   useEffect(() => { queueMicrotask(() => void loadTickets()); }, [loadTickets]);
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -418,6 +440,43 @@ function ProfilePage({ data, reload }: { data: BootstrapData; reload: () => Prom
       }, method: current ? "PUT" : "POST" });
       setSelectedProfileId(saved.id); setNotice("学员档案已保存"); setError(""); await reload();
     } catch (saveError) { setError(saveError instanceof Error ? saveError.message : "档案保存失败"); }
+    finally { setBusy(false); }
+  }
+  async function saveAccountProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setBusy(true); setError("");
+    try {
+      await platformRequest<AccountProfile>("/api/v1/me/profile", { body: { bio: form.get("bio"), district: form.get("district"), nickname: form.get("nickname") }, method: "PATCH" });
+      setNotice("账号资料已更新"); await reload();
+    } catch (saveError) { setError(saveError instanceof Error ? saveError.message : "账号资料保存失败"); }
+    finally { setBusy(false); }
+  }
+  async function uploadAvatar(file: File | undefined) {
+    if (!file) return;
+    setBusy(true); setError("");
+    try {
+      await platformUploadAvatar(await cropAvatarToWebp(file));
+      setNotice("头像已更新，仅在账号与服务关系中展示"); await reload();
+    } catch (uploadError) { setError(uploadError instanceof Error ? uploadError.message : "头像上传失败"); }
+    finally { setBusy(false); }
+  }
+  async function removeAvatar() {
+    setBusy(true); setError("");
+    try { await platformRequest("/api/v1/me/avatar", { method: "DELETE" }); setNotice("头像已移除"); await reload(); }
+    catch (removeError) { setError(removeError instanceof Error ? removeError.message : "头像移除失败"); }
+    finally { setBusy(false); }
+  }
+  async function requestContactCode() {
+    setBusy(true); setError("");
+    try { const result = await platformRequest<{ challengeId: string }>("/api/v1/me/contact-challenges", { body: { kind: contactKind, value: contactValue }, method: "POST" }); setContactChallengeId(result.challengeId); setNotice("验证码已发送，5 分钟内有效"); }
+    catch (contactError) { setError(contactError instanceof Error ? contactError.message : "验证码发送失败"); }
+    finally { setBusy(false); }
+  }
+  async function verifyContactCode() {
+    setBusy(true); setError("");
+    try { const result = await platformRequest<{ mergeRequired: boolean }>(`/api/v1/me/contact-challenges/${encodeURIComponent(contactChallengeId)}/verify`, { body: { code: contactCode }, method: "POST" }); setNotice(result.mergeRequired ? "该联系方式已属于其他账号，已创建人工合并工单" : "联系方式已验证并更新"); setContactChallengeId(""); setContactCode(""); setContactValue(""); await reload(); }
+    catch (contactError) { setError(contactError instanceof Error ? contactError.message : "验证码校验失败"); }
     finally { setBusy(false); }
   }
   async function createTicket(event: FormEvent<HTMLFormElement>) {
@@ -445,6 +504,21 @@ function ProfilePage({ data, reload }: { data: BootstrapData; reload: () => Prom
   }
   return <div className={styles.page}>
     <header className={styles.heading}><div><p className={styles.eyebrow}>账号与档案</p><h1>把必要信息交给正确的人</h1><p>敏感资料不会出现在公开教练目录中，仅用于已确认的服务。</p></div></header>
+    <section className={styles.panel}><header className={styles.panelHeader}><div><h2>账号资料</h2><p>昵称与头像不会替代学员真实姓名，也不会出现在公开评价中</p></div><span className={styles.status} data-tone={accountProfile?.completed ? "green" : "amber"}>{accountProfile?.completed ? "资料已完善" : "待完善"}</span></header>
+      <div className={styles.accountProfileLayout}>
+        <div className={styles.avatarEditor}>
+          <span className={styles.accountAvatar}>{accountProfile?.avatarUrl ? <Image alt="账号头像" height={96} src={accountProfile.avatarUrl} unoptimized width={96} /> : (accountProfile?.nickname || "逐").slice(0, 1)}</span>
+          <div><strong>个人头像</strong><p>上传后自动居中裁切为 1:1 WebP，仅在账号与服务关系中可见。</p><div className={styles.toolbar}><label className={styles.secondary}>选择图片<input accept="image/jpeg,image/png,image/webp" disabled={busy} hidden onChange={(event) => void uploadAvatar(event.target.files?.[0])} type="file" /></label>{accountProfile?.avatarUrl ? <button className={styles.secondary} disabled={busy} onClick={() => void removeAvatar()} type="button">移除头像</button> : null}</div></div>
+        </div>
+        <form className={styles.form} onSubmit={saveAccountProfile}>
+          <div className={styles.formGrid}><label className={styles.field}><span>昵称</span><input defaultValue={accountProfile?.nickname || ""} maxLength={20} minLength={2} name="nickname" placeholder="2 至 20 个字" required /></label><label className={styles.field}><span>北京所在区</span><select defaultValue={accountProfile?.district || ""} name="district"><option value="">暂不填写</option>{BEIJING_DISTRICTS.map((district) => <option key={district} value={district}>{district}</option>)}</select></label></div>
+          <label className={styles.field}><span>个性签名</span><textarea defaultValue={accountProfile?.bio || ""} maxLength={80} name="bio" placeholder="最多 80 个字" /></label>
+          <div className={styles.contactSummary}><span><strong>邮箱</strong><small>{accountProfile?.contact.emailMasked || "未绑定"}</small></span><span><strong>手机号</strong><small>{accountProfile?.contact.phoneMasked || "未绑定"}</small></span></div>
+          <div className={styles.contactBinding}><select aria-label="联系方式类型" disabled={Boolean(contactChallengeId)} onChange={(event) => setContactKind(event.target.value as "email" | "phone")} value={contactKind}><option value="email">邮箱</option><option value="phone">手机号</option></select>{contactChallengeId ? <input aria-label="验证码" autoComplete="one-time-code" inputMode="numeric" maxLength={6} onChange={(event) => setContactCode(event.target.value.replace(/\D/gu, "").slice(0,6))} placeholder="6 位验证码" value={contactCode} /> : <input aria-label="新联系方式" autoComplete={contactKind === "email" ? "email" : "tel"} inputMode={contactKind === "email" ? "email" : "tel"} onChange={(event) => setContactValue(event.target.value)} placeholder={contactKind === "email" ? "新邮箱地址" : "新手机号"} value={contactValue} />}<button className={styles.secondary} disabled={busy || (contactChallengeId ? contactCode.length !== 6 : !contactValue.trim())} onClick={() => void (contactChallengeId ? verifyContactCode() : requestContactCode())} type="button">{contactChallengeId ? "确认绑定" : "发送验证码"}</button></div>
+          <div className={styles.formActions}>{error ? <p role="alert">{error}</p> : notice ? <p role="status">{notice}</p> : <p>昵称完成后才能咨询、预约或发送消息。</p>}<button className={styles.primary} disabled={busy} type="submit">{busy ? "保存中" : "保存账号资料"}</button></div>
+        </form>
+      </div>
+    </section>
     <div className={styles.split}>
       <section className={styles.panel}><header className={styles.panelHeader}><div><h2>学员档案</h2><p>可为本人或孩子分别建立档案</p></div><button className={styles.secondary} onClick={() => setSelectedProfileId("")} type="button">新增档案</button></header>{data.learnerProfiles.length ? <div className={styles.toolbar}>{data.learnerProfiles.map((profile) => <button aria-pressed={profile.id === selectedProfileId} className={profile.id === selectedProfileId ? styles.primary : styles.secondary} key={profile.id} onClick={() => setSelectedProfileId(profile.id)} type="button">{profile.name}</button>)}</div> : null}<form className={styles.form} key={current?.id || "new-profile"} onSubmit={save}>
         <div className={styles.formGrid}>

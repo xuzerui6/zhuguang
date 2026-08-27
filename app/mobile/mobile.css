@@ -2117,7 +2117,7 @@
 .zg-account-contact small { color: #68776f; font-size: 10px; }
 .zg-account-contact-form { display: grid; gap: 8px; grid-template-columns: 88px 1fr; }
 .zg-account-contact-form button { background: #eef5f1; border: 1px solid #d7e4dd; border-radius: 7px; color: #087a50; font-weight: 750; grid-column: 1 / -1; min-height: 44px; }
-.zg-coach-account-card { align-items: center; background: #f4f8f6; border: 1px solid #dfe8e3; border-radius: 8px; display: grid; gap: 13px; grid-template-columns: 52px 1fr; padding: 14px; }
+.zg-coach-account-card { align-items: center; background: #f4f8f6; border: 1px solid #dfe8e3; border-radius: 8px; color: inherit; display: grid; gap: 13px; grid-template-columns: 52px 1fr auto; padding: 14px; text-align: left; width: 100%; }
 .zg-coach-account-card > span { align-items: center; background: #deede5; border-radius: 50%; color: #087a50; display: flex; font-size: 18px; font-weight: 800; height: 52px; justify-content: center; overflow: hidden; width: 52px; }
 .zg-coach-account-card img { height: 100%; object-fit: cover; width: 100%; }
 .zg-coach-account-card div { display: grid; gap: 3px; }

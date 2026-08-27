@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import MobileStudentApp from "./app";
 import { mobileApi, usesBundledDemoData } from "./api-client";
 import { CoachApp } from "./coach/coach-app";
+import { AccountProfileSheet } from "./sheets";
 import {
   acceptPrivacyConsent,
   getMobilePlatform,
@@ -21,10 +22,12 @@ import {
   writeAccountMode,
   writeLastCoachTab,
   writeLastStudentTab,
+  writeSession,
 } from "./device";
 import { appUpdater, pushBridge } from "./native-bridge";
 import type {
   AccountMode,
+  AccountProfile,
   AppRelease,
   CoachAccountSummary,
   CoachTab,
@@ -71,6 +74,7 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   const [optionalRelease, setOptionalRelease] = useState<AppRelease | null>(null);
   const [deepLinkNotice, setDeepLinkNotice] = useState("");
   const [notificationPrompt, setNotificationPrompt] = useState(false);
+  const [accountProfileOpen, setAccountProfileOpen] = useState(false);
   const [routeRevision, setRouteRevision] = useState(0);
 
   const hasCoachMode = identity.availableModes.includes("coach") && identity.coach?.auditStatus === "approved";
@@ -249,6 +253,12 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
     if (session && privacyAccepted) void initializePush();
   }, [demoMode, initializePush, privacyAccepted, switchMode]);
 
+  const applyAccountProfile = useCallback(async (profile: AccountProfile) => {
+    setIdentity((current) => ({ ...current, profile }));
+    const session = await readSession();
+    if (session) await writeSession({ ...session, profile });
+  }, []);
+
   if (booting) {
     return (
       <main aria-busy="true" aria-label="正在准备逐光" className="zg-mobile-app zg-native-handoff">
@@ -298,6 +308,7 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
           accountProfile={identity.profile}
           initialTab={coachTab}
           key={`coach-${routeRevision}`}
+          onEditAccountProfile={() => setAccountProfileOpen(true)}
           onOpenUpdates={() => setSurface("updates")}
           onSwitchStudent={() => setRoleSheet(true)}
           onTabChange={(tab) => { setCoachTab(tab); void writeLastCoachTab(tab); }}
@@ -326,6 +337,13 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
           </section>
         </div>
       ) : null}
+      {accountProfileOpen ? <AccountProfileSheet
+        onClose={() => setAccountProfileOpen(false)}
+        onDeleteAvatar={async () => { await applyAccountProfile(await mobileApi.deleteAvatar()); }}
+        onSave={async (input) => { await applyAccountProfile(await mobileApi.updateProfile(input)); setDeepLinkNotice("账号资料已更新"); window.setTimeout(() => setDeepLinkNotice(""), 2200); }}
+        onUploadAvatar={async (blob) => { await applyAccountProfile(await mobileApi.uploadAvatar(blob)); setDeepLinkNotice("头像已更新"); window.setTimeout(() => setDeepLinkNotice(""), 2200); }}
+        profile={identity.profile}
+      /> : null}
       {notificationPrompt ? (
         <div className="zg-sheet-backdrop zg-notification-primer-backdrop" role="presentation">
           <section aria-labelledby="zg-notification-title" aria-modal="true" className="zg-notification-primer" role="dialog">

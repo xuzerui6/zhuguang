@@ -15,6 +15,7 @@ import type {
   MobileIdentity,
   MobileSession,
 } from "./types";
+import type { PublicCoachReviews } from "../../shared/reviews";
 
 type ApiSuccess<T> = { data: T; meta?: Record<string, unknown> };
 type ApiFailure = { error: { code: string; message: string; requestId: string; fieldErrors?: Record<string, string> } };
@@ -163,6 +164,13 @@ export const mobileApi = {
   }),
   coachSlots: (coachId: number) => request<BookingSlot[]>(`/api/v1/coaches/${coachId}/slots`),
   coachBookingOptions: (coachId: number) => request<BookingOptions>(`/api/v1/coaches/${coachId}/booking-options`),
+  coachReviews: (coachId: number, sort: "helpful" | "recent" = "recent") => request<PublicCoachReviews>(`/api/v1/coaches/${coachId}/reviews?sort=${sort}`),
+  markReviewHelpful: (reviewId: string) => request(`/api/v1/reviews/${encodeURIComponent(reviewId)}/helpful`, { method: "POST" }),
+  reportReview: (reviewId: string, reason: string) => request(`/api/v1/reviews/${encodeURIComponent(reviewId)}/report`, { body: JSON.stringify({ reason }), method: "POST" }),
+  trackEvents: async (events: Array<{ errorCode?: string; flow: string; outcome: string; role: string; step: string }>) => request("/api/v1/telemetry/events", {
+    body: JSON.stringify({ events: events.map((event) => ({ ...event, appVersion: getBuildValue("VITE_APP_VERSION") ?? "unknown", sessionId: createRequestId("telemetry"), surface: getMobilePlatform() })) }),
+    method: "POST",
+  }).catch(() => undefined),
   createBooking: (input: {
     coachId: number;
     customAddress?: string;
@@ -198,6 +206,7 @@ export const mobileApi = {
     method: "POST",
   }),
   coachOverview: () => request<CoachOverview>("/api/v1/coach/overview"),
+  coachReviewsForCoach: () => request<Array<{ id: string; rating: number; body: string; tags_json?: string; helpful_count?: number; reply_body?: string; reply_status?: string }>>("/api/v1/coach/reviews"),
   coachSetBookingStatus: (bookingId: string, status: BookingStatus) => request<MobileBooking>(`/api/v1/coach/bookings/${bookingId}/status`, {
     body: JSON.stringify({ status }),
     headers: { "idempotency-key": createRequestId("coach-booking") },
@@ -213,6 +222,7 @@ export const mobileApi = {
     body: JSON.stringify({ body }),
     method: "POST",
   }),
+  coachReplyToReview: (reviewId: string, body: string) => request(`/api/v1/coach/reviews/${encodeURIComponent(reviewId)}/reply`, { body: JSON.stringify({ body }), method: "POST" }),
   coachMarkOfflinePaid: (bookingId: string, paid: boolean) => request(`/api/v1/coach/bookings/${bookingId}/offline-payment`, {
     body: JSON.stringify({ paid }),
     method: "POST",

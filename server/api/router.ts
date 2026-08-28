@@ -89,6 +89,7 @@ import { assertPilotApp, normalizePhone, randomId, verifyTurnstile } from "./sec
 import { requestEmailOtpD1, verifyEmailOtpD1 } from "./email-auth";
 import {
   createCoachReviewD1,
+  createCoachReviewReplyD1,
   createOpsCoachVenueD1,
   createCoachRescheduleProposalD1,
   createCredentialChangeRequestD1,
@@ -97,8 +98,10 @@ import {
   createTrainingRecordD1,
   batchUpdateOpsCoachListingD1,
   getOpsOverviewD1,
+  getOpsProductFunnelD1,
   getOpsCoachBusinessSettingsD1,
   listCoachProfileChangesD1,
+  listCoachReviewsD1,
   listContentDocumentsD1,
   listOpsAuditLogsD1,
   listOpsBookingsD1,
@@ -116,7 +119,11 @@ import {
   listUserSupportTicketsD1,
   markNotificationReadD1,
   moderateReviewD1,
+  moderateReviewReplyD1,
   publishContentDocumentD1,
+  reactToCoachReviewD1,
+  recordProductEventsD1,
+  resolveReviewReportD1,
   resetOpsUserProfileD1,
   reviewAccountMergeRequestD1,
   reviewCoachProfileChangeD1,
@@ -312,6 +319,11 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     return success(await getOpsOverviewD1(env), requestId);
   }
 
+  if (request.method === "GET" && path === "/api/v1/operator/analytics/funnel") {
+    await assertOperator(request, env);
+    return success(await getOpsProductFunnelD1(env), requestId);
+  }
+
   if (request.method === "POST" && path === "/api/v1/operator/push/test") {
     assertOperator(request, env);
     const body = await readJson<{ installationId?: unknown; type?: unknown }>(request);
@@ -502,6 +514,24 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     return success(await moderateReviewD1(decodeURIComponent(operatorReviewMatch[1]), status, typeof body.note === "string" ? body.note : "", operatorActor(request), env), requestId);
   }
 
+  const operatorReviewReplyMatch = path.match(/^\/api\/v1\/operator\/review-replies\/([^/]+)$/u);
+  if (request.method === "PATCH" && operatorReviewReplyMatch) {
+    await assertOperator(request, env);
+    const body = await readJson<{ note?: unknown; status?: unknown }>(request);
+    const status = requireString(body.status, "status", 20);
+    if (status !== "approved" && status !== "rejected") throw new ApiError(422, "invalid_review_status", "审核状态无效");
+    return success(await moderateReviewReplyD1(decodeURIComponent(operatorReviewReplyMatch[1]), status, requireString(body.note, "note", 500), operatorActor(request), env), requestId);
+  }
+
+  const operatorReviewReportMatch = path.match(/^\/api\/v1\/operator\/reviews\/([^/]+)\/report$/u);
+  if (request.method === "PATCH" && operatorReviewReportMatch) {
+    assertOperator(request, env);
+    const body = await readJson<{ decision?: unknown; note?: unknown }>(request);
+    const decision = requireString(body.decision, "decision", 20);
+    if (decision !== "keep" && decision !== "hide") throw new ApiError(422, "invalid_report_decision", "举报处理结果无效");
+    return success(await resolveReviewReportD1(decodeURIComponent(operatorReviewReportMatch[1]), decision, requireString(body.note, "note", 500), operatorActor(request), env), requestId);
+  }
+
   if (request.method === "GET" && path === "/api/v1/operator/support-tickets") {
     assertOperator(request, env);
     return success(await listOpsSupportTicketsD1(env), requestId);
@@ -640,7 +670,28 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
 
   const coachReviewsMatch = path.match(/^\/api\/v1\/coaches\/(\d+)\/reviews$/u);
   if (request.method === "GET" && coachReviewsMatch) {
-    return success(local ? [] : await listPublicCoachReviewsD1(Number(coachReviewsMatch[1]), env), requestId);
+    const sort = url.searchParams.get("sort") === "helpful" ? "helpful" : "recent";
+    return success(local ? { items: [], nextCursor: null, summary: { averageRating: null, ratingDistribution: { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 }, tagCounts: [], total: 0 } } : await listPublicCoachReviewsD1(Number(coachReviewsMatch[1]), { cursor: url.searchParams.get("cursor") || undefined, sort }, env), requestId);
+  }
+
+  if (request.method === "POST" && path === "/api/v1/telemetry/events") {
+    const body = await readJson<{ events?: unknown }>(request);
+    if (!Array.isArray(body.events)) throw new ApiError(422, "invalid_event_batch", "匿名事件格式无效");
+    const events = body.events.map((event) => {
+      const item = event && typeof event === "object" ? event as Record<string, unknown> : {};
+      return {
+        appVersion: typeof item.appVersion === "string" ? item.appVersion : "",
+        errorCode: typeof item.errorCode === "string" ? item.errorCode : undefined,
+        flow: requireString(item.flow, "flow", 60),
+        outcome: requireString(item.outcome, "outcome", 30),
+        role: requireString(item.role, "role", 30),
+        sessionId: requireString(item.sessionId, "sessionId", 80),
+        step: requireString(item.step, "step", 60),
+        surface: requireString(item.surface, "surface", 30),
+      };
+    });
+    if (local) return success({ accepted: events.length }, requestId, undefined, 202);
+    return success(await recordProductEventsD1(events, env), requestId, undefined, 202);
   }
 
   const coachMatch = path.match(/^\/api\/v1\/coaches\/(\d+)$/u);
@@ -894,13 +945,21 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   }
 
   if (request.method === "POST" && path === "/api/v1/reviews") {
-    const body = await readJson<{ bookingId?: unknown; body?: unknown; rating?: unknown }>(request);
+    const body = await readJson<{ bookingId?: unknown; body?: unknown; rating?: unknown; tags?: unknown }>(request);
     if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不写入评价");
     return success(await createCoachReviewD1((await authenticateStudent(request, env))!, {
       bookingId: requireString(body.bookingId, "bookingId", 180),
       body: requireString(body.body, "body", 1000),
       rating: positiveInteger(body.rating, "rating"),
+      tags: Array.isArray(body.tags) ? body.tags.filter((tag): tag is string => typeof tag === "string") : [],
     }, env), requestId, undefined, 201);
+  }
+
+  const reviewReactionMatch = path.match(/^\/api\/v1\/reviews\/([^/]+)\/(helpful|report)$/u);
+  if (request.method === "POST" && reviewReactionMatch) {
+    const identity = await authenticateStudent(request, env);
+    const body = reviewReactionMatch[2] === "report" ? await readJson<{ reason?: unknown }>(request) : { reason: "" };
+    return success(await reactToCoachReviewD1(identity!, decodeURIComponent(reviewReactionMatch[1]), reviewReactionMatch[2] as "helpful" | "report", typeof body.reason === "string" ? body.reason : "", env), requestId, undefined, 201);
   }
 
   if (request.method === "GET" && path === "/api/v1/support-tickets") {
@@ -1024,6 +1083,18 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
       metrics: body.metrics,
       summary: requireString(body.summary, "summary", 2000),
     }, env), requestId, undefined, 201);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/coach/reviews") {
+    if (local) return success([], requestId);
+    return success(await listCoachReviewsD1(await authenticateCoach(request, env), env), requestId);
+  }
+
+  const coachReviewReplyMatch = path.match(/^\/api\/v1\/coach\/reviews\/([^/]+)\/reply$/u);
+  if (request.method === "POST" && coachReviewReplyMatch) {
+    const body = await readJson<{ body?: unknown }>(request);
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不写入评价回复");
+    return success(await createCoachReviewReplyD1(await authenticateCoach(request, env), decodeURIComponent(coachReviewReplyMatch[1]), requireString(body.body, "body", 500), env), requestId, undefined, 201);
   }
 
   if (request.method === "POST" && path === "/api/v1/coach/profile-change-requests") {

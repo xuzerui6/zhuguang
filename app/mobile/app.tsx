@@ -320,6 +320,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       return;
     }
     let options: BookingOptions;
+    void mobileApi.trackEvents([{ flow: "booking", outcome: "started", role: "student", step: "options" }]);
     try {
       options = demoMode ? {
         coachId: coach.id, durationMinutes: [60, 90, 120], earliestStartsAt: Date.now() + 2 * 60 * 60_000,
@@ -339,6 +340,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     setAgreed(false);
     detailScrollPosition.current = window.scrollY;
     setView("booking");
+    void mobileApi.trackEvents([{ flow: "booking", outcome: "success", role: "student", step: "options" }]);
     queueScroll(0);
   }, [demoMode, queueScroll, selectedCoach, showFeedback]);
 
@@ -348,6 +350,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     if (!Number.isFinite(startsAt)) { showFeedback("请选择有效的北京时间"); return; }
     if (bookingLocationType === "custom" && (!bookingCustomDistrict.trim() || !bookingCustomAddress.trim())) { showFeedback("请填写期望区域和详细地点"); return; }
     setSubmitting(true);
+    void mobileApi.trackEvents([{ flow: "booking", outcome: "started", role: "student", step: "submit" }]);
     const input = {
       coachId: selectedCoach.id,
       customAddress: bookingCustomAddress,
@@ -402,6 +405,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       props.onBook(selectedCoach.name);
       setPendingBooking(false);
       setSheet("booking-success");
+      void mobileApi.trackEvents([{ flow: "booking", outcome: "success", role: "student", step: "submitted" }]);
       void impact("medium");
     } finally {
       setSubmitting(false);

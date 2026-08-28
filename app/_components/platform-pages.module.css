@@ -311,6 +311,13 @@
   color: #075f40;
   font-weight: 700;
 }
+.reviewTags { border: 0; display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; }
+.reviewTags legend { color: #526159; font-size: 13px; font-weight: 650; margin-bottom: 9px; width: 100%; }
+.reviewTags label { cursor: pointer; position: relative; }
+.reviewTags input { height: 1px; opacity: 0; position: absolute; width: 1px; }
+.reviewTags span { align-items: center; background: #f4f7f5; border: 1px solid var(--zg-line); border-radius: 5px; color: #294238; display: inline-flex; min-height: 38px; padding: 0 12px; transition: background var(--zg-motion-control) var(--zg-ease-standard), border-color var(--zg-motion-control) var(--zg-ease-standard); }
+.reviewTags input:checked + span { background: var(--zg-brand-soft); border-color: var(--zg-brand); color: var(--zg-brand-strong); }
+.reviewTags input:focus-visible + span { box-shadow: 0 0 0 3px rgba(8, 122, 70, .14); }
 .bookingSummary {
   align-items: center;
   background: #f3f8f5;

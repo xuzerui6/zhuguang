@@ -874,6 +874,36 @@
   margin: 20px 0 10px;
 }
 
+.reviewSection { overflow: hidden; }
+.reviewSummary { align-items: center; background: var(--zg-canvas); display: grid; gap: 28px; grid-template-columns: 180px 1fr; margin-top: 24px; padding: 24px; }
+.reviewSummary > div { display: grid; gap: 3px; }
+.reviewSummary > div > strong { color: var(--zg-ink); font-size: 36px; line-height: 1; }
+.reviewSummary > div > span { color: var(--zg-text); font-size: 13px; font-weight: 700; }
+.reviewSummary > div > small { color: var(--zg-muted); font-size: 11px; }
+.reviewSummary > p { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+.reviewSummary > p span, .reviewList article > div span { background: var(--zg-surface); border: 1px solid var(--zg-line); border-radius: 4px; color: var(--zg-text); font-size: 12px; padding: 6px 9px; }
+.reviewSummary > p b { color: var(--zg-brand); margin-left: 6px; }
+.reviewList { display: grid; }
+.reviewList article { border-top: 1px solid var(--zg-line); padding: 24px 0; }
+.reviewList article > header { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; }
+.reviewList article > header span { align-items: center; color: var(--zg-amber); display: inline-flex; font-weight: 800; gap: 4px; }
+.reviewList article > header strong { color: var(--zg-ink); font-size: 13px; }
+.reviewList article > header small { color: var(--zg-muted); font-size: 11px; margin-left: auto; }
+.reviewList article > p { color: var(--zg-text); font-size: 14px; line-height: 1.75; margin: 14px 0; }
+.reviewList article > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.reviewList blockquote { background: var(--zg-canvas); border-left: 3px solid var(--zg-brand); margin: 16px 0 0; padding: 13px 15px; }
+.reviewList blockquote strong { color: var(--zg-brand-strong); font-size: 12px; }
+.reviewList blockquote p { color: var(--zg-text); font-size: 13px; line-height: 1.65; margin: 4px 0 0; }
+.reviewList footer { color: var(--zg-muted); font-size: 11px; margin-top: 14px; }
+.reviewEmpty { align-items: center; color: var(--zg-muted); display: flex; flex-direction: column; gap: 6px; padding: 48px 20px; text-align: center; }
+.reviewEmpty strong { color: var(--zg-ink); font-size: 16px; }
+.reviewEmpty p { font-size: 13px; margin: 0; }
+
+@media (max-width: 720px) {
+  .reviewSummary { grid-template-columns: 1fr; }
+  .reviewList article > header small { flex-basis: 100%; margin-left: 0; }
+}
+
 .loginIntro p {
   color: var(--zg-muted);
   font-size: 13px;

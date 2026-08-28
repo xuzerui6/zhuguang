@@ -58,6 +58,20 @@ export async function platformRequest<T>(
   return payload.data;
 }
 
+export function trackProductEvent(input: { errorCode?: string; flow: string; outcome: string; role: string; step: string }) {
+  if (typeof window === "undefined") return;
+  const storageKey = "zhuguang:telemetry-session";
+  let sessionId = window.sessionStorage.getItem(storageKey);
+  if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    window.sessionStorage.setItem(storageKey, sessionId);
+  }
+  void platformRequest("/api/v1/telemetry/events", {
+    body: { events: [{ ...input, sessionId, surface: "web" }] },
+    method: "POST",
+  }).catch(() => undefined);
+}
+
 export async function platformUploadAvatar(blob: Blob) {
   const response = await fetch(`/api/platform?path=${encodeURIComponent("/api/v1/me/avatar")}`, {
     body: blob,

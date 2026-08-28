@@ -132,6 +132,10 @@ export type CoachPublicProfile = {
   rating: number;
   responseMinutes: number;
   reviewCount: number;
+  reviewSummary?: {
+    averageRating: number | null;
+    topTags: Array<{ count: number; tag: string }>;
+  };
   sport: string;
   strengths: string[];
   title: string;

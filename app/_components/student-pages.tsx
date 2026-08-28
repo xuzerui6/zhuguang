@@ -7,7 +7,6 @@ import {
   Clock3,
   FileText,
   Heart,
-  LoaderCircle,
   MessageCircle,
   RefreshCw,
   Send,
@@ -18,15 +17,17 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { BEIJING_DISTRICTS, SPORT_OPTIONS, TRAINING_GOAL_OPTIONS } from "../../shared/coach-catalog";
 import { calculateDurationPriceFen } from "../../shared/pricing";
 import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal } from "../../shared/scheduling";
+import { REVIEW_TAGS } from "../../shared/reviews";
 import type { AccountProfile, BookingOptions, LearnerProfile, MobileBooking, MobileCoach, MobileConversation } from "../mobile/types";
 import { coaches as fallbackCoaches } from "../_lib/web-platform";
 import { CoachDirectory } from "./coach-directory";
-import { describeBookingOptionsFailure, formatBeijingDate, formatFen, platformRequest, platformUploadAvatar } from "./platform-client";
+import { describeBookingOptionsFailure, formatBeijingDate, formatFen, PlatformRequestError, platformRequest, platformUploadAvatar, trackProductEvent } from "./platform-client";
 import styles from "./platform-pages.module.css";
+import { LoadingState as SharedLoadingState } from "./async-states";
 
 export type StudentSection = "home" | "coaches" | "bookings" | "messages" | "training" | "profile";
 
@@ -87,12 +88,13 @@ function statusTone(status: MobileBooking["status"]) {
 
 function useStudentBootstrap() {
   const [data, setData] = useState<BootstrapData | null>(null);
+  const hasData = useRef(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!hasData.current) setLoading(true);
     try {
-      setData(await platformRequest<BootstrapData>("/api/v1/bootstrap"));
+      setData(await platformRequest<BootstrapData>("/api/v1/bootstrap")); hasData.current = true;
       setError("");
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "暂时无法读取学员数据");
@@ -107,7 +109,7 @@ function useStudentBootstrap() {
   useEffect(() => {
     let active = true;
     void platformRequest<BootstrapData>("/api/v1/bootstrap")
-      .then((result) => { if (active) { setData(result); setError(""); } })
+      .then((result) => { if (active) { setData(result); hasData.current = true; setError(""); } })
       .catch((loadError: unknown) => { if (active) setError(loadError instanceof Error ? loadError.message : "暂时无法读取学员数据"); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -239,6 +241,7 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
     if (locationType === "custom" && (!customDistrict.trim() || !customAddress.trim())) { setError("请填写期望区域和详细地点"); return; }
     setBusy("submit");
     setError("");
+    trackProductEvent({ flow: "booking", outcome: "started", role: "student", step: "submit" });
     try {
       await platformRequest("/api/v1/bookings", {
         body: { coachId: selectedCoach.id, customAddress, customDistrict, customLocationNote, durationMinutes, learnerId: selectedLearnerId, locationType, note: bookingNote, startsAt: requestedStartsAt, venueId: locationType === "venue" ? venueId : undefined },
@@ -246,10 +249,12 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
         method: "POST",
       });
       setNotice("时间申请已提交，教练将在失效前确认或提出新方案");
+      trackProductEvent({ flow: "booking", outcome: "success", role: "student", step: "submitted" });
       setIdempotencyKey(`web-booking-${crypto.randomUUID()}`);
       setAgreementAccepted(false);
       await reload();
     } catch (actionError) {
+      trackProductEvent({ errorCode: actionError instanceof PlatformRequestError ? actionError.code : undefined, flow: "booking", outcome: "error", role: "student", step: "submitted" });
       setError(actionError instanceof Error ? actionError.message : "预约提交失败");
     } finally { setBusy(""); }
   }
@@ -400,7 +405,7 @@ function TrainingPage({ data }: { data: BootstrapData }) {
   }, []);
   async function submitReview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = new FormData(event.currentTarget); setBusy(true);
-    try { await platformRequest("/api/v1/reviews", { body: { bookingId: form.get("bookingId"), body: form.get("body"), rating: Number(form.get("rating")) }, method: "POST" }); setNotice("评价已提交，运营审核通过后公开"); setError(""); event.currentTarget.reset(); }
+    try { await platformRequest("/api/v1/reviews", { body: { bookingId: form.get("bookingId"), body: form.get("body"), rating: Number(form.get("rating")), tags: form.getAll("tags") }, method: "POST" }); setNotice("评价已提交，运营审核通过后公开"); setError(""); event.currentTarget.reset(); }
     catch (submitError) { setError(submitError instanceof Error ? submitError.message : "评价提交失败"); }
     finally { setBusy(false); }
   }
@@ -409,7 +414,7 @@ function TrainingPage({ data }: { data: BootstrapData }) {
     <section className={styles.panel}><header className={styles.panelHeader}><div><h2>课程记录</h2><p>{records ? `${records.length} 条已发布记录` : "正在读取"}</p></div></header>
       {records === null ? <LoadingState label="读取训练记录" /> : records.length ? <div className={styles.timeline}>{records.map((record) => <article key={record.id}><time>{formatBeijingDate(record.published_at ?? record.created_at)}</time><h3>{record.sport || "专项训练"} · {record.coach_name || "教练记录"}</h3><p>{record.summary}</p>{record.coach_notes ? <p>{record.coach_notes}</p> : null}</article>)}</div> : <EmptyState copy={error || "完成课程后，教练发布的训练总结会按时间排列在这里。"} title="暂无训练记录" />}
     </section>
-    <section className={styles.panel}><header className={styles.panelHeader}><div><h2>课程评价</h2><p>每个已完成预约只能提交一次，审核后才公开</p></div></header>{completed.length ? <form className={styles.form} onSubmit={submitReview}><div className={styles.formGrid}><label className={styles.field}><span>选择课程</span><select name="bookingId" required>{completed.map((booking) => <option key={booking.id} value={booking.id}>{booking.dateLabel} {booking.date} · #{booking.id.slice(-8)}</option>)}</select></label><label className={styles.field}><span>评分</span><select defaultValue="5" name="rating"><option value="5">5 分</option><option value="4">4 分</option><option value="3">3 分</option><option value="2">2 分</option><option value="1">1 分</option></select></label></div><label className={styles.field}><span>真实体验</span><textarea maxLength={1000} name="body" required /></label><div className={styles.formActions}>{error ? <p role="alert">{error}</p> : notice ? <p role="status">{notice}</p> : <p>请避免填写未成年人姓名和联系方式。</p>}<button className={styles.primary} disabled={busy} type="submit">提交评价</button></div></form> : <EmptyState copy="完成真实课程后即可提交一次评价。" title="暂无可评价课程" />}</section>
+    <section className={styles.panel}><header className={styles.panelHeader}><div><h2>课程评价</h2><p>每个已完成预约只能提交一次，审核后才公开</p></div></header>{completed.length ? <form className={styles.form} onSubmit={submitReview}><div className={styles.formGrid}><label className={styles.field}><span>选择课程</span><select name="bookingId" required>{completed.map((booking) => <option key={booking.id} value={booking.id}>{booking.dateLabel} {booking.date} · #{booking.id.slice(-8)}</option>)}</select></label><label className={styles.field}><span>总体评分</span><select defaultValue="5" name="rating"><option value="5">5 分 · 非常满意</option><option value="4">4 分 · 满意</option><option value="3">3 分 · 符合预期</option><option value="2">2 分 · 有待改善</option><option value="1">1 分 · 不满意</option></select></label></div><fieldset className={styles.reviewTags} onChange={(event) => { const current = event.currentTarget.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked'); if (current.length > 3) { (event.target as HTMLInputElement).checked = false; setError("体验标签最多选择3项"); } }}><legend>体验标签（最多选择3项）</legend>{REVIEW_TAGS.map((tag) => <label key={tag}><input name="tags" type="checkbox" value={tag} /><span>{tag}</span></label>)}</fieldset><label className={styles.field}><span>真实体验</span><textarea maxLength={1000} minLength={20} name="body" placeholder="请描述训练内容、沟通和实际感受，至少20字" required /></label><div className={styles.formActions}>{error ? <p role="alert">{error}</p> : notice ? <p role="status">{notice}</p> : <p>评价将匿名展示，请勿填写未成年人姓名和联系方式。</p>}<button className={styles.primary} disabled={busy} type="submit">{busy ? "提交中" : "提交评价"}</button></div></form> : <EmptyState copy="完成真实课程后30天内可以提交一次评价。" title="暂无可评价课程" />}</section>
   </div>;
 }
 
@@ -549,7 +554,7 @@ function EmptyState({ action, copy, title }: { action?: React.ReactNode; copy: s
 }
 
 function LoadingState({ label }: { label: string }) {
-  return <div className={styles.loading}><LoaderCircle aria-hidden size={27} /><span>{label}</span></div>;
+  return <SharedLoadingState label={label} />;
 }
 
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => Promise<void> }) {

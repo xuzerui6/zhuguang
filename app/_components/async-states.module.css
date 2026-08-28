@@ -1,0 +1,16 @@
+.reserve { min-height: 220px; }
+.loading { display: grid; gap: 14px; min-height: 220px; padding: 24px; }
+.loading p { color: var(--zg-muted); font-size: 12px; margin: 0; }
+.skeleton { display: grid; gap: 12px; }
+.skeleton span { animation: zg-async-shimmer 1.35s ease-in-out infinite; background: linear-gradient(90deg, #edf1ef 25%, #f8faf9 45%, #edf1ef 65%); background-size: 240% 100%; border-radius: 4px; display: block; }
+.heading { height: 24px; width: min(260px, 54%); }
+.line { height: 13px; width: min(520px, 86%); }
+.lineShort { height: 13px; width: min(380px, 64%); }
+.row { height: 64px; margin-top: 4px; width: 100%; }
+.detail { height: 180px; margin-top: 8px; width: 100%; }
+.progress { display: grid; gap: 7px; overflow: hidden; }
+.progress::before { background: var(--zg-line); border-radius: 999px; content: ""; grid-area: 1 / 1; height: 4px; }
+.progress > span { background: var(--zg-brand); border-radius: 999px; grid-area: 1 / 1; height: 4px; transform-origin: left center; transition: transform var(--zg-motion-control) linear; }
+.progress small { color: var(--zg-muted); font-size: 11px; }
+@keyframes zg-async-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton span { animation: none; background: #edf1ef; } .progress > span { transition: none; } }

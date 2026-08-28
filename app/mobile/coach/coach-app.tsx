@@ -15,6 +15,7 @@ import {
   RefreshCw,
   RotateCcw,
   Settings,
+  Star,
   UserRound,
   UsersRound,
   X,
@@ -48,6 +49,7 @@ type CoachAppProps = {
 };
 
 type AppointmentFilter = "active" | "completed" | "pending";
+type CoachReviewRow = { id: string; rating: number; body: string; tags_json?: string; helpful_count?: number; reply_body?: string; reply_status?: string };
 
 const tabItems: Array<{ icon: typeof LayoutDashboard; label: string; tab: CoachTab }> = [
   { icon: LayoutDashboard, label: "工作台", tab: "workspace" },
@@ -142,6 +144,7 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
   const [proposalStartsAt, setProposalStartsAt] = useState("");
   const [proposalVenueId, setProposalVenueId] = useState("");
   const [proposalNote, setProposalNote] = useState("");
+  const [reviews, setReviews] = useState<CoachReviewRow[]>([]);
   const refreshInFlight = useRef<Promise<PullRefreshResult> | null>(null);
 
   const showToast = useCallback((message: string) => {
@@ -155,8 +158,9 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
     if (demoMode) return Promise.resolve({ status: "success", updatedAt: Date.now() });
     const request = (async (): Promise<PullRefreshResult> => {
       try {
-        const remote = await mobileApi.coachOverview();
+        const [remote, reviewRows] = await Promise.all([mobileApi.coachOverview(), mobileApi.coachReviewsForCoach().catch(() => [] as CoachReviewRow[])]);
         setOverview(remote);
+        setReviews(reviewRows);
         return { status: "success", updatedAt: Date.now() };
       } catch (error) {
         return { status: "error", message: error instanceof Error ? error.message : "工作台刷新失败，请重试" };
@@ -168,6 +172,13 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
     });
     return request;
   }, [demoMode]);
+
+  const replyToReview = useCallback(async (review: CoachReviewRow) => {
+    const body = window.prompt("回复将经过运营审核后公开，请勿填写学员姓名或联系方式");
+    if (!body?.trim()) return;
+    try { await mobileApi.coachReplyToReview(review.id, body); showToast("回复已提交审核"); await refresh(); }
+    catch (error) { showToast(error instanceof Error ? error.message : "回复提交失败"); }
+  }, [refresh, showToast]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void refresh(), 0);
@@ -280,6 +291,10 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
           <section className="zg-coach-section">
             <header><h2>近期课程</h2><button onClick={() => openAppointments("active")} type="button">全部({active.length})<ChevronRight aria-hidden size={15} /></button></header>
             {active.map((booking) => <BookingRow booking={booking} compact key={booking.id} onAction={updateBooking} sport={overview.coach.sport} />)}
+          </section>
+          <section className="zg-coach-section zg-coach-review-list">
+            <header><h2>真实学员评价</h2><span>{reviews.length}条</span></header>
+            {reviews.length ? reviews.slice(0, 3).map((review) => <article key={review.id}><header><strong><Star aria-hidden fill="currentColor" size={14} />{review.rating}.0</strong><small>{review.helpful_count || 0}人认为有帮助</small></header><p>{review.body}</p>{review.reply_body ? <small>回复{review.reply_status === "approved" ? "已公开" : "审核中"}：{review.reply_body}</small> : <button onClick={() => void replyToReview(review)} type="button">回复评价</button>}</article>) : <p className="zg-coach-empty">暂无公开评价</p>}
           </section>
         </div>
       ) : null}

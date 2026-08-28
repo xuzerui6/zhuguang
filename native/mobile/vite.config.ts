@@ -19,6 +19,12 @@ const nativeAssets = [
   "images/coach-xu-zerui-portrait.webp",
   "images/coach-xu-zerui-portrait.avif",
   "images/coach-xu-zerui-hero.webp",
+  "images/coach-zhang-zhanqi-avatar.webp",
+  "images/coach-zhang-zhanqi-card.webp",
+  "images/coach-zhang-zhanqi-hero.webp",
+  "images/coach-hao-jianzhuang-avatar.webp",
+  "images/coach-hao-jianzhuang-card.webp",
+  "images/coach-hao-jianzhuang-hero.webp",
 ];
 
 export default defineConfig({

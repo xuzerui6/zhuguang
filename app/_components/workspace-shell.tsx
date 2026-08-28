@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { IconName, NavItem, WebArea, WebSession } from "../_lib/web-platform";
 import { coachNavigation, opsNavigation, studentNavigation } from "../_lib/web-platform";
 import { Brand } from "./brand";
+import { RouteTransition } from "./motion-provider";
 import styles from "./workspace-shell.module.css";
 
 const icons: Record<IconName, LucideIcon> = {
@@ -59,7 +60,7 @@ export function WorkspaceShell({ area, children, session }: { area: Exclude<WebA
     return (
       <div className={styles.studentShell}>
         <header className={styles.studentHeader}><Brand compact /><nav aria-label="学员平台导航">{navigation.map((item) => <NavLink active={active?.id === item.id} item={item} key={item.id} />)}</nav><AccountMenu area={area} session={session} /></header>
-        <main className={styles.studentMain} key={pathname}>{children}</main>{profilePrompt}
+        <main className={styles.studentMain}><RouteTransition routeKey={pathname}>{children}</RouteTransition></main>{profilePrompt}
         <nav className={styles.studentMobileNav} aria-label="学员平台移动导航">{navigation.filter((item) => item.id !== "student-training").slice(0, 5).map((item) => <NavLink active={active?.id === item.id} item={item} key={item.id} />)}</nav>
       </div>
     );
@@ -78,7 +79,7 @@ export function WorkspaceShell({ area, children, session }: { area: Exclude<WebA
       {menuOpen ? <button aria-label="关闭菜单遮罩" className={styles.scrim} onClick={() => setMenuOpen(false)} type="button" /> : null}
       <div className={styles.workspaceBody}>
         <header className={styles.workspaceTopbar}><button aria-label="打开菜单" className={styles.mobileMenuButton} onClick={() => setMenuOpen(true)} type="button"><Menu aria-hidden size={21} /></button><div><p>北京试点 / {active?.label}</p><strong>{active?.label}</strong></div><AccountMenu area={area} session={session} /></header>
-        <main className={styles.workspaceMain} key={pathname}>{children}</main>{profilePrompt}
+        <main className={styles.workspaceMain}><RouteTransition routeKey={pathname}>{children}</RouteTransition></main>{profilePrompt}
       </div>
     </div>
   );

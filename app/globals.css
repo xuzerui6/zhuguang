@@ -300,8 +300,24 @@ img {
 }
 
 @keyframes zg-enter {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+.zg-route-transition {
+  animation: zg-enter 200ms var(--zg-ease-standard) both;
+  min-width: 0;
+}
+
+html[data-motion="reduced"] .zg-route-transition {
+  animation-duration: 80ms;
+  transform: none;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 200ms;
+  animation-timing-function: var(--zg-ease-standard);
 }
 
 @keyframes zg-skeleton {

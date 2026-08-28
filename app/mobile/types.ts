@@ -45,6 +45,10 @@ export type MobileCoach = {
   rating: number;
   lessons: number;
   reviewCount: number;
+  reviewSummary?: {
+    averageRating: number | null;
+    topTags: Array<{ count: number; tag: string }>;
+  };
   fit?: number;
   audience: string[];
   goals: string[];

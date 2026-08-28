@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { MotionProvider } from "./_components/motion-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -48,7 +49,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body><MotionProvider>{children}</MotionProvider></body>
     </html>
   );
 }

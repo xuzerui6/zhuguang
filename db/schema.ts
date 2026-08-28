@@ -474,6 +474,9 @@ export const coachReviews = sqliteTable("coach_reviews", {
   coachId: integer("coach_id").notNull().references(() => coaches.id, { onDelete: "cascade" }),
   rating: integer("rating").notNull(),
   body: text("body").notNull(),
+  tagsJson: text("tags_json").notNull().default("[]"),
+  helpfulCount: integer("helpful_count").notNull().default(0),
+  reportCount: integer("report_count").notNull().default(0),
   status: text("status", { enum: ["pending", "approved", "rejected", "withdrawn"] }).notNull().default("pending"),
   reviewedBy: text("reviewed_by"),
   reviewNote: text("review_note").notNull().default(""),
@@ -483,6 +486,46 @@ export const coachReviews = sqliteTable("coach_reviews", {
 }, (table) => [
   index("coach_reviews_public_idx").on(table.coachId, table.status, table.createdAt),
   check("coach_reviews_rating_check", sql`${table.rating} between 1 and 5`),
+]);
+
+export const coachReviewReplies = sqliteTable("coach_review_replies", {
+  id: text("id").primaryKey(),
+  reviewId: text("review_id").notNull().references(() => coachReviews.id, { onDelete: "cascade" }).unique(),
+  coachId: integer("coach_id").notNull().references(() => coaches.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  status: text("status", { enum: ["pending", "approved", "rejected", "withdrawn"] }).notNull().default("pending"),
+  reviewedBy: text("reviewed_by"),
+  reviewNote: text("review_note").notNull().default(""),
+  reviewedAt: integer("reviewed_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [index("coach_review_replies_queue_idx").on(table.status, table.createdAt)]);
+
+export const coachReviewReactions = sqliteTable("coach_review_reactions", {
+  reviewId: text("review_id").notNull().references(() => coachReviews.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  kind: text("kind", { enum: ["helpful", "report"] }).notNull(),
+  reason: text("reason").notNull().default(""),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  primaryKey({ columns: [table.reviewId, table.userId, table.kind] }),
+  index("coach_review_reactions_review_idx").on(table.reviewId, table.kind, table.createdAt),
+]);
+
+export const productEvents = sqliteTable("product_events", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id").notNull(),
+  surface: text("surface").notNull(),
+  role: text("role").notNull(),
+  flow: text("flow").notNull(),
+  step: text("step").notNull(),
+  outcome: text("outcome").notNull(),
+  errorCode: text("error_code"),
+  appVersion: text("app_version").notNull().default(""),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  index("product_events_funnel_idx").on(table.flow, table.step, table.outcome, table.createdAt),
+  index("product_events_created_idx").on(table.createdAt),
 ]);
 
 export const supportTickets = sqliteTable("support_tickets", {

@@ -1,6 +1,7 @@
 import { ApiError, type ApiEnv } from "./contracts";
 import type { CoachIdentity, StudentIdentity } from "./repository";
 import { decryptContact, encryptContact, normalizeEmail, randomId } from "./security";
+import { REVIEW_TAGS, type PublicCoachReview, type PublicCoachReviews, type ReviewTag } from "../../shared/reviews";
 
 type Row = Record<string, unknown>;
 
@@ -11,6 +12,15 @@ function db(env: ApiEnv) {
 
 function rows(result: D1Result<Row>) {
   return result.results ?? [];
+}
+
+function reviewTags(value: unknown): ReviewTag[] {
+  try {
+    const parsed = JSON.parse(String(value || "[]"));
+    return Array.isArray(parsed) ? parsed.filter((tag): tag is ReviewTag => REVIEW_TAGS.includes(tag)).slice(0, 3) : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function getOpsOverviewD1(env: ApiEnv) {
@@ -610,29 +620,175 @@ export async function reviewCoachProfileChangeD1(id: string, decision: "approved
   return { id, status: decision };
 }
 
-export async function createCoachReviewD1(identity: StudentIdentity, input: { bookingId: string; body: string; rating: number }, env: ApiEnv) {
+export async function createCoachReviewD1(identity: StudentIdentity, input: { bookingId: string; body: string; rating: number; tags: string[] }, env: ApiEnv) {
   const database = db(env);
-  const booking = await database.prepare("SELECT id, coach_id FROM booking_requests WHERE id = ? AND user_id = ? AND status = 'completed'").bind(input.bookingId, identity.userId).first<Row>();
+  const booking = await database.prepare("SELECT id, coach_id, completed_at FROM booking_requests WHERE id = ? AND user_id = ? AND status = 'completed'").bind(input.bookingId, identity.userId).first<Row>();
   if (!booking) throw new ApiError(409, "review_booking_ineligible", "只有已完成的本人课程可以评价");
+  const completedAt = Number(booking.completed_at || 0);
+  if (!completedAt || Date.now() - completedAt > 30 * 24 * 60 * 60 * 1000) throw new ApiError(409, "review_window_expired", "课程完成超过30天，已不能提交评价");
   if (!Number.isInteger(input.rating) || input.rating < 1 || input.rating > 5) throw new ApiError(422, "invalid_rating", "评分必须为1到5分");
+  const body = input.body.trim();
+  if (body.length < 20 || body.length > 1000) throw new ApiError(422, "invalid_review_body", "真实体验请填写20至1000字", { body: "请至少填写20字" });
+  const tags = [...new Set(input.tags)].filter((tag): tag is ReviewTag => REVIEW_TAGS.includes(tag as ReviewTag));
+  if (tags.length > 3 || tags.length !== input.tags.length) throw new ApiError(422, "invalid_review_tags", "请选择最多3个平台提供的体验标签");
   const id = randomId("review"); const now = Date.now();
   try {
-    await database.prepare("INSERT INTO coach_reviews (id, booking_id, user_id, coach_id, rating, body, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)").bind(id, input.bookingId, identity.userId, booking.coach_id, input.rating, input.body.trim().slice(0, 1000), now, now).run();
+    await database.prepare("INSERT INTO coach_reviews (id, booking_id, user_id, coach_id, rating, body, tags_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)").bind(id, input.bookingId, identity.userId, booking.coach_id, input.rating, body, JSON.stringify(tags), now, now).run();
   } catch { throw new ApiError(409, "review_already_exists", "该课程已经提交过评价"); }
   return { id, status: "pending" as const };
 }
 
-export async function listPublicCoachReviewsD1(coachId: number, env: ApiEnv) {
-  const result = await db(env).prepare("SELECT id, rating, body, created_at FROM coach_reviews WHERE coach_id = ? AND status = 'approved' ORDER BY created_at DESC LIMIT 50").bind(coachId).all<Row>();
+export async function listPublicCoachReviewsD1(coachId: number, options: { cursor?: string; sort?: "helpful" | "recent" }, env: ApiEnv): Promise<PublicCoachReviews> {
+  const database = db(env);
+  const cursor = Number(options.cursor || (options.sort === "helpful" ? 0 : Number.MAX_SAFE_INTEGER));
+  const order = options.sort === "helpful" ? "r.helpful_count DESC, r.created_at DESC" : "r.created_at DESC";
+  const reviewsStatement = options.sort === "helpful"
+    ? database.prepare(`SELECT r.id, r.rating, r.body, r.tags_json, r.helpful_count, r.created_at,
+      c.sport, coalesce(d.duration_minutes, round((s.ends_at - s.starts_at) / 60000)) AS duration_minutes,
+      coalesce(b.completed_at, r.created_at) AS completed_at,
+      rr.body AS reply_body, rr.created_at AS reply_created_at
+      FROM coach_reviews r
+      JOIN coaches c ON c.id = r.coach_id
+      JOIN booking_requests b ON b.id = r.booking_id
+      LEFT JOIN booking_request_details d ON d.booking_id = b.id
+      LEFT JOIN availability_slots s ON s.id = b.slot_id
+      LEFT JOIN coach_review_replies rr ON rr.review_id = r.id AND rr.status = 'approved'
+      WHERE r.coach_id = ? AND r.status = 'approved'
+      ORDER BY ${order} LIMIT 20 OFFSET ?`).bind(coachId, Math.max(0, cursor))
+    : database.prepare(`SELECT r.id, r.rating, r.body, r.tags_json, r.helpful_count, r.created_at,
+      c.sport, coalesce(d.duration_minutes, round((s.ends_at - s.starts_at) / 60000)) AS duration_minutes,
+      coalesce(b.completed_at, r.created_at) AS completed_at,
+      rr.body AS reply_body, rr.created_at AS reply_created_at
+      FROM coach_reviews r
+      JOIN coaches c ON c.id = r.coach_id
+      JOIN booking_requests b ON b.id = r.booking_id
+      LEFT JOIN booking_request_details d ON d.booking_id = b.id
+      LEFT JOIN availability_slots s ON s.id = b.slot_id
+      LEFT JOIN coach_review_replies rr ON rr.review_id = r.id AND rr.status = 'approved'
+      WHERE r.coach_id = ? AND r.status = 'approved' AND r.created_at < ?
+      ORDER BY ${order} LIMIT 20`).bind(coachId, cursor);
+  const [result, summaryRows] = await Promise.all([
+    reviewsStatement.all<Row>(),
+    database.prepare("SELECT rating, tags_json FROM coach_reviews WHERE coach_id = ? AND status = 'approved'").bind(coachId).all<Row>(),
+  ]);
+  const all = rows(summaryRows);
+  const distribution = { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 };
+  const counts = new Map<ReviewTag, number>();
+  for (const row of all) {
+    const rating = Math.max(1, Math.min(5, Number(row.rating || 0))) as 1 | 2 | 3 | 4 | 5;
+    distribution[String(rating) as keyof typeof distribution] += 1;
+    for (const tag of reviewTags(row.tags_json)) counts.set(tag, (counts.get(tag) || 0) + 1);
+  }
+  const items: PublicCoachReview[] = rows(result).map((row) => ({
+    body: String(row.body || ""),
+    coachReply: row.reply_body ? { body: String(row.reply_body), createdAt: Number(row.reply_created_at || 0) } : undefined,
+    completedMonth: new Intl.DateTimeFormat("zh-CN", { month: "long", timeZone: "Asia/Shanghai", year: "numeric" }).format(new Date(Number(row.completed_at || row.created_at))),
+    createdAt: Number(row.created_at || 0),
+    durationMinutes: Number(row.duration_minutes || 60),
+    helpfulCount: Number(row.helpful_count || 0),
+    id: String(row.id),
+    rating: Number(row.rating || 0),
+    reviewerLabel: "平台履约学员",
+    sport: String(row.sport || "专项训练"),
+    tags: reviewTags(row.tags_json),
+  }));
+  return {
+    items,
+    nextCursor: items.length === 20 ? String(options.sort === "helpful" ? Math.max(0, cursor) + 20 : items[items.length - 1].createdAt) : null,
+    summary: {
+      averageRating: all.length >= 3 ? Math.round(all.reduce((sum, row) => sum + Number(row.rating || 0), 0) / all.length * 10) / 10 : null,
+      ratingDistribution: distribution,
+      tagCounts: [...counts].map(([tag, count]) => ({ count, tag })).sort((a, b) => b.count - a.count).slice(0, 6),
+      total: all.length,
+    },
+  };
+}
+
+export async function reactToCoachReviewD1(identity: StudentIdentity, reviewId: string, kind: "helpful" | "report", reason: string, env: ApiEnv) {
+  const database = db(env); const now = Date.now();
+  const review = await database.prepare("SELECT id, status FROM coach_reviews WHERE id = ?").bind(reviewId).first<Row>();
+  if (!review || review.status !== "approved") throw new ApiError(404, "review_not_found", "未找到该评价");
+  if (kind === "report" && reason.trim().length < 4) throw new ApiError(422, "report_reason_required", "请简要说明举报原因");
+  try {
+    await database.batch([
+      database.prepare("INSERT INTO coach_review_reactions (review_id, user_id, kind, reason, created_at) VALUES (?, ?, ?, ?, ?)").bind(reviewId, identity.userId, kind, reason.trim().slice(0, 300), now),
+      database.prepare(`UPDATE coach_reviews SET ${kind === "helpful" ? "helpful_count" : "report_count"} = ${kind === "helpful" ? "helpful_count" : "report_count"} + 1, updated_at = ? WHERE id = ?`).bind(now, reviewId),
+    ]);
+  } catch { throw new ApiError(409, "review_reaction_exists", kind === "helpful" ? "你已经标记过这条评价" : "你已经举报过这条评价"); }
+  return { id: reviewId, kind };
+}
+
+export async function createCoachReviewReplyD1(identity: CoachIdentity, reviewId: string, body: string, env: ApiEnv) {
+  const database = db(env); const now = Date.now();
+  const review = await database.prepare("SELECT id FROM coach_reviews WHERE id = ? AND coach_id = ? AND status = 'approved'").bind(reviewId, identity.coachId).first<Row>();
+  if (!review) throw new ApiError(404, "review_not_found", "未找到可回复的公开评价");
+  const copy = body.trim();
+  if (copy.length < 4 || copy.length > 500) throw new ApiError(422, "invalid_reply_body", "回复请填写4至500字");
+  const id = randomId("review_reply");
+  try {
+    await database.prepare("INSERT INTO coach_review_replies (id, review_id, coach_id, body, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)").bind(id, reviewId, identity.coachId, copy, now, now).run();
+  } catch { throw new ApiError(409, "review_reply_exists", "该评价已经提交过回复"); }
+  return { id, status: "pending" as const };
+}
+
+export async function listCoachReviewsD1(identity: CoachIdentity, env: ApiEnv) {
+  const result = await db(env).prepare(`SELECT r.id, r.rating, r.body, r.tags_json, r.helpful_count, r.created_at,
+    rr.id AS reply_id, rr.body AS reply_body, rr.status AS reply_status, rr.review_note AS reply_review_note
+    FROM coach_reviews r LEFT JOIN coach_review_replies rr ON rr.review_id = r.id
+    WHERE r.coach_id = ? AND r.status = 'approved' ORDER BY r.created_at DESC LIMIT 100`).bind(identity.coachId).all<Row>();
+  return rows(result);
+}
+
+export async function moderateReviewReplyD1(id: string, status: "approved" | "rejected", note: string, actor: string, env: ApiEnv) {
+  if (!note.trim()) throw new ApiError(422, "review_note_required", "请填写审核意见");
+  const database = db(env); const now = Date.now();
+  const result = await database.prepare("UPDATE coach_review_replies SET status = ?, review_note = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'").bind(status, note.trim().slice(0, 500), actor, now, now, id).run();
+  if (!result.meta.changes) throw new ApiError(409, "review_reply_not_pending", "该回复已处理或不存在");
+  await database.prepare("INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, created_at) VALUES (?, ?, 'review.reply.moderate', 'coach_review_reply', ?, ?, ?)").bind(randomId("audit"), actor, id, JSON.stringify({ note, status }), now).run();
+  return { id, status };
+}
+
+export async function resolveReviewReportD1(id: string, decision: "hide" | "keep", note: string, actor: string, env: ApiEnv) {
+  if (!note.trim()) throw new ApiError(422, "review_note_required", "请填写举报处理意见");
+  const database = db(env); const now = Date.now();
+  const review = await database.prepare("SELECT coach_id, status, report_count FROM coach_reviews WHERE id = ?").bind(id).first<Row>();
+  if (!review || review.status !== "approved" || Number(review.report_count || 0) < 1) throw new ApiError(409, "review_report_not_pending", "该评价没有待处理举报");
+  const nextStatus = decision === "hide" ? "rejected" : "approved";
+  await database.batch([
+    database.prepare("UPDATE coach_reviews SET status = ?, report_count = 0, review_note = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ? WHERE id = ?").bind(nextStatus, note.trim().slice(0, 500), actor, now, now, id),
+    database.prepare(`UPDATE coaches SET review_count = (SELECT count(*) FROM coach_reviews WHERE coach_id = ? AND status = 'approved'), rating_basis_points = coalesce((SELECT round(avg(rating) * 100) FROM coach_reviews WHERE coach_id = ? AND status = 'approved'), 0), updated_at = ? WHERE id = ?`).bind(review.coach_id, review.coach_id, now, review.coach_id),
+    database.prepare("INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, created_at) VALUES (?, ?, 'review.report.resolve', 'coach_review', ?, ?, ?)").bind(randomId("audit"), actor, id, JSON.stringify({ decision, note: note.trim().slice(0, 500) }), now),
+  ]);
+  return { decision, id, status: nextStatus };
+}
+
+export async function recordProductEventsD1(events: Array<{ appVersion?: string; errorCode?: string; flow: string; outcome: string; role: string; sessionId: string; step: string; surface: string }>, env: ApiEnv) {
+  const database = db(env); const now = Date.now();
+  if (!events.length || events.length > 20) throw new ApiError(422, "invalid_event_batch", "每次可提交1至20条匿名事件");
+  const clean = (value: string, max: number) => value.trim().replace(/[^a-zA-Z0-9_.:-]/gu, "").slice(0, max);
+  await database.batch(events.map((event) => database.prepare("INSERT INTO product_events (id, session_id, surface, role, flow, step, outcome, error_code, app_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(
+    randomId("event"), clean(event.sessionId, 80), clean(event.surface, 30), clean(event.role, 30), clean(event.flow, 60), clean(event.step, 60), clean(event.outcome, 30), event.errorCode ? clean(event.errorCode, 80) : null, clean(event.appVersion || "", 40), now,
+  )));
+  return { accepted: events.length };
+}
+
+export async function getOpsProductFunnelD1(env: ApiEnv) {
+  const result = await db(env).prepare("SELECT flow, step, outcome, surface, role, count(*) AS count FROM product_events WHERE created_at >= ? GROUP BY flow, step, outcome, surface, role ORDER BY flow, step, outcome").bind(Date.now() - 30 * 24 * 60 * 60 * 1000).all<Row>();
   return rows(result);
 }
 
 export async function listOpsReviewsD1(env: ApiEnv) {
-  const result = await db(env).prepare(`SELECT r.*, c.name AS coach_name FROM coach_reviews r JOIN coaches c ON c.id = r.coach_id ORDER BY CASE r.status WHEN 'pending' THEN 0 ELSE 1 END, r.created_at DESC LIMIT 200`).all<Row>();
+  const result = await db(env).prepare(`SELECT r.*, c.name AS coach_name,
+    rr.id AS reply_id, rr.body AS reply_body, rr.status AS reply_status, rr.review_note AS reply_review_note,
+    (SELECT group_concat(reason, ' | ') FROM coach_review_reactions x WHERE x.review_id = r.id AND x.kind = 'report') AS report_reasons
+    FROM coach_reviews r JOIN coaches c ON c.id = r.coach_id
+    LEFT JOIN coach_review_replies rr ON rr.review_id = r.id
+    ORDER BY CASE WHEN r.status = 'pending' OR rr.status = 'pending' OR r.report_count > 0 THEN 0 ELSE 1 END, r.created_at DESC LIMIT 200`).all<Row>();
   return rows(result);
 }
 
 export async function moderateReviewD1(id: string, status: "approved" | "rejected", note: string, actor: string, env: ApiEnv) {
+  if (!note.trim()) throw new ApiError(422, "review_note_required", "请填写审核意见");
   const database = db(env); const now = Date.now();
   const review = await database.prepare("SELECT coach_id, status FROM coach_reviews WHERE id = ?").bind(id).first<Row>();
   if (!review || review.status !== "pending") throw new ApiError(409, "review_not_pending", "该评价已处理或不存在");

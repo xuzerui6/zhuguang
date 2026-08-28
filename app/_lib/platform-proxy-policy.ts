@@ -5,6 +5,7 @@ const publicPatterns = [
 
 export function allowedForPlatformSession(path: string, method: string, permissions: string[]) {
   if (publicPatterns.some((pattern) => pattern.test(path))) return method === "GET";
+  if (path === "/api/v1/telemetry/events") return method === "POST";
   if (path === "/api/v1/service-leads") return method === "POST";
   if (path.startsWith("/api/v1/operator/")) return permissions.includes("ops:manage");
   if (path.startsWith("/api/v1/coach/")) return permissions.includes("coach:work");

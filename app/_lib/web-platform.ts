@@ -1,5 +1,6 @@
 import { coachCatalog, type CoachPublicProfile } from "../../shared/coach-catalog";
 import type { BookingSlot, MobileCoach } from "../mobile/types";
+import type { PublicCoachReviews } from "../../shared/reviews";
 
 export type WebArea = "public" | "student" | "coach" | "ops";
 
@@ -173,6 +174,22 @@ export async function loadPublicCoachById(id: number | string): Promise<CoachPro
     return payload.data ? mapMobileCoachToWeb(payload.data) : undefined;
   } catch {
     return getPublicCoachById(coachId);
+  }
+}
+
+export async function loadPublicCoachReviews(id: number | string): Promise<PublicCoachReviews> {
+  const empty: PublicCoachReviews = { items: [], nextCursor: null, summary: { averageRating: null, ratingDistribution: { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 }, tagCounts: [], total: 0 } };
+  const coachId = Number(id);
+  const headers = publicApiHeaders();
+  if (!Number.isInteger(coachId) || coachId <= 0 || !headers) return empty;
+  const origin = (process.env.ZHUGUANG_MOBILE_API_URL || "https://api.beijingzhuguang.top").replace(/\/$/u, "");
+  try {
+    const response = await fetch(`${origin}/api/v1/coaches/${coachId}/reviews`, { cache: "no-store", headers, signal: AbortSignal.timeout(4_000) });
+    if (!response.ok) return empty;
+    const payload = await response.json() as { data?: PublicCoachReviews };
+    return payload.data ?? empty;
+  } catch {
+    return empty;
   }
 }
 

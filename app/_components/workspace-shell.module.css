@@ -86,7 +86,6 @@
 }
 
 .studentMain {
-  animation: zg-enter var(--zg-motion-content) var(--zg-ease-standard) both;
   min-height: calc(100vh - 72px);
 }
 
@@ -281,7 +280,6 @@
 }
 
 .workspaceMain {
-  animation: zg-enter var(--zg-motion-content) var(--zg-ease-standard) both;
   min-height: calc(100vh - 72px);
   padding: 24px 28px 40px;
 }

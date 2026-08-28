@@ -172,12 +172,56 @@ function json(body: unknown, headers: Record<string, string> = {}): RequestInit 
 
 async function migrate(database: D1Adapter) {
   const directory = new URL("../drizzle/", import.meta.url);
-  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql", "0006_verified_coach_profiles.sql", "0007_operational_closure.sql", "0008_public_app_downloads.sql", "0009_business_scheduling.sql", "0010_student_time_requests.sql", "0011_user_account_profiles.sql"]) {
+  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql", "0006_verified_coach_profiles.sql", "0007_operational_closure.sql", "0008_public_app_downloads.sql", "0009_business_scheduling.sql", "0010_student_time_requests.sql", "0011_user_account_profiles.sql", "0012_trusted_reviews_and_telemetry.sql"]) {
     const source = await readFile(new URL(file, directory), "utf8");
     for (const statement of source.split("--> statement-breakpoint").map((item) => item.trim()).filter(Boolean)) database.sqlite.exec(statement);
   }
   database.sqlite.exec("PRAGMA foreign_keys = ON");
 }
+
+test("verified reviews enforce eligibility, privacy, thresholds, reactions and report resolution", async () => {
+  const database = new D1Adapter();
+  await migrate(database);
+  seedSupply(database);
+  const operatorSecret = "operator-review-secret";
+  const env: ApiEnv = {
+    APP_ENV: "test",
+    AUTH_HASH_SECRET: "review-test-auth-secret-with-adequate-length",
+    DB: database,
+    OPERATOR_API_SECRET: operatorSecret,
+    PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 31).toString("base64"),
+  };
+  const session = await authenticate(env, "13800000881");
+  const me = await request(env, "/api/v1/me", { headers: { authorization: `Bearer ${session.accessToken}` } });
+  const userId = String((me.payload?.data as { userId: string }).userId);
+  const now = Date.now();
+  database.sqlite.prepare("INSERT INTO learner_profiles (id, user_id, name, relation, sport, level, goal, created_at, updated_at) VALUES ('learner-review', ?, '测试学员', 'self', '羽毛球', '初学', '专项提升', ?, ?)").run(userId, now, now);
+  database.sqlite.prepare("INSERT INTO booking_requests (id, idempotency_key, user_id, learner_profile_id, coach_id, venue_id, slot_id, status, fee_fen, payment_status, note, created_at, updated_at, completed_at) VALUES ('booking-review', 'review-booking', ?, 'learner-review', 1, 'venue-1', 'slot-1', 'completed', 9900, 'offline_paid', 'QA review', ?, ?, ?)").run(userId, now, now, now);
+
+  const tooShort = await request(env, "/api/v1/reviews", json({ bookingId: "booking-review", body: "太短", rating: 5, tags: ["专业可靠"] }, { authorization: `Bearer ${session.accessToken}` }));
+  assert.equal((tooShort.payload?.error as { code: string }).code, "invalid_review_body");
+  const created = await request(env, "/api/v1/reviews", json({ bookingId: "booking-review", body: "教练讲解清晰，训练计划针对性强，整节课沟通顺畅并且准时守约。", rating: 5, tags: ["专业可靠", "讲解清晰", "沟通顺畅"] }, { authorization: `Bearer ${session.accessToken}` }));
+  assert.equal(created.response.status, 201);
+  const reviewId = String((created.payload?.data as { id: string }).id);
+  const operatorHeaders = { "content-type": "application/json", "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": operatorSecret };
+  const approved = await request(env, `/api/v1/operator/reviews/${reviewId}`, { body: JSON.stringify({ note: "真实履约内容审核通过", status: "approved" }), headers: operatorHeaders, method: "PATCH" });
+  assert.equal(approved.response.status, 200);
+
+  const publicReviews = await request(env, "/api/v1/coaches/1/reviews");
+  const publicData = publicReviews.payload?.data as { items: Array<{ reviewerLabel: string }>; summary: { averageRating: number | null; total: number } };
+  assert.equal(publicData.summary.total, 1);
+  assert.equal(publicData.summary.averageRating, null);
+  assert.equal(publicData.items[0].reviewerLabel, "平台履约学员");
+
+  assert.equal((await request(env, `/api/v1/reviews/${reviewId}/helpful`, json({}, { authorization: `Bearer ${session.accessToken}` }))).response.status, 201);
+  assert.equal((await request(env, `/api/v1/reviews/${reviewId}/helpful`, json({}, { authorization: `Bearer ${session.accessToken}` }))).response.status, 409);
+  assert.equal((await request(env, `/api/v1/reviews/${reviewId}/report`, json({ reason: "包含需要运营核查的信息" }, { authorization: `Bearer ${session.accessToken}` }))).response.status, 201);
+  const resolved = await request(env, `/api/v1/operator/reviews/${reviewId}/report`, { body: JSON.stringify({ decision: "keep", note: "核查后未发现隐私或不实信息" }), headers: operatorHeaders, method: "PATCH" });
+  assert.equal(resolved.response.status, 200);
+  assert.equal(database.sqlite.prepare("SELECT report_count FROM coach_reviews WHERE id = ?").get(reviewId)?.report_count, 0);
+  assert.equal(database.sqlite.prepare("SELECT count(*) AS count FROM ops_audit_logs WHERE action = 'review.report.resolve'").get()?.count, 1);
+  database.sqlite.close();
+});
 
 test("registered Android and iOS devices can request email OTP when Turnstile is unreachable", async () => {
   const database = new D1Adapter();

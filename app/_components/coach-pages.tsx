@@ -9,7 +9,6 @@ import {
   CircleDollarSign,
   Clock3,
   FileCheck2,
-  LoaderCircle,
   MapPin,
   RefreshCw,
   Send,
@@ -17,11 +16,12 @@ import {
   Sparkles,
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatBeijingDateTimeLocal } from "../../shared/scheduling";
 import type { BookingStatus, CoachOverview, MobileBooking } from "../mobile/types";
 import { formatBeijingDate, formatFen, platformRequest } from "./platform-client";
 import styles from "./platform-pages.module.css";
+import { LoadingState } from "./async-states";
 
 export type CoachSection = "home" | "bookings" | "schedule" | "messages" | "courses" | "payments" | "credentials" | "support";
 
@@ -44,11 +44,12 @@ function statusTone(status: BookingStatus) {
 
 function useCoachOverview() {
   const [data, setData] = useState<CoachOverview | null>(null);
+  const hasData = useRef(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
-    setLoading(true);
-    try { setData(await platformRequest<CoachOverview>("/api/v1/coach/overview")); setError(""); }
+    if (!hasData.current) setLoading(true);
+    try { setData(await platformRequest<CoachOverview>("/api/v1/coach/overview")); hasData.current = true; setError(""); }
     catch (loadError) { setError(loadError instanceof Error ? loadError.message : "教练工作台暂时不可用"); }
     finally { setLoading(false); }
   }, []);
@@ -56,7 +57,7 @@ function useCoachOverview() {
   useEffect(() => {
     let active = true;
     void platformRequest<CoachOverview>("/api/v1/coach/overview")
-      .then((result) => { if (active) { setData(result); setError(""); } })
+      .then((result) => { if (active) { setData(result); hasData.current = true; setError(""); } })
       .catch((loadError: unknown) => { if (active) setError(loadError instanceof Error ? loadError.message : "教练工作台暂时不可用"); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -185,8 +186,13 @@ function CoachMessages({ busy, mutate, overview, refresh }: { busy: string; muta
 function CourseRecords({ busy, mutate, overview }: { busy: string; mutate: (path: string, body: unknown, success: string) => Promise<boolean>; overview: CoachOverview }) {
   const completed = overview.bookings.filter((booking) => booking.status === "completed");
   const [activeId, setActiveId] = useState(completed[0]?.id || "");
+  const [reviews, setReviews] = useState<Array<{ id: string; rating: number; body: string; tags_json?: string; helpful_count?: number; reply_body?: string; reply_status?: string }>>([]);
+  const [replying, setReplying] = useState<string | null>(null);
+  const loadReviews = useCallback(async () => { try { setReviews(await platformRequest("/api/v1/coach/reviews")); } catch { setReviews([]); } }, []);
+  useEffect(() => { queueMicrotask(() => void loadReviews()); }, [loadReviews]);
   async function save(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); await mutate("/api/v1/coach/training-records", { bookingId: form.get("bookingId"), coachNotes: form.get("coachNotes"), summary: form.get("summary") }, "训练记录已发布给学员"); }
-  return <div className={styles.page}><Heading copy="课程完成后记录训练重点、学员表现和下一步建议。" title="课程记录" />{completed.length ? <div className={styles.split}><section className={styles.panel}><header className={styles.panelHeader}><div><h2>已完成课程</h2><p>选择一节课程补充记录</p></div></header><div className={styles.list}>{completed.map((booking) => <button aria-pressed={activeId === booking.id} className={styles.listItem} key={booking.id} onClick={() => setActiveId(booking.id)} type="button"><span className={styles.listIcon}><FileCheck2 aria-hidden size={19} /></span><div><h3>{booking.dateLabel} {booking.time}</h3><p>#{booking.id.slice(-8)} · {formatFen(booking.feeFen)}</p></div></button>)}</div></section><aside className={styles.panel}><header className={styles.panelHeader}><div><h2>发布训练记录</h2><p>发布后学员可在训练档案查看</p></div></header><form className={styles.form} onSubmit={save}><input name="bookingId" type="hidden" value={activeId} /><label className={styles.field}><span>本节总结</span><textarea maxLength={2000} name="summary" required /></label><label className={styles.field}><span>后续建议</span><textarea maxLength={2000} name="coachNotes" /></label><button className={styles.primary} disabled={Boolean(busy)} type="submit">发布记录</button></form></aside></div> : <section className={styles.panel}><Empty copy="完成真实课程后即可建立学员训练档案。" title="暂无可记录课程" /></section>}</div>;
+  async function reply(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (!replying) return; const form = new FormData(event.currentTarget); if (await mutate(`/api/v1/coach/reviews/${encodeURIComponent(replying)}/reply`, { body: form.get("body") }, "回复已提交，审核通过后公开")) { setReplying(null); await loadReviews(); } }
+  return <div className={styles.page}><Heading copy="课程完成后记录训练重点，并认真回应平台履约学员的真实评价。" title="课程记录与评价" />{completed.length ? <div className={styles.split}><section className={styles.panel}><header className={styles.panelHeader}><div><h2>已完成课程</h2><p>选择一节课程补充记录</p></div></header><div className={styles.list}>{completed.map((booking) => <button aria-pressed={activeId === booking.id} className={styles.listItem} key={booking.id} onClick={() => setActiveId(booking.id)} type="button"><span className={styles.listIcon}><FileCheck2 aria-hidden size={19} /></span><div><h3>{booking.dateLabel} {booking.time}</h3><p>#{booking.id.slice(-8)} · {formatFen(booking.feeFen)}</p></div></button>)}</div></section><aside className={styles.panel}><header className={styles.panelHeader}><div><h2>发布训练记录</h2><p>发布后学员可在训练档案查看</p></div></header><form className={styles.form} onSubmit={save}><input name="bookingId" type="hidden" value={activeId} /><label className={styles.field}><span>本节总结</span><textarea maxLength={2000} name="summary" required /></label><label className={styles.field}><span>后续建议</span><textarea maxLength={2000} name="coachNotes" /></label><button className={styles.primary} disabled={Boolean(busy)} type="submit">发布记录</button></form></aside></div> : <section className={styles.panel}><Empty copy="完成真实课程后即可建立学员训练档案。" title="暂无可记录课程" /></section>}<section className={styles.panel}><header className={styles.panelHeader}><div><h2>真实学员评价</h2><p>公开回复需要运营审核，学员原文不能修改或隐藏</p></div></header>{reviews.length ? <div className={styles.list}>{reviews.map((review) => <article className={styles.listItem} key={review.id}><span className={styles.listIcon}><Sparkles aria-hidden size={19} /></span><div><h3>{review.rating}/5 · {review.tags_json || "[]"}</h3><p>{review.body}</p><small>{review.reply_body ? `回复${review.reply_status === "approved" ? "已公开" : "审核中"}：${review.reply_body}` : `${review.helpful_count || 0}人认为有帮助`}</small></div>{!review.reply_body ? <button className={styles.secondary} onClick={() => setReplying(review.id)} type="button">公开回复</button> : null}</article>)}</div> : <Empty copy="学员评价审核公开后会显示在这里。" title="暂无公开评价" />}</section>{replying ? <div className={styles.confirmOverlay} role="presentation" onClick={() => setReplying(null)}><form aria-modal="true" onClick={(event) => event.stopPropagation()} onSubmit={reply} role="dialog"><h2>回复学员评价</h2><p>保持专业、客观，不填写学员姓名或联系方式。审核通过后公开展示。</p><label className={styles.field}><span>回复内容</span><textarea autoFocus maxLength={500} minLength={4} name="body" required /></label><div><button className={styles.secondary} onClick={() => setReplying(null)} type="button">取消</button><button className={styles.primary} disabled={Boolean(busy)} type="submit">提交审核</button></div></form></div> : null}</div>;
 }
 
 function PaymentManager({ busy, mutate, overview }: { busy: string; mutate: (path: string, body: unknown, success: string) => Promise<boolean>; overview: CoachOverview }) {
@@ -237,5 +243,5 @@ function ProfileManager({ busy, mutate, overview }: { busy: string; mutate: (pat
 }
 
 function Empty({ copy, title }: { copy: string; title: string }) { return <div className={styles.empty}><Sparkles aria-hidden size={28} /><strong>{title}</strong><p>{copy}</p></div>; }
-function Loading({ label }: { label: string }) { return <div className={styles.loading}><LoaderCircle aria-hidden size={27} /><span>{label}</span></div>; }
+function Loading({ label }: { label: string }) { return <LoadingState label={label} />; }
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => Promise<void> }) { return <div className={styles.page}><div className={styles.error}><CircleAlert aria-hidden size={28} /><strong>工作台暂时没有加载成功</strong><p>{message}</p><button className={styles.secondary} onClick={() => void onRetry()} type="button"><RefreshCw aria-hidden size={16} />重新加载</button></div></div>; }

@@ -11,7 +11,6 @@ import {
   EyeOff,
   HardDriveDownload,
   History,
-  LoaderCircle,
   MapPin,
   PauseCircle,
   Plus,
@@ -23,11 +22,12 @@ import {
   UsersRound,
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BEIJING_DISTRICTS, SPORT_OPTIONS } from "../../shared/coach-catalog";
 import type { CoachVenue, OperatorCoachBusinessSettings } from "../mobile/types";
 import { formatBeijingDate, formatFen, platformRequest } from "./platform-client";
 import styles from "./platform-pages.module.css";
+import { LoadingState } from "./async-states";
 
 export type OpsSection = "home" | "matching" | "coaches" | "profile-reviews" | "bookings" | "users" | "reviews" | "support" | "content" | "audit" | "releases";
 type Row = Record<string, unknown>;
@@ -39,18 +39,19 @@ function count(rows: Row[], status?: string) {
 
 function useOpsData<T>(path: string) {
   const [data, setData] = useState<T | null>(null);
+  const hasData = useRef(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
-    setLoading(true);
-    try { setData(await platformRequest<T>(path)); setError(""); }
+    if (!hasData.current) setLoading(true);
+    try { setData(await platformRequest<T>(path)); hasData.current = true; setError(""); }
     catch (loadError) { setError(loadError instanceof Error ? loadError.message : "运营数据暂时不可用"); }
     finally { setLoading(false); }
   }, [path]);
   useEffect(() => {
     let active = true;
     void platformRequest<T>(path)
-      .then((result) => { if (active) { setData(result); setError(""); } })
+      .then((result) => { if (active) { setData(result); hasData.current = true; setError(""); } })
       .catch((loadError: unknown) => { if (active) setError(loadError instanceof Error ? loadError.message : "运营数据暂时不可用"); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -78,6 +79,7 @@ function Heading({ action, copy, title }: { action?: React.ReactNode; copy: stri
 
 function OpsHome() {
   const state = useOpsData<Overview>("/api/v1/operator/overview");
+  const funnel = useOpsData<Row[]>("/api/v1/operator/analytics/funnel");
   if (state.loading) return <Loading label="正在汇总运营数据" />;
   if (!state.data) return <ErrorState message={state.error} onRetry={state.load} />;
   const failedPush = count(state.data.pushDeliveries, "failed");
@@ -100,6 +102,7 @@ function OpsHome() {
         <Link className={styles.listItem} href="/ops/releases"><span className={styles.listIcon}><HardDriveDownload aria-hidden size={19} /></span><div><h3>Android 版本</h3><p>查看灰度、暂停和通知状态</p></div><ArrowRight aria-hidden size={16} /></Link>
       </div></aside>
     </div>
+    <section className={styles.panel}><header className={styles.panelHeader}><div><h2>近30天业务漏斗</h2><p>只统计匿名流程阶段，不采集姓名、联系方式或输入内容</p></div></header>{funnel.loading ? <Loading label="正在汇总匿名业务漏斗" /> : funnel.data?.length ? <div className={styles.table}><div className={styles.tableHead}><span>流程</span><span>阶段</span><span>结果</span><span>端与角色</span><span>次数</span></div>{funnel.data.map((item, index) => <article className={styles.tableRow} key={`${item.flow}-${item.step}-${item.outcome}-${index}`}><span><strong>{String(item.flow || "业务流程")}</strong><small>近30天</small></span><span><strong>{String(item.step || "阶段")}</strong><small>匿名事件</small></span><span><em className={styles.status} data-tone={item.outcome === "success" ? "green" : item.outcome === "error" ? "coral" : "gray"}>{String(item.outcome || "view")}</em></span><span><strong>{String(item.surface || "web")}</strong><small>{String(item.role || "anonymous")}</small></span><span><strong>{Number(item.count || 0)}</strong><small>次</small></span></article>)}</div> : <Empty copy="用户开始使用新版找教练和预约流程后，匿名阶段数据会出现在这里。" title="暂无漏斗数据" />}</section>
   </div>;
 }
 
@@ -332,14 +335,16 @@ function ProfileReviewCenter() {
     {selected ? <div className={styles.confirmOverlay} role="presentation" onClick={() => setSelected(null)}><section aria-modal="true" onClick={(event) => event.stopPropagation()} role="dialog"><h2>{selected.coach_name} · {selected.field}</h2><p>确认后会记录审核人、时间和不可变版本。拒绝时公开档案保持原值。</p><div className={styles.statusHistory}><article><strong>当前公开值</strong><p>{readableValue(selected.current_value_json)}</p></article><article><strong>申请值</strong><p>{readableValue(selected.proposed_value_json)}</p></article></div><label className={styles.field}><span>审核意见（必填）</span><textarea autoFocus maxLength={1000} onChange={(event) => setNote(event.target.value)} value={note} /></label><div><button className={styles.secondary} onClick={() => setSelected(null)} type="button">取消</button><button className={styles.danger} disabled={busy || !note.trim()} onClick={() => void review("rejected")} type="button">拒绝</button><button className={styles.primary} disabled={busy || !note.trim()} onClick={() => void review("approved")} type="button">通过并发布</button></div></section></div> : null}{notice ? <Toast copy={notice} /> : null}</div>;
 }
 
-type ModeratedReview = { id: string; coach_name?: string; rating?: number; body?: string; status?: string; review_note?: string; created_at?: number };
+type ModeratedReview = { id: string; coach_name?: string; rating?: number; body?: string; tags_json?: string; status?: string; review_note?: string; created_at?: number; helpful_count?: number; report_count?: number; report_reasons?: string; reply_id?: string; reply_body?: string; reply_status?: string; reply_review_note?: string };
 function ReviewModeration() {
   const state = useOpsData<ModeratedReview[]>("/api/v1/operator/reviews");
   const [busy, setBusy] = useState(""); const [notice, setNotice] = useState("");
   if (state.loading) return <Loading label="正在读取学员评价" />;
   if (!state.data) return <ErrorState message={state.error} onRetry={state.load} />;
-  async function review(item: ModeratedReview, status: "approved" | "rejected") { setBusy(item.id); try { await platformRequest(`/api/v1/operator/reviews/${encodeURIComponent(item.id)}`, { body: { note: status === "approved" ? "内容真实、表述合规" : "内容暂不符合公开展示规范", status }, method: "PATCH" }); setNotice(status === "approved" ? "评价已公开" : "评价已拒绝"); await state.load(); } catch (error) { setNotice(error instanceof Error ? error.message : "审核失败"); } finally { setBusy(""); } }
-  return <div className={styles.page}><Heading copy="仅已完成课程的学员可以提交一次评价；审核通过后才计入公开评分。" title="评价审核" /><section className={styles.panel}>{state.data.length ? <div className={styles.table}><div className={styles.tableHead}><span>教练</span><span>评分</span><span>评价内容</span><span>状态</span><span>操作</span></div>{state.data.map((item) => <article className={styles.tableRow} key={item.id}><span><strong>{item.coach_name || "教练"}</strong><small>{formatBeijingDate(item.created_at)}</small></span><span><strong>{item.rating || 0} / 5</strong><small>课程完成后提交</small></span><span><strong>{item.body || "未填写文字评价"}</strong><small>{item.review_note || "尚未填写审核意见"}</small></span><span><em className={styles.status} data-tone={item.status === "approved" ? "green" : item.status === "pending" ? "amber" : "gray"}>{item.status === "approved" ? "已公开" : item.status === "rejected" ? "已拒绝" : "待审核"}</em></span><span className={styles.rowActions}>{item.status === "pending" ? <><button className={styles.danger} disabled={busy === item.id} onClick={() => void review(item, "rejected")} type="button">拒绝</button><button className={styles.primary} disabled={busy === item.id} onClick={() => void review(item, "approved")} type="button">公开</button></> : null}</span></article>)}</div> : <Empty copy="完成课程并提交评价后，内容会进入审核队列。" title="暂无评价" />}</section>{notice ? <Toast copy={notice} /> : null}</div>;
+  async function review(item: ModeratedReview, status: "approved" | "rejected") { const note = window.prompt(status === "approved" ? "填写公开审核意见" : "填写拒绝原因"); if (!note?.trim()) return; setBusy(item.id); try { await platformRequest(`/api/v1/operator/reviews/${encodeURIComponent(item.id)}`, { body: { note, status }, method: "PATCH" }); setNotice(status === "approved" ? "评价已公开" : "评价已拒绝"); await state.load(); } catch (error) { setNotice(error instanceof Error ? error.message : "审核失败"); } finally { setBusy(""); } }
+  async function reviewReply(item: ModeratedReview, status: "approved" | "rejected") { if (!item.reply_id) return; const note = window.prompt(status === "approved" ? "填写回复公开意见" : "填写回复拒绝原因"); if (!note?.trim()) return; setBusy(item.reply_id); try { await platformRequest(`/api/v1/operator/review-replies/${encodeURIComponent(item.reply_id)}`, { body: { note, status }, method: "PATCH" }); setNotice(status === "approved" ? "教练回复已公开" : "教练回复已拒绝"); await state.load(); } catch (error) { setNotice(error instanceof Error ? error.message : "回复审核失败"); } finally { setBusy(""); } }
+  async function resolveReport(item: ModeratedReview, decision: "hide" | "keep") { const note = window.prompt(decision === "hide" ? "填写下架原因" : "填写保留评价的核查结论"); if (!note?.trim()) return; setBusy(`${item.id}-report`); try { await platformRequest(`/api/v1/operator/reviews/${encodeURIComponent(item.id)}/report`, { body: { decision, note }, method: "PATCH" }); setNotice(decision === "hide" ? "评价已下架并重新计算评分" : "举报已核查，评价继续公开"); await state.load(); } catch (error) { setNotice(error instanceof Error ? error.message : "举报处理失败"); } finally { setBusy(""); } }
+  return <div className={styles.page}><Heading copy="只公开完成课程且通过审核的匿名评价；标签、举报与教练回复在同一队列处理。" title="评价审核" /><section className={styles.panel}>{state.data.length ? <div className={styles.table}><div className={styles.tableHead}><span>教练与评分</span><span>评价内容</span><span>反馈风险</span><span>状态</span><span>操作</span></div>{state.data.map((item) => <article className={styles.tableRow} key={item.id}><span><strong>{item.coach_name || "教练"} · {item.rating || 0}/5</strong><small>{formatBeijingDate(item.created_at)} · {item.tags_json || "[]"}</small></span><span><strong>{item.body || "未填写文字评价"}</strong><small>{item.reply_body ? `教练回复：${item.reply_body}` : item.review_note || "尚未填写审核意见"}</small></span><span><strong>{item.helpful_count || 0} 次有帮助</strong><small>{item.report_count ? `${item.report_count}次举报：${item.report_reasons || "待核对"}` : "无举报"}</small></span><span><em className={styles.status} data-tone={item.status === "approved" ? "green" : item.status === "pending" ? "amber" : "gray"}>{item.status === "approved" ? "已公开" : item.status === "rejected" ? "已拒绝" : "待审核"}</em><small>{item.reply_status === "pending" ? "教练回复待审核" : item.reply_status === "approved" ? "回复已公开" : ""}</small></span><span className={styles.rowActions}>{item.status === "pending" ? <><button className={styles.danger} disabled={busy === item.id} onClick={() => void review(item, "rejected")} type="button">拒绝</button><button className={styles.primary} disabled={busy === item.id} onClick={() => void review(item, "approved")} type="button">公开</button></> : item.report_count ? <><button className={styles.secondary} disabled={busy === `${item.id}-report`} onClick={() => void resolveReport(item, "keep")} type="button">核查保留</button><button className={styles.danger} disabled={busy === `${item.id}-report`} onClick={() => void resolveReport(item, "hide")} type="button">下架评价</button></> : item.reply_status === "pending" ? <><button className={styles.danger} disabled={busy === item.reply_id} onClick={() => void reviewReply(item, "rejected")} type="button">拒绝回复</button><button className={styles.primary} disabled={busy === item.reply_id} onClick={() => void reviewReply(item, "approved")} type="button">公开回复</button></> : null}</span></article>)}</div> : <Empty copy="完成课程并提交评价后，内容会进入这里。" title="暂无评价任务" />}</section>{notice ? <Toast copy={notice} /> : null}</div>;
 }
 
 type SupportTicket = { id: string; subject?: string; category?: string; priority?: string; status?: string; latest_message?: string; created_by_role?: string; created_at?: number; updated_at?: number };
@@ -390,5 +395,5 @@ function ReleaseCenter() {
 
 function Toast({ copy }: { copy: string }) { return <div className={styles.notice} role="status"><CheckCircle2 aria-hidden size={17} />{copy}</div>; }
 function Empty({ copy, title }: { copy: string; title: string }) { return <div className={styles.empty}><Sparkles aria-hidden size={28} /><strong>{title}</strong><p>{copy}</p></div>; }
-function Loading({ label }: { label: string }) { return <div className={styles.loading}><LoaderCircle aria-hidden size={27} /><span>{label}</span></div>; }
+function Loading({ label }: { label: string }) { return <LoadingState label={label} variant="table" />; }
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => Promise<void> }) { return <div className={styles.page}><div className={styles.error}><CircleAlert aria-hidden size={28} /><strong>运营数据暂时没有加载成功</strong><p>{message}</p><button className={styles.secondary} onClick={() => void onRetry()} type="button"><RefreshCw aria-hidden size={16} />重新加载</button></div></div>; }

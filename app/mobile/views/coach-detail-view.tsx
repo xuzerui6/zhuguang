@@ -46,7 +46,6 @@ export function CoachDetailView({
   const [reviewBusy, setReviewBusy] = useState("");
   useEffect(() => {
     let active = true;
-    setReviews(null); setReviewError("");
     void mobileApi.coachReviews(coach.id).then((data) => { if (active) setReviews(data); }).catch((error) => { if (active) setReviewError(error instanceof Error ? error.message : "评价加载失败"); });
     return () => { active = false; };
   }, [coach.id]);

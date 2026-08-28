@@ -158,9 +158,10 @@ export async function handleApiRequest(request: Request, env: ApiEnv, ctx: ApiEx
   try {
     const publicCoachMedia = /^\/api\/v1\/media\/coaches\/\d+\/(avatar|card|hero)$/u.test(url.pathname);
     const publicAccountAvatar = /^\/api\/v1\/account-avatar\/[^/]+$/u.test(url.pathname);
+    const publicCoachReviews = request.method === "GET" && /^\/api\/v1\/coaches\/\d+\/reviews$/u.test(url.pathname);
     const publicRelease = url.pathname === "/api/v1/public/app/releases/latest"
       || /^\/api\/v1\/public\/app\/releases\/\d+\/download-ticket$/u.test(url.pathname);
-    if (url.pathname !== "/api/v1/health" && url.pathname !== "/api/v1/app/releases/download" && !publicCoachMedia && !publicAccountAvatar && !publicRelease) assertPilotApp(request, env);
+    if (url.pathname !== "/api/v1/health" && url.pathname !== "/api/v1/app/releases/download" && !publicCoachMedia && !publicAccountAvatar && !publicCoachReviews && !publicRelease) assertPilotApp(request, env);
     const response = await route(request, url, env, ctx, requestId);
     return withCors(response, request, env, requestId);
   } catch (error) {

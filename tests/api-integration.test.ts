@@ -207,11 +207,14 @@ test("verified reviews enforce eligibility, privacy, thresholds, reactions and r
   const approved = await request(env, `/api/v1/operator/reviews/${reviewId}`, { body: JSON.stringify({ note: "真实履约内容审核通过", status: "approved" }), headers: operatorHeaders, method: "PATCH" });
   assert.equal(approved.response.status, 200);
 
+  env.PILOT_APP_KEY = "review-test-app-key";
   const publicReviews = await request(env, "/api/v1/coaches/1/reviews");
+  assert.equal(publicReviews.response.status, 200);
   const publicData = publicReviews.payload?.data as { items: Array<{ reviewerLabel: string }>; summary: { averageRating: number | null; total: number } };
   assert.equal(publicData.summary.total, 1);
   assert.equal(publicData.summary.averageRating, null);
   assert.equal(publicData.items[0].reviewerLabel, "平台履约学员");
+  env.PILOT_APP_KEY = undefined;
 
   assert.equal((await request(env, `/api/v1/reviews/${reviewId}/helpful`, json({}, { authorization: `Bearer ${session.accessToken}` }))).response.status, 201);
   assert.equal((await request(env, `/api/v1/reviews/${reviewId}/helpful`, json({}, { authorization: `Bearer ${session.accessToken}` }))).response.status, 409);

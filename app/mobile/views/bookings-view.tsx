@@ -14,6 +14,7 @@ export function BookingsView({
   onDiscover,
   onMessage,
   onReschedule,
+  onReview,
   onTab,
   tab,
   venues,
@@ -24,6 +25,7 @@ export function BookingsView({
   onDiscover: () => void;
   onMessage: (coachId: number) => void;
   onReschedule: (booking: MobileBooking) => void;
+  onReview: (booking: MobileBooking) => void;
   onTab: (tab: BookingTab) => void;
   tab: BookingTab;
   venues: CoachVenue[];
@@ -70,6 +72,7 @@ export function BookingsView({
                 <div className="zg-booking-card-actions">
                   {booking.status === "pending_coach" ? <button onClick={() => onCancel(booking)} type="button">取消申请</button> : null}
                   {booking.status === "confirmed" ? <button onClick={() => onReschedule(booking)} type="button"><RotateCcw aria-hidden size={16} />修改时间</button> : null}
+                  {booking.review.canSubmit || booking.review.canResubmit ? <button className="is-primary" onClick={() => onReview(booking)} type="button">{booking.review.canResubmit ? "修改评价" : "评价教练"}</button> : null}
                   <button className="is-primary" onClick={() => onMessage(coach.id)} type="button">
                     {booking.status === "confirmed" ? <Phone aria-hidden size={16} /> : <MessageCircle aria-hidden size={16} />}
                     联系教练

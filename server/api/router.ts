@@ -50,6 +50,8 @@ import {
   listNotificationsD1,
   listSlotsD1,
   logoutD1,
+  markCoachConversationReadD1,
+  markStudentConversationReadD1,
   markOfflinePaidD1,
   refreshSessionD1,
   requestOtpD1,
@@ -123,6 +125,7 @@ import {
   publishContentDocumentD1,
   reactToCoachReviewD1,
   recordProductEventsD1,
+  resubmitCoachReviewD1,
   resolveReviewReportD1,
   resetOpsUserProfileD1,
   reviewAccountMergeRequestD1,
@@ -926,6 +929,12 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     return success(conversation, requestId, undefined, 201);
   }
 
+  const conversationReadMatch = path.match(/^\/api\/v1\/conversations\/([^/]+)\/read$/u);
+  if (request.method === "POST" && conversationReadMatch) {
+    if (local) return success({ conversationId: decodeURIComponent(conversationReadMatch[1]), unreadCount: 0 }, requestId);
+    return success(await markStudentConversationReadD1((await authenticateStudent(request, env))!, decodeURIComponent(conversationReadMatch[1]), env), requestId);
+  }
+
   if (request.method === "GET" && path === "/api/v1/notifications") {
     if (local) {
       authenticateLocal(request);
@@ -954,6 +963,17 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
       rating: positiveInteger(body.rating, "rating"),
       tags: Array.isArray(body.tags) ? body.tags.filter((tag): tag is string => typeof tag === "string") : [],
     }, env), requestId, undefined, 201);
+  }
+
+  const reviewResubmitMatch = path.match(/^\/api\/v1\/reviews\/([^/]+)\/resubmit$/u);
+  if (request.method === "PATCH" && reviewResubmitMatch) {
+    const body = await readJson<{ body?: unknown; rating?: unknown; tags?: unknown }>(request);
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不写入评价");
+    return success(await resubmitCoachReviewD1((await authenticateStudent(request, env))!, decodeURIComponent(reviewResubmitMatch[1]), {
+      body: requireString(body.body, "body", 1000),
+      rating: positiveInteger(body.rating, "rating"),
+      tags: Array.isArray(body.tags) ? body.tags.filter((tag): tag is string => typeof tag === "string") : [],
+    }, env), requestId);
   }
 
   const reviewReactionMatch = path.match(/^\/api\/v1\/reviews\/([^/]+)\/(helpful|report)$/u);
@@ -1150,6 +1170,12 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     );
     ctx.waitUntil(dispatchPushDeliveriesD1(env));
     return success(message, requestId, undefined, 201);
+  }
+
+  const coachConversationReadMatch = path.match(/^\/api\/v1\/coach\/conversations\/([^/]+)\/read$/u);
+  if (request.method === "POST" && coachConversationReadMatch) {
+    if (local) return success({ conversationId: decodeURIComponent(coachConversationReadMatch[1]), unreadCount: 0 }, requestId);
+    return success(await markCoachConversationReadD1(await authenticateCoach(request, env), decodeURIComponent(coachConversationReadMatch[1]), env), requestId);
   }
 
   const coachPaymentMatch = path.match(/^\/api\/v1\/coach\/bookings\/([^/]+)\/offline-payment$/u);

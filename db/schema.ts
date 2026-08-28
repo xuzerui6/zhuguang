@@ -218,7 +218,10 @@ export const messages = sqliteTable("messages", {
   body: text("body").notNull(),
   readAt: integer("read_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
-}, (table) => [index("messages_conversation_idx").on(table.conversationId, table.createdAt)]);
+}, (table) => [
+  index("messages_conversation_idx").on(table.conversationId, table.createdAt),
+  index("messages_unread_idx").on(table.conversationId, table.senderType, table.readAt, table.createdAt),
+]);
 
 export const notifications = sqliteTable("notifications", {
   id: text("id").primaryKey(),
@@ -477,6 +480,7 @@ export const coachReviews = sqliteTable("coach_reviews", {
   tagsJson: text("tags_json").notNull().default("[]"),
   helpfulCount: integer("helpful_count").notNull().default(0),
   reportCount: integer("report_count").notNull().default(0),
+  resubmissionCount: integer("resubmission_count").notNull().default(0),
   status: text("status", { enum: ["pending", "approved", "rejected", "withdrawn"] }).notNull().default("pending"),
   reviewedBy: text("reviewed_by"),
   reviewNote: text("review_note").notNull().default(""),
@@ -486,6 +490,22 @@ export const coachReviews = sqliteTable("coach_reviews", {
 }, (table) => [
   index("coach_reviews_public_idx").on(table.coachId, table.status, table.createdAt),
   check("coach_reviews_rating_check", sql`${table.rating} between 1 and 5`),
+]);
+
+export const coachReviewVersions = sqliteTable("coach_review_versions", {
+  id: text("id").primaryKey(),
+  reviewId: text("review_id").notNull().references(() => coachReviews.id, { onDelete: "cascade" }),
+  revision: integer("revision").notNull(),
+  rating: integer("rating").notNull(),
+  body: text("body").notNull(),
+  tagsJson: text("tags_json").notNull().default("[]"),
+  submissionType: text("submission_type", { enum: ["initial", "resubmission"] }).notNull(),
+  actorUserId: text("actor_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(nowMs),
+}, (table) => [
+  uniqueIndex("coach_review_versions_revision_unique").on(table.reviewId, table.revision),
+  index("coach_review_versions_review_idx").on(table.reviewId, table.revision),
+  check("coach_review_versions_rating_check", sql`${table.rating} between 1 and 5`),
 ]);
 
 export const coachReviewReplies = sqliteTable("coach_review_replies", {

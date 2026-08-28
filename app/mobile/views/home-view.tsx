@@ -21,11 +21,13 @@ export function HomeView({
   onDiscover,
   onOpenBooking,
   onOpenCoach,
+  onOpenReview,
   onSearch,
   onSelectSport,
   onToggleSaved,
   preferences,
   query,
+  reviewTodo,
   savedCoachIds,
 }: {
   activeBooking: MobileBooking | null;
@@ -33,11 +35,13 @@ export function HomeView({
   onDiscover: () => void;
   onOpenBooking: () => void;
   onOpenCoach: (coach: MobileCoach) => void;
+  onOpenReview: () => void;
   onSearch: (value: string) => void;
   onSelectSport: (sport: string) => void;
   onToggleSaved: (coachId: number) => void;
   preferences: MatchPreferences;
   query: string;
+  reviewTodo: MobileBooking | null;
   savedCoachIds: number[];
 }) {
   const featured = coaches.find((coach) => coach.sport === preferences.sport) ?? coaches[0];
@@ -76,6 +80,7 @@ export function HomeView({
           <ArrowRight aria-hidden size={19} />
         </button>
       ) : null}
+      {reviewTodo ? <button className="zg-review-todo-strip" onClick={onOpenReview} type="button"><span><strong>{reviewTodo.review.canResubmit ? "评价需要修改" : "课程待评价"}</strong><small>{reviewTodo.review.rejectionReason || "分享真实体验，审核后匿名展示"}</small></span><ArrowRight aria-hidden size={19} /></button> : null}
 
       <button className="zg-featured-coach" onClick={() => onOpenCoach(featured)} type="button">
         <Image alt={`${featured.name}教练`} fill priority sizes="(max-width: 760px) 100vw, 430px" src={featured.heroUrl ?? "/mobile-coach-hero-v23.webp"} unoptimized />

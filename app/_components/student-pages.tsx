@@ -137,6 +137,7 @@ function StudentHome({ data }: { data: BootstrapData }) {
   const active = data.bookings.find((booking) => !["completed", "cancelled_by_coach", "cancelled_by_student", "rejected"].includes(booking.status));
   const coach = active ? data.coaches.find((item) => item.id === active.coachId) : undefined;
   const unread = data.conversations.reduce((total, item) => total + item.unreadCount, 0);
+  const reviewTodo = data.bookings.find((booking) => booking.review.canSubmit || booking.review.canResubmit);
   return (
     <div className={styles.page}>
       <header className={styles.heading}>
@@ -149,6 +150,7 @@ function StudentHome({ data }: { data: BootstrapData }) {
         <article><span>收藏教练</span><strong>{data.favoriteCoachIds.length}</strong><small>同步至当前账号</small></article>
         <article><span>未读消息</span><strong>{unread}</strong><small>来自教练或服务通知</small></article>
       </section>
+      {reviewTodo ? <section className={styles.panel}><header className={styles.panelHeader}><div><h2>{reviewTodo.review.canResubmit ? "评价需要修改" : "课程待评价"}</h2><p>{reviewTodo.review.rejectionReason || "分享真实训练体验，审核后将匿名展示在教练资料中。"}</p></div><Link className={styles.primary} href={`/student/training?review=${encodeURIComponent(reviewTodo.id)}`}>{reviewTodo.review.canResubmit ? "修改并重提" : "评价教练"}</Link></header></section> : null}
       <div className={styles.split}>
         <section className={styles.panel}>
           <header className={styles.panelHeader}><div><h2>最近安排</h2><p>教练确认后预约才会生效，费用在线下支付。</p></div><Link className={styles.secondary} href="/student/bookings">全部预约</Link></header>
@@ -363,6 +365,14 @@ function MessagesPage({ conversations, reload }: { conversations: MobileConversa
       .catch((cause: unknown) => { if (activeRequest) setError(cause instanceof Error ? cause.message : "咨询会话创建失败"); });
     return () => { activeRequest = false; };
   }, [conversations, reload, requestedCoachId]);
+  useEffect(() => {
+    if (!active?.id || !active.unreadCount) return;
+    let current = true;
+    void platformRequest(`/api/v1/conversations/${encodeURIComponent(active.id)}/read`, { method: "POST" })
+      .then(() => { if (current) void reload(); })
+      .catch((cause: unknown) => { if (current) setError(cause instanceof Error ? cause.message : "消息已读状态同步失败"); });
+    return () => { current = false; };
+  }, [active?.id, active?.unreadCount, reload]);
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!active) return;
@@ -395,7 +405,7 @@ function TrainingPage({ data }: { data: BootstrapData }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-  const completed = data.bookings.filter((booking) => booking.status === "completed");
+  const completed = data.bookings.filter((booking) => booking.review.canSubmit || booking.review.canResubmit);
   useEffect(() => {
     let active = true;
     void platformRequest<TrainingRecord[]>("/api/v1/training-records")
@@ -405,7 +415,11 @@ function TrainingPage({ data }: { data: BootstrapData }) {
   }, []);
   async function submitReview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = new FormData(event.currentTarget); setBusy(true);
-    try { await platformRequest("/api/v1/reviews", { body: { bookingId: form.get("bookingId"), body: form.get("body"), rating: Number(form.get("rating")), tags: form.getAll("tags") }, method: "POST" }); setNotice("评价已提交，运营审核通过后公开"); setError(""); event.currentTarget.reset(); }
+    const booking = completed.find((item) => item.id === form.get("bookingId"));
+    if (!booking) { setError("请选择仍在评价期限内的课程"); setBusy(false); return; }
+    const payload = { body: form.get("body"), rating: Number(form.get("rating")), tags: form.getAll("tags") };
+    const path = booking.review.canResubmit && booking.review.reviewId ? `/api/v1/reviews/${encodeURIComponent(booking.review.reviewId)}/resubmit` : "/api/v1/reviews";
+    try { await platformRequest(path, { body: booking.review.canResubmit ? payload : { ...payload, bookingId: booking.id }, method: booking.review.canResubmit ? "PATCH" : "POST" }); setNotice("评价已提交审核，公开前不会影响教练评分"); setError(""); event.currentTarget.reset(); }
     catch (submitError) { setError(submitError instanceof Error ? submitError.message : "评价提交失败"); }
     finally { setBusy(false); }
   }
@@ -414,7 +428,7 @@ function TrainingPage({ data }: { data: BootstrapData }) {
     <section className={styles.panel}><header className={styles.panelHeader}><div><h2>课程记录</h2><p>{records ? `${records.length} 条已发布记录` : "正在读取"}</p></div></header>
       {records === null ? <LoadingState label="读取训练记录" /> : records.length ? <div className={styles.timeline}>{records.map((record) => <article key={record.id}><time>{formatBeijingDate(record.published_at ?? record.created_at)}</time><h3>{record.sport || "专项训练"} · {record.coach_name || "教练记录"}</h3><p>{record.summary}</p>{record.coach_notes ? <p>{record.coach_notes}</p> : null}</article>)}</div> : <EmptyState copy={error || "完成课程后，教练发布的训练总结会按时间排列在这里。"} title="暂无训练记录" />}
     </section>
-    <section className={styles.panel}><header className={styles.panelHeader}><div><h2>课程评价</h2><p>每个已完成预约只能提交一次，审核后才公开</p></div></header>{completed.length ? <form className={styles.form} onSubmit={submitReview}><div className={styles.formGrid}><label className={styles.field}><span>选择课程</span><select name="bookingId" required>{completed.map((booking) => <option key={booking.id} value={booking.id}>{booking.dateLabel} {booking.date} · #{booking.id.slice(-8)}</option>)}</select></label><label className={styles.field}><span>总体评分</span><select defaultValue="5" name="rating"><option value="5">5 分 · 非常满意</option><option value="4">4 分 · 满意</option><option value="3">3 分 · 符合预期</option><option value="2">2 分 · 有待改善</option><option value="1">1 分 · 不满意</option></select></label></div><fieldset className={styles.reviewTags} onChange={(event) => { const current = event.currentTarget.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked'); if (current.length > 3 && event.target instanceof HTMLInputElement) { event.target.checked = false; setError("体验标签最多选择3项"); } }}><legend>体验标签（最多选择3项）</legend>{REVIEW_TAGS.map((tag) => <label key={tag}><input name="tags" type="checkbox" value={tag} /><span>{tag}</span></label>)}</fieldset><label className={styles.field}><span>真实体验</span><textarea maxLength={1000} minLength={20} name="body" placeholder="请描述训练内容、沟通和实际感受，至少20字" required /></label><div className={styles.formActions}>{error ? <p role="alert">{error}</p> : notice ? <p role="status">{notice}</p> : <p>评价将匿名展示，请勿填写未成年人姓名和联系方式。</p>}<button className={styles.primary} disabled={busy} type="submit">{busy ? "提交中" : "提交评价"}</button></div></form> : <EmptyState copy="完成真实课程后30天内可以提交一次评价。" title="暂无可评价课程" />}</section>
+    <section className={styles.panel}><header className={styles.panelHeader}><div><h2>课程评价</h2><p>完成课程后30天内可评价，运营审核后才公开</p></div></header>{completed.length ? <form className={styles.form} onSubmit={submitReview}><div className={styles.formGrid}><label className={styles.field}><span>选择课程</span><select name="bookingId" required>{completed.map((booking) => <option key={booking.id} value={booking.id}>{booking.review.canResubmit ? "需修改 · " : "待评价 · "}{booking.dateLabel} {booking.date} · #{booking.id.slice(-8)}</option>)}</select></label><label className={styles.field}><span>总体评分</span><select defaultValue="5" name="rating"><option value="5">5 分 · 非常满意</option><option value="4">4 分 · 满意</option><option value="3">3 分 · 符合预期</option><option value="2">2 分 · 有待改善</option><option value="1">1 分 · 不满意</option></select></label></div>{completed.some((booking) => booking.review.rejectionReason) ? <p className={styles.formNotice}>审核意见：{completed.find((booking) => booking.review.rejectionReason)?.review.rejectionReason}</p> : null}<fieldset className={styles.reviewTags} onChange={(event) => { const current = event.currentTarget.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked'); if (current.length > 3 && event.target instanceof HTMLInputElement) { event.target.checked = false; setError("体验标签最多选择3项"); } }}><legend>体验标签（最多选择3项）</legend>{REVIEW_TAGS.map((tag) => <label key={tag}><input name="tags" type="checkbox" value={tag} /><span>{tag}</span></label>)}</fieldset><label className={styles.field}><span>真实体验</span><textarea maxLength={1000} minLength={20} name="body" placeholder="请描述训练内容、沟通和实际感受，至少20字" required /></label><div className={styles.formActions}>{error ? <p role="alert">{error}</p> : notice ? <p role="status">{notice}</p> : <p>评价匿名展示，请勿填写未成年人姓名和联系方式。</p>}<button className={styles.primary} disabled={busy} type="submit">{busy ? "提交中" : "提交审核"}</button></div></form> : <EmptyState copy="已提交的评价会显示审核状态；被拒绝后可在原30天期限内修改重提一次。" title="暂无待评价课程" />}</section>
   </div>;
 }
 

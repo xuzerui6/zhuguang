@@ -401,6 +401,25 @@ function beijingDateParts(startsAt: number, endsAt: number) {
 function mapBooking(row: Row): MobileBooking {
   const startsAt = numberValue(row.starts_at);
   const endsAt = numberValue(row.ends_at);
+  const completedAt = numberValue(row.completed_at);
+  const eligibleUntil = completedAt ? completedAt + 30 * 24 * 60 * 60 * 1000 : undefined;
+  const reviewStatus = row.review_status ? stringValue(row.review_status) : undefined;
+  const reviewExpired = Boolean(eligibleUntil && eligibleUntil <= Date.now());
+  const review = reviewStatus
+    ? {
+        canResubmit: reviewStatus === "rejected" && !reviewExpired && numberValue(row.review_resubmission_count) < 1,
+        canSubmit: false,
+        eligibleUntil,
+        rejectionReason: reviewStatus === "rejected" ? stringValue(row.review_note) || undefined : undefined,
+        reviewId: stringValue(row.review_id),
+        status: reviewStatus as "pending" | "approved" | "rejected",
+      }
+    : {
+        canResubmit: false,
+        canSubmit: stringValue(row.status) === "completed" && !reviewExpired,
+        eligibleUntil,
+        status: stringValue(row.status) !== "completed" ? "not_eligible" as const : reviewExpired ? "expired" as const : "available" as const,
+      };
   return {
     ...beijingDateParts(startsAt, endsAt),
     coachId: numberValue(row.coach_id),
@@ -423,6 +442,7 @@ function mapBooking(row: Row): MobileBooking {
     durationMinutes: row.duration_minutes ? numberValue(row.duration_minutes) : durationMinutesBetween(startsAt, endsAt),
     expiresAt: row.expires_at ? numberValue(row.expires_at) : undefined,
     locationType: row.location_type ? stringValue(row.location_type) as MobileBooking["locationType"] : "venue",
+    review,
   };
 }
 
@@ -901,9 +921,12 @@ async function listLearners(userId: string, env: ApiEnv): Promise<LearnerProfile
 async function listBookings(userId: string, env: ApiEnv) {
   await expirePendingBookingRequestsD1(env);
   const result = await db(env).prepare(`
-    SELECT b.*, s.starts_at, s.ends_at, d.duration_minutes, d.location_type, d.custom_district, d.custom_address, d.custom_note, d.expires_at FROM booking_requests b
+    SELECT b.*, s.starts_at, s.ends_at, d.duration_minutes, d.location_type, d.custom_district, d.custom_address, d.custom_note, d.expires_at,
+      r.id AS review_id, r.status AS review_status, r.review_note, r.resubmission_count AS review_resubmission_count
+    FROM booking_requests b
     JOIN availability_slots s ON s.id = b.slot_id
     LEFT JOIN booking_request_details d ON d.booking_id = b.id
+    LEFT JOIN coach_reviews r ON r.booking_id = b.id
     WHERE b.user_id = ? ORDER BY b.created_at DESC LIMIT 100
   `).bind(userId).all<Row>();
   return (result.results ?? []).map(mapBooking);
@@ -1218,8 +1241,8 @@ export async function sendStudentMessageD1(identity: StudentIdentity, conversati
   await database.batch([
     database.prepare(`
       INSERT INTO messages (id, conversation_id, sender_type, sender_id, body, read_at, created_at)
-      VALUES (?, ?, 'student', ?, ?, ?, ?)
-    `).bind(randomId("message"), conversationId, identity.userId, body.slice(0, 1000), now, now),
+      VALUES (?, ?, 'student', ?, ?, NULL, ?)
+    `).bind(randomId("message"), conversationId, identity.userId, body.slice(0, 1000), now),
     database.prepare("UPDATE conversations SET last_message_at = ? WHERE id = ?").bind(now, conversationId),
     database.prepare(`
       INSERT INTO notifications (id, user_id, type, title, body, entity_type, entity_id, target_mode, deep_link, created_at)
@@ -1231,6 +1254,24 @@ export async function sendStudentMessageD1(identity: StudentIdentity, conversati
   const updated = conversations.find((item) => item.id === conversationId);
   if (!updated) throw new ApiError(500, "message_create_failed", "消息发送失败，请稍后重试");
   return updated;
+}
+
+export async function markStudentConversationReadD1(identity: StudentIdentity, conversationId: string, env: ApiEnv) {
+  const database = db(env);
+  const conversation = await database.prepare("SELECT id FROM conversations WHERE id = ? AND student_user_id = ?").bind(conversationId, identity.userId).first<Row>();
+  if (!conversation) throw new ApiError(404, "conversation_not_found", "未找到该会话");
+  const now = Date.now();
+  await database.prepare("UPDATE messages SET read_at = ? WHERE conversation_id = ? AND sender_type = 'coach' AND read_at IS NULL").bind(now, conversationId).run();
+  return { conversationId, readAt: now, unreadCount: 0 };
+}
+
+export async function markCoachConversationReadD1(identity: CoachIdentity, conversationId: string, env: ApiEnv) {
+  const database = db(env);
+  const conversation = await database.prepare("SELECT id FROM conversations WHERE id = ? AND coach_id = ?").bind(conversationId, identity.coachId).first<Row>();
+  if (!conversation) throw new ApiError(404, "conversation_not_found", "未找到该会话");
+  const now = Date.now();
+  await database.prepare("UPDATE messages SET read_at = ? WHERE conversation_id = ? AND sender_type = 'student' AND read_at IS NULL").bind(now, conversationId).run();
+  return { conversationId, readAt: now, unreadCount: 0 };
 }
 
 export async function listNotificationsD1(identity: StudentIdentity, env: ApiEnv) {
@@ -1289,7 +1330,9 @@ export async function coachOverviewD1(identity: CoachIdentity, env: ApiEnv) {
       JOIN coaches c ON c.id = b.coach_id
       WHERE b.coach_id = ? ORDER BY b.created_at DESC LIMIT 100
     `).bind(identity.coachId).all<Row>(),
-    database.prepare("SELECT id, title, last_message_at FROM conversations WHERE coach_id = ? ORDER BY last_message_at DESC LIMIT 50").bind(identity.coachId).all<Row>(),
+    database.prepare(`SELECT c.id, c.last_message_at, coalesce(nullif(p.nickname, ''), '平台学员') AS student_nickname
+      FROM conversations c LEFT JOIN user_profiles p ON p.user_id = c.student_user_id
+      WHERE c.coach_id = ? ORDER BY c.last_message_at DESC LIMIT 50`).bind(identity.coachId).all<Row>(),
     listSlotsD1(identity.coachId, env, false),
     database.prepare("SELECT id, coach_id, name, address, district FROM venues WHERE coach_id = ? AND active = 1 ORDER BY created_at").bind(identity.coachId).all<Row>(),
   ]);
@@ -1310,7 +1353,7 @@ export async function coachOverviewD1(identity: CoachIdentity, env: ApiEnv) {
       kind: "coach",
       messages,
       subtitle: last?.body || "暂无消息",
-      title: stringValue(conversation.title),
+      title: stringValue(conversation.student_nickname) || "平台学员",
       unreadCount: messages.filter((message) => !message.read && message.sender === "student").length,
       updatedAt: last?.createdAt || "",
     };
@@ -1355,7 +1398,7 @@ export async function coachTransitionBookingD1(identity: CoachIdentity, bookingI
   }
   const slotStatus = toStatus === "confirmed" ? "booked" : ["rejected", "cancelled_by_coach"].includes(toStatus)
     ? (booking.source === "student_request" ? "expired" : "open") : "held";
-  const results = await database.batch([
+  const statements = [
     database.prepare("UPDATE booking_requests SET status = ?, updated_at = ?, completed_at = ? WHERE id = ? AND coach_id = ? AND status = ?").bind(toStatus, now, toStatus === "completed" ? now : null, bookingId, identity.coachId, fromStatus),
     database.prepare("UPDATE availability_slots SET status = ?, updated_at = ? WHERE id = ?").bind(slotStatus, now, booking.slot_id),
     database.prepare(`
@@ -1366,7 +1409,14 @@ export async function coachTransitionBookingD1(identity: CoachIdentity, bookingI
       INSERT INTO notifications (id, user_id, type, title, body, entity_type, entity_id, target_mode, deep_link, created_at)
       VALUES (?, ?, 'booking_status', '预约状态已更新', ?, 'booking', ?, 'student', 'zhuguang://student/bookings', ?)
     `).bind(randomId("notification"), booking.user_id, bookingStatusText(toStatus), bookingId, now),
-  ]);
+  ];
+  if (toStatus === "completed") {
+    statements.push(database.prepare(`
+      INSERT OR IGNORE INTO notifications (id, user_id, type, title, body, entity_type, entity_id, target_mode, deep_link, created_at)
+      VALUES (?, ?, 'review_available', '课程已完成，期待你的评价', '分享真实训练体验，评价审核后将匿名展示。', 'booking', ?, 'student', ?, ?)
+    `).bind(`review_available_${bookingId}`, booking.user_id, bookingId, `zhuguang://student/bookings?review=${encodeURIComponent(bookingId)}`, now));
+  }
+  const results = await database.batch(statements);
   if (!results[0].meta.changes) throw new ApiError(409, "booking_changed", "预约状态已更新，请刷新后重试");
   return mapBooking({ ...booking, status: toStatus });
 }
@@ -1531,7 +1581,14 @@ export async function sendCoachMessageD1(identity: CoachIdentity, conversationId
       VALUES (?, ?, 'coach_message', '教练发来新消息', ?, 'conversation', ?, 'student', 'zhuguang://student/messages', ?)
     `).bind(randomId("notification"), conversation.student_user_id, body.slice(0, 120), conversationId, now),
   ]);
-  return { body, conversationId, createdAt: now, id: messageId, sender: "coach" };
+  return {
+    body,
+    conversationId,
+    createdAt: new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Shanghai" }).format(new Date(now)),
+    id: messageId,
+    read: false,
+    sender: "coach" as const,
+  };
 }
 
 export async function markOfflinePaidD1(identity: CoachIdentity, bookingId: string, paid: boolean, env: ApiEnv) {

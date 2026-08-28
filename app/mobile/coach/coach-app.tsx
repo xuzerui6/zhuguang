@@ -134,7 +134,7 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
   const demoMode = useMemo(() => usesBundledDemoData(), []);
   const [tab, setTab] = useState<CoachTab>(initialTab);
   const [overview, setOverview] = useState<CoachOverview>(() => createDemoCoachOverview(summary));
-  const [conversations, setConversations] = useState<MobileConversation[]>(() => createDemoConversations());
+  const [conversations, setConversations] = useState<MobileConversation[]>(() => demoMode ? createDemoConversations() : []);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [messageDraft, setMessageDraft] = useState("");
   const [toast, setToast] = useState("");
@@ -160,6 +160,7 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
       try {
         const [remote, reviewRows] = await Promise.all([mobileApi.coachOverview(), mobileApi.coachReviewsForCoach().catch(() => [] as CoachReviewRow[])]);
         setOverview(remote);
+        setConversations(remote.conversations);
         setReviews(reviewRows);
         return { status: "success", updatedAt: Date.now() };
       } catch (error) {
@@ -183,11 +184,64 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
   useEffect(() => {
     const timer = window.setTimeout(() => void refresh(), 0);
     const removeResume = listenForAppResume(() => void refresh());
+    const interval = demoMode ? undefined : window.setInterval(() => {
+      if (document.visibilityState === "visible" && navigator.onLine) void refresh();
+    }, 15_000);
+    const refreshOnNetwork = () => void refresh();
+    window.addEventListener("online", refreshOnNetwork);
     return () => {
       window.clearTimeout(timer);
+      if (interval) window.clearInterval(interval);
+      window.removeEventListener("online", refreshOnNetwork);
       removeResume();
     };
-  }, [refresh]);
+  }, [demoMode, refresh]);
+
+  useEffect(() => {
+    if (tab === "messages") void refresh();
+  }, [refresh, tab]);
+
+  const openConversation = useCallback(async (conversationId: string) => {
+    setSelectedConversationId(conversationId);
+    if (demoMode) {
+      setConversations((items) => items.map((item) => item.id === conversationId ? { ...item, unreadCount: 0 } : item));
+      return;
+    }
+    try {
+      await mobileApi.coachMarkConversationRead(conversationId);
+      setConversations((items) => items.map((item) => item.id === conversationId ? {
+        ...item,
+        messages: item.messages.map((message) => message.sender === "student" ? { ...message, read: true } : message),
+        unreadCount: 0,
+      } : item));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "消息已读状态同步失败");
+    }
+  }, [demoMode, showToast]);
+
+  const sendCoachMessage = useCallback(async (conversationId: string, body: string) => {
+    const temporaryId = `pending_${Date.now()}`;
+    setConversations((items) => items.map((item) => item.id === conversationId ? {
+      ...item,
+      messages: [...item.messages, { body, conversationId, createdAt: "刚刚", deliveryStatus: "pending", id: temporaryId, read: true, sender: "coach" }],
+    } : item));
+    try {
+      const sent = demoMode
+        ? { body, conversationId, createdAt: "刚刚", deliveryStatus: "sent" as const, id: temporaryId, read: true, sender: "coach" as const }
+        : await mobileApi.coachSendMessage(conversationId, body);
+      setConversations((items) => items.map((item) => item.id === conversationId ? {
+        ...item,
+        messages: item.messages.map((message) => message.id === temporaryId ? { ...sent, deliveryStatus: "sent", read: true } : message),
+        subtitle: body,
+      } : item));
+    } catch (error) {
+      setConversations((items) => items.map((item) => item.id === conversationId ? {
+        ...item,
+        messages: item.messages.map((message) => message.id === temporaryId ? { ...message, deliveryStatus: "failed" } : message),
+      } : item));
+      showToast(error instanceof Error ? error.message : "消息发送失败，可点击失败消息重试");
+    }
+  }, [demoMode, showToast]);
 
   const navigate = (next: CoachTab) => {
     setSelectedConversationId(null);
@@ -331,24 +385,20 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
         <div className="zg-coach-page zg-coach-messages">
           <div className="zg-coach-page-title"><div><small>教练模式</small><h1>{selectedConversation ? selectedConversation.title : "消息"}</h1></div>{selectedConversation ? <button aria-label="返回消息列表" onClick={() => setSelectedConversationId(null)} type="button"><RotateCcw aria-hidden /></button> : null}</div>
           {!selectedConversation ? conversations.map((conversation) => (
-            <button className="zg-coach-conversation" key={conversation.id} onClick={() => {
-              setSelectedConversationId(conversation.id);
-              setConversations((items) => items.map((item) => item.id === conversation.id ? { ...item, unreadCount: 0 } : item));
-            }} type="button">
+            <button className="zg-coach-conversation" key={conversation.id} onClick={() => void openConversation(conversation.id)} type="button">
               <span>{conversation.title.slice(0, 1)}</span><div><strong>{conversation.title}</strong><p>{conversation.subtitle}</p></div><small>{conversation.updatedAt}</small>{conversation.unreadCount ? <em>{conversation.unreadCount}</em> : null}<ChevronRight aria-hidden size={17} />
             </button>
           )) : (
             <>
               <section className="zg-coach-message-thread">
-                {selectedConversation.messages.map((message) => <p className={message.sender === "coach" ? "is-mine" : ""} key={message.id}>{message.body}<small>{message.createdAt}</small></p>)}
+                {selectedConversation.messages.map((message) => <p className={message.sender === "coach" ? "is-mine" : ""} key={message.id}>{message.body}<small>{message.deliveryStatus === "pending" ? "发送中" : message.deliveryStatus === "failed" ? "发送失败，点击重试" : message.createdAt}</small>{message.deliveryStatus === "failed" ? <button onClick={() => void sendCoachMessage(selectedConversation.id, message.body)} type="button">重试</button> : null}</p>)}
               </section>
               <form className="zg-coach-message-compose" onSubmit={(event) => {
                 event.preventDefault();
                 const body = messageDraft.trim();
                 if (!body) return;
-                setConversations((items) => items.map((item) => item.id === selectedConversation.id ? { ...item, messages: [...item.messages, { body, conversationId: item.id, createdAt: "刚刚", id: `message_${Date.now()}`, read: true, sender: "coach" }] } : item));
                 setMessageDraft("");
-                if (!demoMode) void mobileApi.coachSendMessage(selectedConversation.id, body).catch(() => showToast("消息发送失败"));
+                void sendCoachMessage(selectedConversation.id, body);
               }}><input aria-label="回复消息" onChange={(event) => setMessageDraft(event.target.value)} placeholder="回复学员" value={messageDraft} /><button type="submit">发送</button></form>
             </>
           )}

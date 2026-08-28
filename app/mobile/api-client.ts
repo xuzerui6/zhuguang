@@ -167,6 +167,12 @@ export const mobileApi = {
   coachReviews: (coachId: number, sort: "helpful" | "recent" = "recent") => request<PublicCoachReviews>(`/api/v1/coaches/${coachId}/reviews?sort=${sort}`),
   markReviewHelpful: (reviewId: string) => request(`/api/v1/reviews/${encodeURIComponent(reviewId)}/helpful`, { method: "POST" }),
   reportReview: (reviewId: string, reason: string) => request(`/api/v1/reviews/${encodeURIComponent(reviewId)}/report`, { body: JSON.stringify({ reason }), method: "POST" }),
+  createReview: (input: { bookingId: string; body: string; rating: number; tags: string[] }) => request<{ id: string; status: "pending" }>("/api/v1/reviews", {
+    body: JSON.stringify(input), method: "POST",
+  }),
+  resubmitReview: (reviewId: string, input: { body: string; rating: number; tags: string[] }) => request<{ id: string; status: "pending" }>(`/api/v1/reviews/${encodeURIComponent(reviewId)}/resubmit`, {
+    body: JSON.stringify(input), method: "PATCH",
+  }),
   trackEvents: async (events: Array<{ errorCode?: string; flow: string; outcome: string; role: string; step: string }>) => request("/api/v1/telemetry/events", {
     body: JSON.stringify({ events: events.map((event) => ({ ...event, appVersion: getBuildValue("VITE_APP_VERSION") ?? "unknown", sessionId: createRequestId("telemetry"), surface: getMobilePlatform() })) }),
     method: "POST",
@@ -201,6 +207,7 @@ export const mobileApi = {
     body: JSON.stringify({ body }),
     method: "POST",
   }),
+  markConversationRead: (conversationId: string) => request<{ conversationId: string; unreadCount: number }>(`/api/v1/conversations/${encodeURIComponent(conversationId)}/read`, { method: "POST" }),
   createFeedbackTicket: (body: string) => request("/api/v1/support-tickets", {
     body: JSON.stringify({ body, category: "feedback", subject: "App 使用反馈" }),
     method: "POST",
@@ -218,10 +225,11 @@ export const mobileApi = {
   coachProposeReschedule: (input: { bookingId: string; startsAt: number; venueId: string; note: string }) => request<{ id: string; status: string }>("/api/v1/coach/reschedule-proposals", {
     body: JSON.stringify({ ...input, locationType: "venue" }), method: "POST",
   }),
-  coachSendMessage: (conversationId: string, body: string) => request(`/api/v1/coach/conversations/${conversationId}/messages`, {
+  coachSendMessage: (conversationId: string, body: string) => request<import("./types").MobileMessage>(`/api/v1/coach/conversations/${conversationId}/messages`, {
     body: JSON.stringify({ body }),
     method: "POST",
   }),
+  coachMarkConversationRead: (conversationId: string) => request<{ conversationId: string; unreadCount: number }>(`/api/v1/coach/conversations/${encodeURIComponent(conversationId)}/read`, { method: "POST" }),
   coachReplyToReview: (reviewId: string, body: string) => request(`/api/v1/coach/reviews/${encodeURIComponent(reviewId)}/reply`, { body: JSON.stringify({ body }), method: "POST" }),
   coachMarkOfflinePaid: (bookingId: string, paid: boolean) => request(`/api/v1/coach/bookings/${bookingId}/offline-payment`, {
     body: JSON.stringify({ paid }),

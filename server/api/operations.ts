@@ -633,9 +633,38 @@ export async function createCoachReviewD1(identity: StudentIdentity, input: { bo
   if (tags.length > 3 || tags.length !== input.tags.length) throw new ApiError(422, "invalid_review_tags", "请选择最多3个平台提供的体验标签");
   const id = randomId("review"); const now = Date.now();
   try {
-    await database.prepare("INSERT INTO coach_reviews (id, booking_id, user_id, coach_id, rating, body, tags_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)").bind(id, input.bookingId, identity.userId, booking.coach_id, input.rating, body, JSON.stringify(tags), now, now).run();
+    await database.batch([
+      database.prepare("INSERT INTO coach_reviews (id, booking_id, user_id, coach_id, rating, body, tags_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)").bind(id, input.bookingId, identity.userId, booking.coach_id, input.rating, body, JSON.stringify(tags), now, now),
+      database.prepare("INSERT INTO coach_review_versions (id, review_id, revision, rating, body, tags_json, submission_type, actor_user_id, created_at) VALUES (?, ?, 1, ?, ?, ?, 'initial', ?, ?)").bind(randomId("review_version"), id, input.rating, body, JSON.stringify(tags), identity.userId, now),
+    ]);
   } catch { throw new ApiError(409, "review_already_exists", "该课程已经提交过评价"); }
   return { id, status: "pending" as const };
+}
+
+export async function resubmitCoachReviewD1(identity: StudentIdentity, reviewId: string, input: { body: string; rating: number; tags: string[] }, env: ApiEnv) {
+  const database = db(env);
+  const review = await database.prepare(`SELECT r.*, b.completed_at FROM coach_reviews r
+    JOIN booking_requests b ON b.id = r.booking_id
+    WHERE r.id = ? AND r.user_id = ?`).bind(reviewId, identity.userId).first<Row>();
+  if (!review) throw new ApiError(404, "review_not_found", "未找到该评价");
+  if (review.status !== "rejected") throw new ApiError(409, "review_not_rejected", "只有被拒绝的评价可以修改重提");
+  if (Number(review.resubmission_count || 0) >= 1) throw new ApiError(409, "review_resubmission_used", "该评价已经使用过一次重提机会");
+  const completedAt = Number(review.completed_at || 0);
+  if (!completedAt || Date.now() > completedAt + 30 * 24 * 60 * 60 * 1000) throw new ApiError(409, "review_window_expired", "课程完成超过30天，已不能重提评价");
+  if (!Number.isInteger(input.rating) || input.rating < 1 || input.rating > 5) throw new ApiError(422, "invalid_rating", "评分必须为1到5分");
+  const body = input.body.trim();
+  if (body.length < 20 || body.length > 1000) throw new ApiError(422, "invalid_review_body", "真实体验请填写20至1000字", { body: "请至少填写20字" });
+  const tags = [...new Set(input.tags)].filter((tag): tag is ReviewTag => REVIEW_TAGS.includes(tag as ReviewTag));
+  if (tags.length > 3 || tags.length !== input.tags.length) throw new ApiError(422, "invalid_review_tags", "请选择最多3个平台提供的体验标签");
+  const now = Date.now();
+  const result = await database.batch([
+    database.prepare(`UPDATE coach_reviews SET rating = ?, body = ?, tags_json = ?, status = 'pending', resubmission_count = 1,
+      review_note = '', reviewed_by = NULL, reviewed_at = NULL, updated_at = ?
+      WHERE id = ? AND user_id = ? AND status = 'rejected' AND resubmission_count = 0`).bind(input.rating, body, JSON.stringify(tags), now, reviewId, identity.userId),
+    database.prepare("INSERT INTO coach_review_versions (id, review_id, revision, rating, body, tags_json, submission_type, actor_user_id, created_at) VALUES (?, ?, 2, ?, ?, ?, 'resubmission', ?, ?)").bind(randomId("review_version"), reviewId, input.rating, body, JSON.stringify(tags), identity.userId, now),
+  ]);
+  if (!result[0].meta.changes) throw new ApiError(409, "review_resubmission_changed", "评价状态已变化，请刷新后重试");
+  return { id: reviewId, status: "pending" as const };
 }
 
 export async function listPublicCoachReviewsD1(coachId: number, options: { cursor?: string; sort?: "helpful" | "recent" }, env: ApiEnv): Promise<PublicCoachReviews> {

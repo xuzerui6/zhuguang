@@ -144,6 +144,16 @@ export type MobileBooking = {
   customDistrict?: string;
   customAddress?: string;
   customLocationNote?: string;
+  review: ReviewEligibility;
+};
+
+export type ReviewEligibility = {
+  canResubmit: boolean;
+  canSubmit: boolean;
+  eligibleUntil?: number;
+  rejectionReason?: string;
+  reviewId?: string;
+  status: "not_eligible" | "available" | "pending" | "approved" | "rejected" | "expired";
 };
 
 export type BookingOptions = {
@@ -163,6 +173,7 @@ export type MobileMessage = {
   body: string;
   createdAt: string;
   read: boolean;
+  deliveryStatus?: "pending" | "sent" | "failed";
 };
 
 export type MobileConversation = {

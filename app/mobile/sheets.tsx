@@ -1,12 +1,36 @@
 "use client";
 
-import { Check, ChevronRight, Headphones, LockKeyhole, Mail, MessageCircle, ShieldCheck, Smartphone, Trash2 } from "lucide-react";
+import { Check, ChevronRight, Headphones, LockKeyhole, Mail, MessageCircle, ShieldCheck, Smartphone, Star, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { removeTurnstileWidget } from "../_lib/turnstile";
 import { AUDIENCE_OPTIONS, BEIJING_DISTRICTS, SPORT_OPTIONS, TRAINING_GOAL_OPTIONS } from "../../shared/coach-catalog";
+import { REVIEW_TAGS } from "../../shared/reviews";
 import { CoachAvatar, EmptyState, Sheet } from "./components";
-import type { AccountProfile, LearnerProfile, MatchPreferences, MobileCoach, MobileNotification, MobileSession } from "./types";
+import type { AccountProfile, LearnerProfile, MatchPreferences, MobileBooking, MobileCoach, MobileNotification, MobileSession } from "./types";
+
+export function ReviewSheet({ booking, coachName, onClose, onSubmit }: {
+  booking: MobileBooking;
+  coachName: string;
+  onClose: () => void;
+  onSubmit: (input: { body: string; rating: number; tags: string[] }) => Promise<void>;
+}) {
+  const [rating, setRating] = useState(5);
+  const [tags, setTags] = useState<string[]>([]);
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(booking.review.rejectionReason || "");
+  const toggleTag = (tag: string) => setTags((current) => current.includes(tag) ? current.filter((item) => item !== tag) : current.length < 3 ? [...current, tag] : current);
+  return <Sheet onClose={onClose} title={booking.review.canResubmit ? "修改并重提评价" : `评价${coachName}教练`}><div className="zg-review-sheet">
+    <p>评价审核后匿名展示，不公开账号昵称、头像或学员真实姓名。</p>
+    {booking.review.canResubmit ? <div className="zg-review-rejection"><strong>审核意见</strong><span>{booking.review.rejectionReason}</span></div> : null}
+    <fieldset><legend>总体评分</legend><div className="zg-review-stars">{[1,2,3,4,5].map((value) => <button aria-label={`${value}星`} aria-pressed={rating === value} key={value} onClick={() => setRating(value)} type="button"><Star aria-hidden fill={value <= rating ? "currentColor" : "none"} /></button>)}</div></fieldset>
+    <fieldset><legend>体验标签（最多3项）</legend><div className="zg-review-tag-grid">{REVIEW_TAGS.map((tag) => <button aria-pressed={tags.includes(tag)} key={tag} onClick={() => toggleTag(tag)} type="button">{tag}</button>)}</div></fieldset>
+    <label><span>真实体验</span><textarea maxLength={1000} minLength={20} onChange={(event) => setBody(event.target.value)} placeholder="请描述训练内容、沟通和实际感受，至少20字" value={body} /></label>
+    {error ? <p className="zg-auth-error" role="alert">{error}</p> : null}
+    <button className="zg-sheet-primary" disabled={busy || body.trim().length < 20} onClick={() => { setBusy(true); setError(""); void onSubmit({ body: body.trim(), rating, tags }).then(onClose).catch((reason) => setError(reason instanceof Error ? reason.message : "评价提交失败")).finally(() => setBusy(false)); }} type="button">{busy ? "提交中" : "提交审核"}</button>
+  </div></Sheet>;
+}
 
 async function mobileAvatarWebp(file: File) {
   const image = await createImageBitmap(file);

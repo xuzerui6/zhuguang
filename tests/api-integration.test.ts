@@ -172,7 +172,7 @@ function json(body: unknown, headers: Record<string, string> = {}): RequestInit 
 
 async function migrate(database: D1Adapter) {
   const directory = new URL("../drizzle/", import.meta.url);
-  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql", "0006_verified_coach_profiles.sql", "0007_operational_closure.sql", "0008_public_app_downloads.sql", "0009_business_scheduling.sql", "0010_student_time_requests.sql", "0011_user_account_profiles.sql", "0012_trusted_reviews_and_telemetry.sql"]) {
+  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql", "0006_verified_coach_profiles.sql", "0007_operational_closure.sql", "0008_public_app_downloads.sql", "0009_business_scheduling.sql", "0010_student_time_requests.sql", "0011_user_account_profiles.sql", "0012_trusted_reviews_and_telemetry.sql", "0013_review_closure_and_message_receipts.sql"]) {
     const source = await readFile(new URL(file, directory), "utf8");
     for (const statement of source.split("--> statement-breakpoint").map((item) => item.trim()).filter(Boolean)) database.sqlite.exec(statement);
   }
@@ -223,6 +223,80 @@ test("verified reviews enforce eligibility, privacy, thresholds, reactions and r
   assert.equal(resolved.response.status, 200);
   assert.equal(database.sqlite.prepare("SELECT report_count FROM coach_reviews WHERE id = ?").get(reviewId)?.report_count, 0);
   assert.equal(database.sqlite.prepare("SELECT count(*) AS count FROM ops_audit_logs WHERE action = 'review.report.resolve'").get()?.count, 1);
+  database.sqlite.close();
+});
+
+test("completed courses expose review eligibility, notify once and allow one rejected resubmission", async () => {
+  const database = new D1Adapter();
+  await migrate(database);
+  seedSupply(database);
+  const operatorSecret = "operator-review-resubmit";
+  const env: ApiEnv = { APP_ENV: "test", AUTH_HASH_SECRET: "review-resubmit-auth-secret-long-enough", DB: database, OPERATOR_API_SECRET: operatorSecret, PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 33).toString("base64") };
+  const student = await authenticate(env, "13800000882");
+  const coach = await authenticate(env, "13800000883");
+  const studentMe = await request(env, "/api/v1/me", { headers: { authorization: `Bearer ${student.accessToken}` } });
+  const coachMe = await request(env, "/api/v1/me", { headers: { authorization: `Bearer ${coach.accessToken}` } });
+  const studentId = String((studentMe.payload?.data as { userId: string }).userId);
+  const coachUserId = String((coachMe.payload?.data as { userId: string }).userId);
+  const now = Date.now();
+  database.sqlite.prepare("UPDATE coaches SET user_id = ? WHERE id = 1").run(coachUserId);
+  database.sqlite.prepare("INSERT INTO user_roles (user_id, role, status, granted_at, updated_at) VALUES (?, 'coach', 'active', ?, ?)").run(coachUserId, now, now);
+  database.sqlite.prepare("INSERT INTO learner_profiles (id, user_id, name, relation, sport, level, goal, created_at, updated_at) VALUES ('learner-review-flow', ?, '测试学员', 'self', '羽毛球', '初学', '专项提升', ?, ?)").run(studentId, now, now);
+  database.sqlite.prepare("UPDATE availability_slots SET status = 'booked' WHERE id = 'slot-1'").run();
+  database.sqlite.prepare("INSERT INTO booking_requests (id, idempotency_key, user_id, learner_profile_id, coach_id, venue_id, slot_id, status, fee_fen, payment_status, note, created_at, updated_at) VALUES ('booking-review-flow', 'review-flow', ?, 'learner-review-flow', 1, 'venue-1', 'slot-1', 'confirmed', 9900, 'offline_paid', 'QA review flow', ?, ?)").run(studentId, now, now);
+
+  const completed = await request(env, "/api/v1/coach/bookings/booking-review-flow/status", json({ status: "completed" }, { authorization: `Bearer ${coach.accessToken}` }));
+  assert.equal(completed.response.status, 200);
+  assert.equal(database.sqlite.prepare("SELECT count(*) AS count FROM notifications WHERE id = 'review_available_booking-review-flow'").get()?.count, 1);
+  const bootstrap = await request(env, "/api/v1/bootstrap", { headers: { authorization: `Bearer ${student.accessToken}` } });
+  const booking = (bootstrap.payload?.data as { bookings: Array<{ review: { canSubmit: boolean; status: string } }> }).bookings[0];
+  assert.deepEqual({ canSubmit: booking.review.canSubmit, status: booking.review.status }, { canSubmit: true, status: "available" });
+
+  const created = await request(env, "/api/v1/reviews", json({ bookingId: "booking-review-flow", body: "课程安排清晰，教练能够针对动作问题逐项讲解，训练过程认真负责。", rating: 4, tags: ["讲解清晰"] }, { authorization: `Bearer ${student.accessToken}` }));
+  const reviewId = String((created.payload?.data as { id: string }).id);
+  const operatorHeaders = { "content-type": "application/json", "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": operatorSecret };
+  await request(env, `/api/v1/operator/reviews/${reviewId}`, { body: JSON.stringify({ note: "请补充更具体的训练体验", status: "rejected" }), headers: operatorHeaders, method: "PATCH" });
+  const rejectedBootstrap = await request(env, "/api/v1/bootstrap", { headers: { authorization: `Bearer ${student.accessToken}` } });
+  const rejected = (rejectedBootstrap.payload?.data as { bookings: Array<{ review: { canResubmit: boolean; rejectionReason: string } }> }).bookings[0].review;
+  assert.equal(rejected.canResubmit, true);
+  assert.equal(rejected.rejectionReason, "请补充更具体的训练体验");
+  const resubmitted = await request(env, `/api/v1/reviews/${reviewId}/resubmit`, { body: JSON.stringify({ body: "教练针对起动、移动和击球衔接进行了逐项纠正，并给出了课后练习建议。", rating: 5, tags: ["专业可靠", "计划有针对性"] }), headers: { authorization: `Bearer ${student.accessToken}`, "content-type": "application/json" }, method: "PATCH" });
+  assert.equal(resubmitted.response.status, 200);
+  assert.equal(database.sqlite.prepare("SELECT count(*) AS count FROM coach_review_versions WHERE review_id = ?").get(reviewId)?.count, 2);
+  const repeated = await request(env, `/api/v1/reviews/${reviewId}/resubmit`, { body: JSON.stringify({ body: "再次提交同一评价内容用于验证重复操作会被服务端拒绝，确保只有一次机会。", rating: 5, tags: [] }), headers: { authorization: `Bearer ${student.accessToken}`, "content-type": "application/json" }, method: "PATCH" });
+  assert.equal(repeated.response.status, 409);
+  database.sqlite.close();
+});
+
+test("coach conversations preserve unread student messages and clear them only for the owning coach", async () => {
+  const database = new D1Adapter();
+  await migrate(database);
+  seedSupply(database);
+  const env: ApiEnv = { APP_ENV: "test", AUTH_HASH_SECRET: "message-receipt-auth-secret-long-enough", DB: database, PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 34).toString("base64") };
+  const student = await authenticate(env, "13800000884");
+  const coach = await authenticate(env, "13800000885");
+  const studentMe = await request(env, "/api/v1/me", { headers: { authorization: `Bearer ${student.accessToken}` } });
+  const coachMe = await request(env, "/api/v1/me", { headers: { authorization: `Bearer ${coach.accessToken}` } });
+  const studentId = String((studentMe.payload?.data as { userId: string }).userId);
+  const coachUserId = String((coachMe.payload?.data as { userId: string }).userId);
+  const now = Date.now();
+  database.sqlite.prepare("UPDATE user_profiles SET nickname = '晨光学员' WHERE user_id = ?").run(studentId);
+  database.sqlite.prepare("UPDATE coaches SET user_id = ? WHERE id = 1").run(coachUserId);
+  database.sqlite.prepare("INSERT INTO user_roles (user_id, role, status, granted_at, updated_at) VALUES (?, 'coach', 'active', ?, ?)").run(coachUserId, now, now);
+  const conversation = await request(env, "/api/v1/conversations", json({ coachId: 1 }, { authorization: `Bearer ${student.accessToken}` }));
+  const conversationId = String((conversation.payload?.data as { id: string }).id);
+  await request(env, `/api/v1/conversations/${conversationId}/messages`, json({ body: "教练您好，我想确认训练前需要准备哪些装备。" }, { authorization: `Bearer ${student.accessToken}` }));
+  assert.equal(database.sqlite.prepare("SELECT read_at FROM messages WHERE conversation_id = ? AND sender_type = 'student'").get(conversationId)?.read_at, null);
+  const overview = await request(env, "/api/v1/coach/overview", { headers: { authorization: `Bearer ${coach.accessToken}` } });
+  const coachConversation = (overview.payload?.data as { conversations: Array<{ title: string; unreadCount: number }> }).conversations[0];
+  assert.equal(coachConversation.title, "晨光学员");
+  assert.equal(coachConversation.unreadCount, 1);
+  const read = await request(env, `/api/v1/coach/conversations/${conversationId}/read`, json({}, { authorization: `Bearer ${coach.accessToken}` }));
+  assert.equal(read.response.status, 200);
+  assert.notEqual(database.sqlite.prepare("SELECT read_at FROM messages WHERE conversation_id = ? AND sender_type = 'student'").get(conversationId)?.read_at, null);
+  const otherCoach = await authenticate(env, "13800000886");
+  const denied = await request(env, `/api/v1/coach/conversations/${conversationId}/read`, json({}, { authorization: `Bearer ${otherCoach.accessToken}` }));
+  assert.equal(denied.response.status, 403);
   database.sqlite.close();
 });
 

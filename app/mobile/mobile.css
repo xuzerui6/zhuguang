@@ -2131,6 +2131,22 @@
 .zg-account-profile-sheet > label > span { color: #536159; font-size: 12px; font-weight: 700; }
 .zg-account-profile-sheet input,.zg-account-profile-sheet select,.zg-account-profile-sheet textarea { background: #fff; border: 1px solid #d8e1dc; border-radius: 7px; font: inherit; min-height: 48px; padding: 11px 13px; width: 100%; }
 .zg-account-profile-sheet textarea { min-height: 86px; resize: vertical; }
+.zg-review-sheet { display: grid; gap: 18px; padding: 8px 20px calc(24px + env(safe-area-inset-bottom)); }
+.zg-review-sheet > p { color: #66746c; font-size: 13px; line-height: 1.65; margin: 0; }
+.zg-review-sheet fieldset { border: 0; display: grid; gap: 10px; margin: 0; padding: 0; }
+.zg-review-sheet legend,.zg-review-sheet label > span { color: #23362d; font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+.zg-review-sheet label { display: grid; }
+.zg-review-sheet textarea { border: 1px solid #d8e1dc; border-radius: 8px; font: inherit; min-height: 118px; padding: 12px; resize: vertical; }
+.zg-review-stars { display: flex; gap: 6px; }
+.zg-review-stars button { align-items: center; background: transparent; border: 0; color: #f0a128; display: flex; height: 44px; justify-content: center; padding: 0; width: 44px; }
+.zg-review-tag-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.zg-review-tag-grid button { background: #f4f7f5; border: 1px solid #dce5e0; border-radius: 7px; color: #43534a; min-height: 42px; padding: 0 12px; }
+.zg-review-tag-grid button[aria-pressed="true"] { background: #e7f3ec; border-color: #3c7d59; color: #155334; }
+.zg-review-rejection { background: #fff7ec; border-left: 3px solid #d98a2b; display: grid; gap: 4px; padding: 11px 13px; }
+.zg-review-rejection span { color: #725426; font-size: 13px; }
+.zg-review-todo-strip { align-items: center; background: #fff7ec; border: 1px solid #f1d5ad; border-radius: 8px; color: #3d2c15; display: flex; justify-content: space-between; margin: 0 20px 18px; min-height: 64px; padding: 10px 14px; text-align: left; width: calc(100% - 40px); }
+.zg-review-todo-strip span { display: grid; gap: 3px; }
+.zg-review-todo-strip small { color: #80623a; }
 .zg-account-avatar-editor { align-items: center; background: #f5f8f6; border: 1px solid #e0e7e3; border-radius: 8px; display: grid; gap: 14px; grid-template-columns: 72px 1fr; padding: 14px; }
 .zg-account-avatar-editor > span { align-items: center; background: #deede5; border-radius: 50%; color: #087a50; display: flex; font-size: 24px; font-weight: 800; height: 72px; justify-content: center; overflow: hidden; width: 72px; }
 .zg-account-avatar-editor > span img { height: 100%; object-fit: cover; width: 100%; }

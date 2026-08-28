@@ -126,6 +126,7 @@ export function createDemoBooking(): MobileBooking {
     submittedAt: "昨天 20:15",
     feeFen: 9900,
     paymentStatus: "offline_unpaid",
+    review: { canResubmit: false, canSubmit: false, status: "not_eligible" },
     note: "希望重点改善反手高远球稳定性。",
   };
 }

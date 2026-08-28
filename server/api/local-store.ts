@@ -129,6 +129,7 @@ export function localCreateBooking(input: { coachId: number; learnerId: string; 
     learnerId: input.learnerId,
     note: input.note,
     paymentStatus: "offline_unpaid",
+    review: { canResubmit: false, canSubmit: false, status: "not_eligible" },
     slotId: input.slotId,
     status: "pending_coach",
     submittedAt: "刚刚",

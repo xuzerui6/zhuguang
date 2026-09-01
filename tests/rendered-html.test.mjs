@@ -34,8 +34,8 @@ test("server-renders a service-first homepage without prototype claims", async (
 
   const html = await response.text();
   assert.match(html, /<title>逐光运动教练服务平台<\/title>/);
-  assert.match(html, /专业运动训练服务/);
-  assert.match(html, /寻找教练/);
+  assert.match(html, /北京专业体育教练/);
+  assert.match(html, /找教练/);
   assert.match(html, /人工核验/);
   assert.match(html, /教练确认后预约生效/);
   assert.match(html, /资料真实，比数字热闹更重要/);
@@ -106,6 +106,23 @@ test("production login always renders the public Turnstile integration", async (
   const loginForm = await read("app/login/email-login-form.tsx");
   assert.match(html, /0x4AAAAAAEM50c0fGqXTnUvL/);
   assert.match(loginForm, /challenges\.cloudflare\.com\/turnstile\/v0\/api\.js/);
+  assert.equal((html.match(/<h1(?:\s[^>]*)?>/gu) || []).length, 1);
+});
+
+test("public lead forms collect minimal contacts without publishing fake compliance data", async () => {
+  const [form, footer, homepage] = await Promise.all([
+    read("app/_components/service-lead-form.tsx"),
+    read("app/_components/public-footer.tsx"),
+    read("app/page.tsx"),
+  ]);
+  assert.match(form, /contactPhone/);
+  assert.match(form, /contactWechat/);
+  assert.match(form, /learnerStage/);
+  assert.match(form, /咨询不收费，也不会自动生成预约/);
+  assert.doesNotMatch(form, /身份证|出生日期|生日/);
+  assert.match(footer, /SITE_OPERATOR_NAME/);
+  assert.match(footer, /SITE_ICP_NUMBER/);
+  assert.match(homepage, /minimumPublishedTrialPrice/);
 });
 
 test("all public and workspace routes support direct rendering", async () => {

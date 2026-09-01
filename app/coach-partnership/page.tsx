@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PublicFooter } from "../_components/public-footer";
 import { PublicHeader } from "../_components/public-header";
+import { ServiceLeadForm } from "../_components/service-lead-form";
 import styles from "../_components/public-pages.module.css";
 
 export const metadata: Metadata = {
@@ -29,6 +30,10 @@ export default function CoachPartnershipPage() {
           <ul>
             {["个人身份证明与常用手机号", "运动员等级、退役或专业队经历材料", "教练员证书及其他专项资质", "常用训练场馆与可服务时间", "擅长方向、服务对象与参考价格"].map((item) => <li key={item}><CheckCircle2 aria-hidden size={18} />{item}</li>)}
           </ul>
+        </section>
+        <section className={styles.partnerLeadSection} id="partnership-inquiry">
+          <div><p>合作意向</p><h2>先提交真实经历，再进入人工核验</h2><span>逐光不开放自助注册。提交意向后，运营会核对项目、经历、服务区域和合作条件。</span></div>
+          <ServiceLeadForm kind="coach" siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} />
         </section>
         <section className={styles.pageCta}>
           <BadgeCheck aria-hidden size={28} />

@@ -124,6 +124,7 @@ import {
   moderateReviewReplyD1,
   publishContentDocumentD1,
   reactToCoachReviewD1,
+  revealOpsLeadContactD1,
   recordProductEventsD1,
   resubmitCoachReviewD1,
   resolveReviewReportD1,
@@ -347,6 +348,14 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   if (request.method === "GET" && path === "/api/v1/operator/leads") {
     assertOperator(request, env);
     return success(await listOpsLeadsD1(env), requestId);
+  }
+
+  const operatorLeadContactMatch = path.match(/^\/api\/v1\/operator\/service-leads\/([^/]+)\/contact-reveal$/u);
+  if (request.method === "POST" && operatorLeadContactMatch) {
+    assertOperator(request, env);
+    return success(await revealOpsLeadContactD1(
+      decodeURIComponent(operatorLeadContactMatch[1]), operatorActor(request), requestId, env,
+    ), requestId);
   }
 
   const operatorLeadMatch = path.match(/^\/api\/v1\/operator\/leads\/([^/]+)$/u);
@@ -648,17 +657,22 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     });
   }
 
-  if (request.method === "POST" && path === "/api/v1/service-leads") {
-    const body = await readJson<{ coachId?: unknown; contactEmail?: unknown; contactName?: unknown; district?: unknown; goal?: unknown; sport?: unknown; turnstileToken?: unknown }>(request);
+  if (request.method === "POST" && (path === "/api/v1/service-leads" || path === "/api/v1/partnership-leads")) {
+    const body = await readJson<{ coachId?: unknown; contactEmail?: unknown; contactName?: unknown; contactPhone?: unknown; contactWechat?: unknown; desiredTime?: unknown; district?: unknown; goal?: unknown; learnerStage?: unknown; sport?: unknown; turnstileToken?: unknown }>(request);
     if (local) return success({ id: randomId("lead"), status: "new" }, requestId, undefined, 201);
     await verifyTurnstile(request, body.turnstileToken, env);
     const identity = local ? null : await authenticateStudent(request, env, false);
     return success(await createServiceLeadD1({
       coachId: body.coachId == null ? undefined : positiveInteger(body.coachId, "coachId"),
-      contactEmail: requireString(body.contactEmail, "contactEmail", 254),
+      contactEmail: typeof body.contactEmail === "string" ? body.contactEmail.slice(0, 254) : undefined,
       contactName: requireString(body.contactName, "contactName", 40),
+      contactPhone: typeof body.contactPhone === "string" ? body.contactPhone.slice(0, 30) : undefined,
+      contactWechat: typeof body.contactWechat === "string" ? body.contactWechat.slice(0, 64) : undefined,
+      desiredTime: typeof body.desiredTime === "string" ? body.desiredTime.slice(0, 160) : undefined,
       district: requireString(body.district, "district", 40),
       goal: requireString(body.goal, "goal", 160),
+      leadKind: path === "/api/v1/partnership-leads" ? "coach_partnership" : "student_inquiry",
+      learnerStage: typeof body.learnerStage === "string" ? body.learnerStage : undefined,
       source: request.headers.get("x-app-platform") === "android" ? "android" : "web",
       sport: requireString(body.sport, "sport", 40),
       userId: identity?.userId,

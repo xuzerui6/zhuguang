@@ -1,6 +1,6 @@
 import { ApiError, type ApiEnv } from "./contracts";
 import type { CoachIdentity, StudentIdentity } from "./repository";
-import { decryptContact, encryptContact, normalizeEmail, randomId } from "./security";
+import { decryptContact, encryptContact, normalizeEmail, normalizePhone, randomId } from "./security";
 import { REVIEW_TAGS, type PublicCoachReview, type PublicCoachReviews, type ReviewTag } from "../../shared/reviews";
 
 type Row = Record<string, unknown>;
@@ -43,10 +43,15 @@ export async function getOpsOverviewD1(env: ApiEnv) {
 
 export async function createServiceLeadD1(input: {
   coachId?: number;
-  contactEmail: string;
+  contactEmail?: string;
   contactName: string;
+  contactPhone?: string;
+  contactWechat?: string;
+  desiredTime?: string;
   district: string;
   goal: string;
+  leadKind?: "student_inquiry" | "coach_partnership";
+  learnerStage?: string;
   source?: string;
   sport: string;
   userId?: string;
@@ -54,35 +59,77 @@ export async function createServiceLeadD1(input: {
   const database = db(env);
   const id = randomId("lead");
   const now = Date.now();
-  const contactEmail = normalizeEmail(input.contactEmail);
-  const contactEmailEncrypted = await encryptContact(contactEmail, env.PHONE_ENCRYPTION_KEY ?? "");
+  const contactEmail = input.contactEmail?.trim() ? normalizeEmail(input.contactEmail) : "";
+  const contactPhone = input.contactPhone?.trim() ? normalizePhone(input.contactPhone) : "";
+  const contactWechat = input.contactWechat?.trim() ?? "";
+  if (!contactEmail && !contactPhone && !contactWechat) {
+    throw new ApiError(422, "contact_required", "请至少提供一种联系方式", { contact: "请填写手机号、微信或邮箱" });
+  }
+  if (contactWechat && (!/^[^\s\u0000-\u001f]{2,64}$/u.test(contactWechat) || /(?:https?:\/\/|www\.)/iu.test(contactWechat))) {
+    throw new ApiError(422, "invalid_wechat", "请输入有效的微信号", { contactWechat: "微信号格式不正确" });
+  }
+  const allowedStages = new Set(["幼儿", "小学低年级", "小学高年级", "初中", "高中", "成人"]);
+  if (input.learnerStage && !allowedStages.has(input.learnerStage)) {
+    throw new ApiError(422, "invalid_learner_stage", "请选择有效的年龄段或年级", { learnerStage: "选项无效" });
+  }
+  const encryptionKey = env.PHONE_ENCRYPTION_KEY ?? "";
+  const [contactEmailEncrypted, contactPhoneEncrypted, contactWechatEncrypted] = await Promise.all([
+    contactEmail ? encryptContact(contactEmail, encryptionKey) : Promise.resolve(null),
+    contactPhone ? encryptContact(contactPhone, encryptionKey) : Promise.resolve(null),
+    contactWechat ? encryptContact(contactWechat, encryptionKey) : Promise.resolve(null),
+  ]);
   if (input.coachId) {
     const coach = await database.prepare("SELECT id FROM coaches WHERE id = ? AND audit_status = 'approved' AND listing_status = 'online' AND profile_kind = 'real'").bind(input.coachId).first<Row>();
     if (!coach) throw new ApiError(404, "coach_not_found", "未找到该教练");
   }
   await database.prepare(`
     INSERT INTO service_leads
-      (id, user_id, coach_id, contact_name, contact_email_encrypted, sport, district, goal, source, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)
-  `).bind(id, input.userId ?? null, input.coachId ?? null, input.contactName, contactEmailEncrypted, input.sport, input.district, input.goal, input.source ?? "web", now, now).run();
+      (id, user_id, coach_id, lead_kind, contact_name, contact_email_encrypted, contact_phone_encrypted,
+       contact_wechat_encrypted, learner_stage, desired_time, sport, district, goal, source, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)
+  `).bind(
+    id, input.userId ?? null, input.coachId ?? null, input.leadKind ?? "student_inquiry", input.contactName,
+    contactEmailEncrypted, contactPhoneEncrypted, contactWechatEncrypted, input.learnerStage ?? null,
+    input.desiredTime?.trim().slice(0, 160) || null, input.sport, input.district, input.goal,
+    input.source ?? "web", now, now,
+  ).run();
   return { id, status: "new" as const };
 }
 
 export async function listOpsLeadsD1(env: ApiEnv) {
   const result = await db(env).prepare(`
-    SELECT l.id, l.contact_name, l.contact_email_encrypted, l.sport, l.district, l.goal, l.source, l.status,
+    SELECT l.id, l.contact_name, l.lead_kind, l.learner_stage, l.desired_time,
+      CASE WHEN l.contact_email_encrypted IS NOT NULL THEN 1 ELSE 0 END AS has_email,
+      CASE WHEN l.contact_phone_encrypted IS NOT NULL THEN 1 ELSE 0 END AS has_phone,
+      CASE WHEN l.contact_wechat_encrypted IS NOT NULL THEN 1 ELSE 0 END AS has_wechat,
+      l.sport, l.district, l.goal, l.source, l.status,
       l.assigned_to, l.note, l.created_at, l.updated_at, c.name AS coach_name
     FROM service_leads l LEFT JOIN coaches c ON c.id = l.coach_id
     ORDER BY CASE l.status WHEN 'new' THEN 0 WHEN 'contacted' THEN 1 WHEN 'qualified' THEN 2 ELSE 3 END,
       l.created_at DESC LIMIT 200
   `).all<Row>();
-  return Promise.all(rows(result).map(async (row) => ({
-    ...row,
-    contact_email: row.contact_email_encrypted
-      ? await decryptContact(String(row.contact_email_encrypted), env.PHONE_ENCRYPTION_KEY ?? "")
-      : "",
-    contact_email_encrypted: undefined,
-  })));
+  return rows(result).map((row) => ({ ...row, lead_kind: row.lead_kind || "student_inquiry" }));
+}
+
+export async function revealOpsLeadContactD1(id: string, actor: string, requestId: string, env: ApiEnv) {
+  const database = db(env);
+  const row = await database.prepare(`
+    SELECT id, contact_email_encrypted, contact_phone_encrypted, contact_wechat_encrypted
+    FROM service_leads WHERE id = ?
+  `).bind(id).first<Row>();
+  if (!row) throw new ApiError(404, "lead_not_found", "未找到该服务线索");
+  const key = env.PHONE_ENCRYPTION_KEY ?? "";
+  const [email, phone, wechat] = await Promise.all([
+    row.contact_email_encrypted ? decryptContact(String(row.contact_email_encrypted), key) : Promise.resolve(""),
+    row.contact_phone_encrypted ? decryptContact(String(row.contact_phone_encrypted), key) : Promise.resolve(""),
+    row.contact_wechat_encrypted ? decryptContact(String(row.contact_wechat_encrypted), key) : Promise.resolve(""),
+  ]);
+  const channels = [email && "email", phone && "phone", wechat && "wechat"].filter(Boolean);
+  await database.prepare(`
+    INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, request_id, created_at)
+    VALUES (?, ?, 'lead.contact.reveal', 'service_lead', ?, ?, ?, ?)
+  `).bind(randomId("audit"), actor, id, JSON.stringify({ channels }), requestId, Date.now()).run();
+  return { email: email || undefined, phone: phone || undefined, wechat: wechat || undefined };
 }
 
 export async function updateOpsLeadD1(id: string, input: { assignedTo?: string; note?: string; status?: string }, actor: string, env: ApiEnv) {

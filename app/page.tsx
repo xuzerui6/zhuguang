@@ -5,7 +5,7 @@ import {
   Check,
   ClipboardCheck,
   MapPin,
-  PlayCircle,
+  MessagesSquare,
   Search,
   ShieldCheck,
   UsersRound,
@@ -19,10 +19,9 @@ import { ServiceLeadForm } from "./_components/service-lead-form";
 import { CoachSpotlightCarousel } from "./_components/coach-spotlight-carousel";
 import { MotionCoordinator } from "./_components/motion-coordinator";
 import { ProductFilm } from "./_components/product-film";
-import { ProductFilmLink } from "./_components/product-film-link";
 import styles from "./_components/public-site.module.css";
 import { productFilm } from "./_lib/product-film";
-import { loadPublicCoaches } from "./_lib/web-platform";
+import { loadPublicCoaches, minimumPublishedTrialPrice } from "./_lib/web-platform";
 import { TRAINING_GOAL_OPTIONS } from "../shared/coach-catalog";
 
 type HomePageProps = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
@@ -33,6 +32,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const requestedCoachId = Number(Array.isArray(params?.coach) ? params?.coach[0] : params?.coach);
   const requestedCoach = catalog.find((coach) => coach.id === requestedCoachId && coach.canConsult);
   const featuredCoaches = catalog.filter((item) => item.profileKind === "real").slice(0, 3);
+  const minimumTrialPrice = minimumPublishedTrialPrice(catalog);
   const productFilmEnabled = process.env.PRODUCT_FILM_ENABLED === "true";
   return (
     <>
@@ -47,12 +47,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </picture>
           <div className={styles.heroInner}>
             <div className={styles.heroCopy}>
-              <p className={styles.heroKicker}>北京 · 专业运动训练服务</p>
-              <h1>逐光运动教练<br />服务平台</h1>
-              <p>认真核验教练资料，把选择、沟通、预约和训练记录放进同一条清晰的服务流程。</p>
+              <p className={styles.heroKicker}>北京 · 青少年与成人体育训练</p>
+              <h1>北京专业体育教练<br />先核验，再预约</h1>
+              <p>为中考体育、专项提升和体能训练匹配已审核教练，可选合作场馆或协商训练地点。{minimumTrialPrice === undefined ? "教练确认后预约生效，训练费用线下支付。" : `首次试课 ¥${minimumTrialPrice}/60分钟起，教练确认后预约生效。`}</p>
               <div className={styles.heroActions}>
-                <Link href="/coaches">寻找教练 <ArrowRight aria-hidden size={18} /></Link>
-                {productFilmEnabled ? <ProductFilmLink>看看逐光如何工作 <PlayCircle aria-hidden size={18} /></ProductFilmLink> : null}
+                <Link href="/coaches">找教练 <ArrowRight aria-hidden size={18} /></Link>
+                <Link href="#service-inquiry">先咨询训练需求 <MessagesSquare aria-hidden size={18} /></Link>
               </div>
               <div className={styles.heroTrust} aria-label="平台服务原则">
                 <span><BadgeCheck aria-hidden size={18} />人工核验</span>
@@ -96,10 +96,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                   <p className={styles.coachLocation}><MapPin aria-hidden size={16} />{coach.district} · {coach.venue}</p>
                   <p className={styles.spotlightHonor}>{coach.honors.slice(0, 2).join(" · ")}</p>
                   <div className={styles.coachStrengths}>{coach.strengths.slice(0, 3).map((item) => <span key={item}><Check aria-hidden size={14} />{item}</span>)}</div>
+                  <div className={styles.coachDecision}><span><small>适合</small><strong>{coach.audience.slice(0, 2).join("、")}</strong></span><span><small>时间</small><strong>学员指定 · 教练确认</strong></span></div>
                   <div className={styles.spotlightCardFooter}>
                     <span><small>常规课</small><strong>{coach.price === undefined ? "待发布" : `¥${coach.price}`}</strong></span>
                     <span><small>试课</small><strong>{coach.trialPrice === undefined ? "待发布" : `¥${coach.trialPrice}`}</strong></span>
-                    <Link href={`/coaches/${coach.id}`} aria-label={`查看${coach.name}完整档案`}><ArrowRight aria-hidden size={19} /></Link>
+                    <div className={styles.spotlightCardActions}><Link href={`/coaches/${coach.id}`}>查看详情</Link>{coach.canConsult ? <Link href={`/?coach=${coach.id}#service-inquiry`}>咨询这位教练</Link> : null}</div>
                   </div>
                 </div>
               </article>
@@ -123,10 +124,10 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             <h2 className="zg-section-title">每一步有状态，<br />每个决定有依据</h2>
           </div>
           <ol className={styles.processList}>
-            <li data-motion="process"><span>01</span><div><strong>明确训练需求</strong><p>项目、区域、时间、预算和训练目标进入同一份需求档案。</p></div></li>
-            <li data-motion="process"><span>02</span><div><strong>比较教练档案</strong><p>查看经历、服务对象、训练方向、价格和接单状态。</p></div></li>
-            <li data-motion="process"><span>03</span><div><strong>提交服务申请</strong><p>教练确认后预约生效，首版采用线下支付。</p></div></li>
-            <li data-motion="process"><span>04</span><div><strong>沉淀训练记录</strong><p>课程状态、沟通与训练记录留在账号中持续可查。</p></div></li>
+            <li data-motion="process"><span>01</span><div><strong>告诉我们训练目标</strong><p>选择项目、区域和目标，也可以先提交需求让运营协助梳理。</p></div></li>
+            <li data-motion="process"><span>02</span><div><strong>比较已核验教练</strong><p>查看经历、服务对象、训练方向、价格和当前接单状态。</p></div></li>
+            <li data-motion="process"><span>03</span><div><strong>提出时间与地点</strong><p>选择合作场馆或填写期望地点，由教练确认或提出调整方案。</p></div></li>
+            <li data-motion="process"><span>04</span><div><strong>确认后开始训练</strong><p>预约、沟通、线下支付状态和训练记录都在账号中持续可查。</p></div></li>
           </ol>
         </section>
 
@@ -158,10 +159,6 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </div>
         </section>
 
-        <section className={styles.downloadBand} data-motion id="app-download" aria-label="下载逐光 Android App">
-          <AppDownloadClient compact />
-        </section>
-
         <section className={styles.cooperationSection} data-motion>
           <div><p className="zg-eyebrow">教练合作</p><h2>让真实的运动经历，转化为长期的专业服务</h2><p>逐光当前采用人工邀请与审核，不开放自助注册。审核通过的教练可用同一账号进入独立工作台。</p></div>
           <Link href="/coach-partnership">了解合作方式 <ArrowRight aria-hidden size={18} /></Link>
@@ -171,9 +168,13 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           <div>
             <p className="zg-eyebrow">训练咨询</p>
             <h2>把需求说清楚，再决定是否预约</h2>
-            <p>提交后只进入逐光运营工作台。资料或接单条件尚未完善的教练只提供咨询，不会生成虚假预约。</p>
+            <p>咨询不收费，也不会自动生成预约。提交后只进入逐光运营工作台，运营核对需求后通过你留下的手机号或微信联系。</p>
           </div>
           <ServiceLeadForm coach={requestedCoach ? { id: requestedCoach.id, name: requestedCoach.name, sport: requestedCoach.sport } : undefined} siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} />
+        </section>
+
+        <section className={styles.downloadBand} data-motion id="app-download" aria-label="下载逐光 Android App">
+          <AppDownloadClient compact />
         </section>
       </main>
       <PublicFooter />

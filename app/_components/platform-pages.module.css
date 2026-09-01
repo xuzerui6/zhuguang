@@ -158,6 +158,23 @@
   box-shadow: 0 0 0 3px rgba(8, 122, 80, .12);
 }
 
+.detailList {
+  border: 1px solid #dfe7e2;
+  border-radius: 7px;
+  display: grid;
+  margin-top: 18px;
+}
+
+.detailList > div {
+  display: grid;
+  gap: 4px;
+  padding: 13px 15px;
+}
+
+.detailList > div + div { border-top: 1px solid #e6ebe8; }
+.detailList span { color: #6b7971; font-size: 12px; }
+.detailList strong { overflow-wrap: anywhere; }
+
 .table { overflow-x: auto; }
 .tableRow,
 .tableHead {

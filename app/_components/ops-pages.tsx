@@ -11,6 +11,7 @@ import {
   EyeOff,
   HardDriveDownload,
   History,
+  LockKeyhole,
   MapPin,
   PauseCircle,
   Plus,
@@ -106,19 +107,75 @@ function OpsHome() {
   </div>;
 }
 
-type Lead = { id: string; contact_email?: string; contact_name?: string; sport?: string; district?: string; goal?: string; source?: string; status?: string; assigned_to?: string; note?: string; coach_name?: string; created_at?: number };
+type Lead = {
+  assigned_to?: string;
+  coach_name?: string;
+  contact_name?: string;
+  created_at?: number;
+  desired_time?: string;
+  district?: string;
+  goal?: string;
+  has_email?: number;
+  has_phone?: number;
+  has_wechat?: number;
+  id: string;
+  lead_kind?: "student_inquiry" | "coach_partnership";
+  learner_stage?: string;
+  note?: string;
+  source?: string;
+  sport?: string;
+  status?: string;
+};
+type LeadContact = { email?: string; phone?: string; wechat?: string };
 const leadStatus: Record<string, string> = { closed: "已关闭", contacted: "已联系", new: "新线索", qualified: "有效需求" };
+const leadKindLabel: Record<string, string> = { coach_partnership: "教练合作", student_inquiry: "学员咨询" };
+
+function leadContactSummary(lead: Lead) {
+  const channels = [lead.has_phone ? "手机号" : "", lead.has_wechat ? "微信" : "", lead.has_email ? "邮箱" : ""].filter(Boolean);
+  return channels.length ? `已留${channels.join("、")}` : "未留联系方式";
+}
 
 function LeadCenter() {
   const state = useOpsData<Lead[]>("/api/v1/operator/leads");
   const [query, setQuery] = useState("");
+  const [kind, setKind] = useState("all");
+  const [status, setStatus] = useState("all");
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
+  const [contactLead, setContactLead] = useState<Lead | null>(null);
+  const [contact, setContact] = useState<LeadContact | null>(null);
   if (state.loading) return <Loading label="正在读取服务线索" />;
   if (!state.data) return <ErrorState message={state.error} onRetry={state.load} />;
-  const rows = state.data.filter((lead) => `${lead.contact_name}${lead.contact_email}${lead.sport}${lead.district}${lead.goal}${lead.coach_name}`.includes(query.trim()));
+  const rows = state.data.filter((lead) => (
+    (kind === "all" || lead.lead_kind === kind)
+    && (status === "all" || lead.status === status)
+    && `${lead.contact_name}${lead.sport}${lead.district}${lead.goal}${lead.coach_name}${lead.learner_stage}`.includes(query.trim())
+  ));
   async function update(id: string, status: string) { setBusy(id); try { await platformRequest(`/api/v1/operator/leads/${encodeURIComponent(id)}`, { body: { status }, method: "PATCH" }); setNotice("线索状态已更新"); await state.load(); } catch (error) { setNotice(error instanceof Error ? error.message : "更新失败"); } finally { setBusy(""); } }
-  return <div className={styles.page}><Heading action={<div className={styles.toolbar}><input aria-label="搜索线索" onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、邮箱、项目或区域" value={query} /></div>} copy="官网提交的咨询会进入这里，由运营人员联系、确认需求并完成分流。" title="服务线索" /><section className={styles.panel}>{rows.length ? <div className={styles.table}><div className={styles.tableHead}><span>联系人</span><span>训练需求</span><span>区域与来源</span><span>状态</span><span>操作</span></div>{rows.map((lead) => <article className={styles.tableRow} key={lead.id}><span><strong>{lead.contact_name || "未填写称呼"}</strong><small>{lead.contact_email || "未提供邮箱"}</small></span><span><strong>{lead.sport || "项目待确认"}{lead.coach_name ? ` · ${lead.coach_name}教练` : ""}</strong><small>{lead.goal || "目标待补充"}</small></span><span><strong>{lead.district || "北京"}</strong><small>{lead.source || "web"} · {formatBeijingDate(lead.created_at)}</small></span><span><em className={styles.status} data-tone={lead.status === "new" ? "amber" : lead.status === "closed" ? "gray" : "green"}>{leadStatus[lead.status || "new"] || lead.status}</em></span><span className={styles.rowActions}><button className={styles.secondary} disabled={busy === lead.id} onClick={() => void update(lead.id, "contacted")} type="button">标记已联系</button><button className={styles.primary} disabled={busy === lead.id} onClick={() => void update(lead.id, "qualified")} type="button">确认需求</button><button className={styles.danger} disabled={busy === lead.id} onClick={() => void update(lead.id, "closed")} type="button">关闭</button></span></article>)}</div> : <Empty copy="官网访客提交训练咨询后，会以真实线索进入这里。" title="暂无服务线索" />}</section>{notice ? <Toast copy={notice} /> : null}</div>;
+  async function reveal(lead: Lead) {
+    setContactLead(lead);
+    setContact(null);
+    setBusy(`contact:${lead.id}`);
+    try {
+      setContact(await platformRequest<LeadContact>(`/api/v1/operator/service-leads/${encodeURIComponent(lead.id)}/contact-reveal`, { method: "POST" }));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "联系方式读取失败");
+      setContactLead(null);
+    } finally { setBusy(""); }
+  }
+  function closeContact() { setContact(null); setContactLead(null); }
+  return <div className={styles.page}>
+    <Heading action={<div className={styles.toolbar}><input aria-label="搜索线索" onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、项目、区域或教练" value={query} /><select aria-label="线索类型" onChange={(event) => setKind(event.target.value)} value={kind}><option value="all">全部类型</option><option value="student_inquiry">学员咨询</option><option value="coach_partnership">教练合作</option></select><select aria-label="处理状态" onChange={(event) => setStatus(event.target.value)} value={status}><option value="all">全部状态</option>{Object.entries(leadStatus).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>} copy="联系方式默认脱敏。每次查看都会重新校验最高权限并写入审计记录。" title="服务线索" />
+    <section className={styles.panel}>{rows.length ? <div className={styles.table}><div className={styles.tableHead}><span>联系人</span><span>需求与类型</span><span>区域与来源</span><span>状态</span><span>操作</span></div>{rows.map((lead) => <article className={styles.tableRow} key={lead.id}>
+      <span><strong>{lead.contact_name || "未填写称呼"}</strong><small>{leadContactSummary(lead)}</small></span>
+      <span><strong>{lead.sport || "项目待确认"}{lead.coach_name ? ` · ${lead.coach_name}教练` : ""}</strong><small>{leadKindLabel[lead.lead_kind || "student_inquiry"]} · {lead.learner_stage || "阶段待确认"} · {lead.goal || "目标待补充"}</small></span>
+      <span><strong>{lead.district || "北京"}</strong><small>{lead.desired_time || "时间待沟通"} · {formatBeijingDate(lead.created_at)}</small></span>
+      <span><em className={styles.status} data-tone={lead.status === "new" ? "amber" : lead.status === "closed" ? "gray" : "green"}>{leadStatus[lead.status || "new"] || lead.status}</em></span>
+      <span className={styles.rowActions}><button className={styles.secondary} disabled={busy === `contact:${lead.id}`} onClick={() => void reveal(lead)} type="button"><LockKeyhole aria-hidden size={15} />查看联系方式</button><button className={styles.secondary} disabled={busy === lead.id} onClick={() => void update(lead.id, "contacted")} type="button">标记已联系</button><button className={styles.primary} disabled={busy === lead.id} onClick={() => void update(lead.id, "qualified")} type="button">确认需求</button><button className={styles.danger} disabled={busy === lead.id} onClick={() => void update(lead.id, "closed")} type="button">关闭</button></span>
+    </article>)}</div> : <Empty copy="官网访客提交训练咨询或合作意向后，会以真实线索进入这里。" title="暂无服务线索" />}</section>
+    {contactLead ? <div className={styles.confirmOverlay} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) closeContact(); }}><section aria-labelledby="lead-contact-title" aria-modal="true" className={styles.confirmDialog} role="dialog"><LockKeyhole aria-hidden size={24} /><h2 id="lead-contact-title">{contactLead.contact_name || "联系人"}的联系方式</h2><p>本次查看已经记录到审计日志。请只用于处理该条服务需求。</p>{contact ? <div className={styles.detailList}>{contact.phone ? <div><span>手机号</span><strong>{contact.phone}</strong></div> : null}{contact.wechat ? <div><span>微信号</span><strong>{contact.wechat}</strong></div> : null}{contact.email ? <div><span>邮箱</span><strong>{contact.email}</strong></div> : null}</div> : <LoadingState label="正在安全读取联系方式" variant="detail" />}<div className={styles.confirmActions}><button className={styles.primary} onClick={closeContact} type="button">完成</button></div></section></div> : null}
+    {notice ? <Toast copy={notice} /> : null}
+  </div>;
 }
 
 type OpsCoach = {

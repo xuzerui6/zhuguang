@@ -26,13 +26,19 @@ npm run build
 
 ## 网站权限
 
-Sites 运行环境使用以下变量：
+网站 Worker 运行环境使用以下变量：
 
 - `ZHUGUANG_MOBILE_API_URL`
 - `ZHUGUANG_COACH_EMAILS`：逗号分隔的已审核教练邮箱
 - `ZHUGUANG_OPS_EMAILS`：逗号分隔的运营邮箱
 - `ZHUGUANG_OPERATOR_API_SECRET`：秘密
 - `ZHUGUANG_PILOT_APP_KEY`：秘密
+- `SITE_OPERATOR_NAME`：经营主体名称，可选
+- `SITE_SUPPORT_EMAIL`、`SITE_SUPPORT_PHONE`：客服联系方式，可选
+- `SITE_COMPLAINT_CONTACT`：投诉渠道，可选
+- `SITE_ICP_NUMBER`、`SITE_PUBLIC_SECURITY_NUMBER`：备案信息，可选
+
+可选的经营与备案字段为空时，页脚会隐藏整项；不得使用占位资料发布。
 
 匿名用户没有工作区权限；登录账号默认只有学员权限；教练与运营权限只从服务端配置授予。
 

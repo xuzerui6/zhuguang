@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Star,
+  UsersRound,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -171,6 +172,7 @@ function CoachResult({ active, coach, favorite, onFavorite, onSelect }: { active
         <p className={styles.resultTitle}>{coach.title}</p>
         <p><ShieldCheck aria-hidden size={15} />{coach.profileKind === "demo" ? "演示资料，不代表真实教练" : "未展示未经核验的证书或成绩"}</p>
         <p><MapPin aria-hidden size={15} />{coach.venue} <span>· {coach.district}</span></p>
+        <p><UsersRound aria-hidden size={15} />适合 {coach.audience.slice(0, 2).join("、")} · {coach.strengths.slice(0, 2).join("、")}</p>
         <p className={styles.nextSlot}><Clock3 aria-hidden size={15} />{coach.nextSlot}</p>
       </div>
       <div className={styles.resultCommercial}>

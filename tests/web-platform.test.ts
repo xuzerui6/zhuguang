@@ -7,6 +7,7 @@ import {
   coaches,
   featureFlags,
   getRouteArea,
+  minimumPublishedTrialPrice,
   opsNavigation,
   publicCoaches,
   studentNavigation,
@@ -27,6 +28,17 @@ test("Turnstile widgets are disposed exactly once when a page leaves", () => {
   assert.equal(removeTurnstileWidget(api, "widget-1"), true);
   assert.equal(removeTurnstileWidget(api, null), false);
   assert.deepEqual(removed, ["widget-1"]);
+});
+
+test("homepage trial price only uses publicly bookable coaches with published positive pricing", () => {
+  const base = coaches.find((coach) => coach.profileKind === "real")!;
+  assert.equal(minimumPublishedTrialPrice([
+    { ...base, bookable: false, pricingStatus: "published", trialPrice: 1 },
+    { ...base, bookable: true, pricingStatus: "unavailable", trialPrice: 2 },
+    { ...base, bookable: true, pricingStatus: "published", trialPrice: 99 },
+    { ...base, bookable: true, pricingStatus: "published", trialPrice: 120 },
+  ]), 99);
+  assert.equal(minimumPublishedTrialPrice([{ ...base, bookable: false, pricingStatus: "published", trialPrice: 99 }]), undefined);
 });
 
 test("the runtime proxy applies browser security headers", () => {
@@ -153,6 +165,7 @@ test("the web proxy exposes booking options without broadening protected writes"
   assert.equal(allowedForPlatformSession("/api/v1/coaches/5/booking-options", "GET", []), true);
   assert.equal(allowedForPlatformSession("/api/v1/coaches/5/booking-options", "POST", []), false);
   assert.equal(allowedForPlatformSession("/api/v1/bookings", "POST", []), false);
+  assert.equal(allowedForPlatformSession("/api/v1/partnership-leads", "POST", []), true);
   assert.equal(allowedForPlatformSession("/api/v1/bookings", "POST", ["student:read"]), true);
   assert.equal(allowedForPlatformSession("/api/v1/operator/coaches/5", "GET", ["student:read"]), false);
 });

@@ -172,7 +172,7 @@ function json(body: unknown, headers: Record<string, string> = {}): RequestInit 
 
 async function migrate(database: D1Adapter) {
   const directory = new URL("../drizzle/", import.meta.url);
-  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql", "0006_verified_coach_profiles.sql", "0007_operational_closure.sql", "0008_public_app_downloads.sql", "0009_business_scheduling.sql", "0010_student_time_requests.sql", "0011_user_account_profiles.sql", "0012_trusted_reviews_and_telemetry.sql", "0013_review_closure_and_message_receipts.sql"]) {
+  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql", "0006_verified_coach_profiles.sql", "0007_operational_closure.sql", "0008_public_app_downloads.sql", "0009_business_scheduling.sql", "0010_student_time_requests.sql", "0011_user_account_profiles.sql", "0012_trusted_reviews_and_telemetry.sql", "0013_review_closure_and_message_receipts.sql", "0014_secure_service_leads.sql"]) {
     const source = await readFile(new URL(file, directory), "utf8");
     for (const statement of source.split("--> statement-breakpoint").map((item) => item.trim()).filter(Boolean)) database.sqlite.exec(statement);
   }
@@ -576,7 +576,7 @@ test("D1 migration, auth rotation, favorite merge and slot concurrency form a re
   database.sqlite.close();
 });
 
-test("public service leads require a valid contact email and only expose decrypted contact data to operators", async () => {
+test("service leads remain backward compatible while contacts require audited single-record reveal", async () => {
   const database = new D1Adapter();
   await migrate(database);
   seedSupply(database);
@@ -597,15 +597,47 @@ test("public service leads require a valid contact email and only expose decrypt
     sport: "田径",
   }));
   assert.equal(created.response.status, 201);
-  const stored = database.sqlite.prepare("SELECT contact_email_encrypted FROM service_leads LIMIT 1").get() as { contact_email_encrypted: string };
+  const modern = await request(env, "/api/v1/service-leads", json({
+    contactName: "王先生",
+    contactPhone: "13800000009",
+    contactWechat: "runner_beijing",
+    desiredTime: "工作日晚上",
+    district: "朝阳区",
+    goal: "体能提升",
+    learnerStage: "初中",
+    sport: "田径",
+  }));
+  assert.equal(modern.response.status, 201);
+  const noContact = await request(env, "/api/v1/service-leads", json({ contactName: "无联系方式", district: "通州区", goal: "咨询", sport: "田径" }));
+  assert.equal(noContact.response.status, 422);
+
+  const stored = database.sqlite.prepare("SELECT contact_email_encrypted, contact_phone_encrypted, contact_wechat_encrypted FROM service_leads ORDER BY created_at LIMIT 1").get() as { contact_email_encrypted: string; contact_phone_encrypted: string | null; contact_wechat_encrypted: string | null };
   assert.notEqual(stored.contact_email_encrypted, "student@example.com");
+  assert.equal(stored.contact_phone_encrypted, null);
+  assert.equal(stored.contact_wechat_encrypted, null);
 
   const unauthorised = await request(env, "/api/v1/operator/leads");
   assert.equal(unauthorised.response.status, 403);
   const operatorView = await request(env, "/api/v1/operator/leads", { headers: { "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": "operator-test-secret" } });
   assert.equal(operatorView.response.status, 200);
-  const lead = (operatorView.payload?.data as Array<{ contact_email: string }>)[0];
-  assert.equal(lead.contact_email, "student@example.com");
+  const leads = operatorView.payload?.data as Array<Record<string, unknown>>;
+  assert.equal(leads.some((lead) => "contact_email" in lead || "contact_phone" in lead || "contact_wechat" in lead), false);
+  const emailLead = leads.find((lead) => lead.contact_name === "李女士")!;
+  assert.equal(emailLead.has_email, 1);
+  assert.equal(emailLead.lead_kind, "student_inquiry");
+
+  const deniedReveal = await request(env, `/api/v1/operator/service-leads/${emailLead.id}/contact-reveal`, { method: "POST" });
+  assert.equal(deniedReveal.response.status, 403);
+  const revealed = await request(env, `/api/v1/operator/service-leads/${emailLead.id}/contact-reveal`, {
+    headers: { "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": "operator-test-secret" },
+    method: "POST",
+  });
+  assert.equal(revealed.response.status, 200);
+  assert.equal((revealed.payload?.data as { email: string }).email, "student@example.com");
+  const audit = database.sqlite.prepare("SELECT detail_json, request_id FROM ops_audit_logs WHERE action = 'lead.contact.reveal'").get() as { detail_json: string; request_id: string };
+  assert.match(audit.request_id, /^request_/u);
+  assert.deepEqual(JSON.parse(audit.detail_json), { channels: ["email"] });
+  assert.doesNotMatch(audit.detail_json, /student@example\.com/u);
   database.sqlite.close();
 });
 

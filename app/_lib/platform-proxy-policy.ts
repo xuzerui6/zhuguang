@@ -7,6 +7,7 @@ export function allowedForPlatformSession(path: string, method: string, permissi
   if (publicPatterns.some((pattern) => pattern.test(path))) return method === "GET";
   if (path === "/api/v1/telemetry/events") return method === "POST";
   if (path === "/api/v1/service-leads") return method === "POST";
+  if (path === "/api/v1/partnership-leads") return method === "POST";
   if (path.startsWith("/api/v1/operator/")) return permissions.includes("ops:manage");
   if (path.startsWith("/api/v1/coach/")) return permissions.includes("coach:work");
   return permissions.includes("student:read") && /^\/api\/v1\/(?:bootstrap|bookings|conversations|favorites|learner-profiles|me|notifications|reschedule-proposals|reviews|support-tickets|training-records)(?:\/.*)?(?:\?.*)?$/u.test(path);

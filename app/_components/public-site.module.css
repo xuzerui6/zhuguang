@@ -78,8 +78,8 @@
 
 .hero {
   background: #07110d;
-  height: min(620px, calc(100svh - 124px));
-  min-height: 520px;
+  height: min(580px, calc(100svh - 124px));
+  min-height: 500px;
   overflow: hidden;
   position: relative;
 }
@@ -428,7 +428,7 @@
   border-top: 1px solid var(--zg-line);
   display: grid;
   gap: 12px;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: 76px 76px minmax(0, 1fr);
   margin-top: auto;
   padding-top: 19px;
 }
@@ -447,15 +447,44 @@
   font-size: 17px;
 }
 
-.spotlightCardFooter a {
-  align-items: center;
-  background: var(--zg-brand);
-  color: #fff;
-  display: flex;
-  height: 44px;
-  justify-content: center;
-  width: 44px;
+.spotlightCardActions {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 0.8fr 1.2fr;
+  min-width: 0;
 }
+
+.spotlightCardFooter .spotlightCardActions a {
+  align-items: center;
+  border: 1px solid var(--zg-line-strong);
+  border-radius: 5px;
+  color: var(--zg-ink);
+  display: flex;
+  font-size: 11px;
+  font-weight: 750;
+  min-height: 44px;
+  justify-content: center;
+  padding: 0 8px;
+  text-align: center;
+  width: auto;
+}
+
+.spotlightCardFooter .spotlightCardActions a:last-child { background: var(--zg-brand); border-color: var(--zg-brand); color: #fff; }
+
+.coachDecision {
+  background: #f5f8f6;
+  border: 1px solid #e2e9e5;
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1.25fr;
+  margin-top: 18px;
+  padding: 11px 12px;
+}
+
+.coachDecision span { display: grid; gap: 4px; min-width: 0; }
+.coachDecision small { color: var(--zg-muted); font-size: 10px; }
+.coachDecision strong { font-size: 11px; line-height: 1.45; }
 
 .spotlightMedia {
   background: #f4f5f4;
@@ -881,6 +910,13 @@
   padding: 10px 12px;
 }
 
+:global(.zg-service-lead-form > .zg-service-lead-note) {
+  background: #edf5f1;
+  border-left: 3px solid var(--zg-brand);
+  color: #526159;
+  padding: 10px 12px;
+}
+
 :global(.zg-service-lead-form .zg-service-turnstile) {
   min-height: 2px;
 }
@@ -996,6 +1032,12 @@
   margin-top: 48px;
   padding-top: 18px;
 }
+
+.footerBottom > div { display: flex; flex-wrap: wrap; gap: 7px 16px; }
+.footerBottom > div:first-child { flex-direction: column; gap: 4px; }
+.footerBusiness { justify-content: center; }
+.footerFilings { justify-content: flex-end; }
+.footerFilings a { color: inherit; }
 
 .downloadBand { background: #0b1713; color: #fff; overflow: hidden; }
 .downloadCompact { align-items: center; display: grid; gap: 80px; grid-template-columns: minmax(0, 1fr) 330px; margin: 0 auto; min-height: 560px; padding: 70px 0 0; width: var(--zg-page); }
@@ -1239,6 +1281,20 @@
     position: relative;
   }
 
+  .mobileMenuDialog {
+    background: #fff;
+    border: 0;
+    border-top: 1px solid var(--zg-line);
+    height: auto;
+    margin: 64px 0 auto;
+    max-height: calc(100dvh - 64px);
+    max-width: none;
+    padding: 0;
+    width: 100vw;
+  }
+
+  .mobileMenuDialog::backdrop { background: rgba(4, 14, 10, .42); }
+
   .mobileMenu > button {
     align-items: center;
     background: transparent;
@@ -1250,17 +1306,15 @@
     width: 44px;
   }
 
-  .mobileMenu nav {
+  .mobileMenu .mobileMenuDialog nav {
     background: #fff;
-    border: 1px solid var(--zg-line);
-    border-radius: 8px;
-    box-shadow: var(--zg-shadow-lg);
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
     display: grid;
-    min-width: 230px;
-    padding: 8px;
-    position: absolute;
-    right: 0;
-    top: 48px;
+    min-width: 0;
+    padding: 12px max(20px, calc((100vw - 760px) / 2));
+    position: static;
     animation: zg-menu-in var(--zg-motion-control) var(--zg-ease-emphasized) both;
   }
 
@@ -1273,9 +1327,12 @@
     padding: 0 12px;
   }
 
+  .mobileMenu nav a:last-of-type { background: var(--zg-brand); color: #fff; justify-content: center; margin-top: 8px; }
+  .mobileMenu nav p { color: var(--zg-muted); font-size: 11px; line-height: 1.6; margin: 8px 12px 2px; text-align: center; }
+
   .hero {
-    height: 590px;
-    min-height: 590px;
+    height: 540px;
+    min-height: 540px;
   }
 
   .heroMedia img {
@@ -1370,12 +1427,12 @@
   .installSteps li { border-left: 0; border-top: 1px solid var(--zg-line); padding: 22px 0; }
 
   .hero {
-    height: 560px;
-    min-height: 560px;
+    height: 500px;
+    min-height: 500px;
   }
 
   .heroCopy h1 {
-    font-size: 39px;
+    font-size: 36px;
   }
 
   .heroCopy > p:not(.heroKicker) {
@@ -1386,7 +1443,7 @@
   .heroActions {
     align-items: stretch;
     flex-direction: column;
-    max-width: 220px;
+    max-width: 250px;
   }
 
   .heroTrust {
@@ -1590,6 +1647,8 @@
     flex-direction: column;
     gap: 6px;
   }
+
+  .footerBottom > div { justify-content: flex-start; }
 }
 
 @media (prefers-reduced-motion: reduce) {

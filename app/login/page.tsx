@@ -25,7 +25,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       <section className={styles.loginShell}>
         <aside className={styles.loginContext}>
           <span>逐光统一账号</span>
-          <h1>一个账号，连接训练服务与工作台</h1>
+          <h2>一个账号，连接训练服务与工作台</h2>
           <p>学员、认证教练和运营人员使用同一邮箱身份，系统只展示当前账号被授权的功能。</p>
           <ul>
             <li><CheckCircle2 aria-hidden size={18} /><span><strong>身份统一</strong><small>无需为不同工作模式重复注册</small></span></li>

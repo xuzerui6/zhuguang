@@ -97,6 +97,12 @@ export const coaches: CoachProfile[] = coachCatalog.map((coach) => ({
 
 export const publicCoaches = coaches.filter((coach) => coach.profileKind === "real");
 
+export function minimumPublishedTrialPrice(items: CoachProfile[]) {
+  return items
+    .filter((coach) => coach.profileKind === "real" && coach.bookable && coach.pricingStatus === "published" && typeof coach.trialPrice === "number" && coach.trialPrice > 0)
+    .reduce<number | undefined>((minimum, coach) => minimum === undefined ? coach.trialPrice : Math.min(minimum, coach.trialPrice!), undefined);
+}
+
 export function mapMobileCoachToWeb(coach: MobileCoach): CoachProfile {
   const image = coach.cardUrl || coach.avatarUrl || coach.heroUrl || "/images/demo-athletics.webp";
   return {

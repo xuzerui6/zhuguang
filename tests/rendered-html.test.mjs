@@ -27,6 +27,14 @@ async function render(path = "/", authenticated = false, email = "qa-owner@examp
   );
 }
 
+test("web worker preparation preserves www paths and query parameters in a permanent redirect", async () => {
+  const prepareScript = await read("scripts/prepare-web-worker-build.mjs");
+  assert.match(prepareScript, /config\.main = "web-entry\.js"/);
+  assert.match(prepareScript, /url\.hostname === "www\.beijingzhuguang\.top"/);
+  assert.match(prepareScript, /url\.hostname = "beijingzhuguang\.top"/);
+  assert.match(prepareScript, /Response\.redirect\(url, 301\)/);
+});
+
 test("server-renders a service-first homepage without prototype claims", async () => {
   const response = await render();
   assert.equal(response.status, 200);

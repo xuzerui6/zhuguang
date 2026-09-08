@@ -4,7 +4,8 @@ import { Check, ChevronRight, Headphones, LockKeyhole, Mail, MessageCircle, Shie
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { removeTurnstileWidget } from "../_lib/turnstile";
-import { AUDIENCE_OPTIONS, BEIJING_DISTRICTS, SPORT_OPTIONS, TRAINING_GOAL_OPTIONS } from "../../shared/coach-catalog";
+import { AUDIENCE_OPTIONS, BEIJING_DISTRICTS, TRAINING_GOAL_OPTIONS } from "../../shared/coach-catalog";
+import type { ServiceCatalog } from '../../shared/service-catalog';
 import { REVIEW_TAGS } from "../../shared/reviews";
 import { CoachAvatar, EmptyState, Sheet } from "./components";
 import type { AccountProfile, LearnerProfile, MatchPreferences, MobileBooking, MobileCoach, MobileNotification, MobileSession } from "./types";
@@ -76,6 +77,7 @@ export function AccountProfileSheet({ onClose, onDeleteAvatar, onSave, onUploadA
 }
 
 export function FilterSheet({
+  catalog,
   onChange,
   onClose,
   resultCount,
@@ -84,14 +86,15 @@ export function FilterSheet({
   onChange: (value: MatchPreferences) => void;
   onClose: () => void;
   resultCount: number;
+  catalog: ServiceCatalog;
   value: MatchPreferences;
 }) {
   const update = <K extends keyof MatchPreferences>(key: K, next: MatchPreferences[K]) => onChange({ ...value, [key]: next });
   return (
     <Sheet onClose={onClose} title="筛选合适的教练">
       <div className="zg-filter-sheet">
-        <FilterGroup label="运动项目" options={["全部项目", ...SPORT_OPTIONS]} selected={value.sport} onSelect={(item) => update("sport", item)} />
-        <FilterGroup label="北京区域" options={["全北京", ...BEIJING_DISTRICTS]} selected={value.district} onSelect={(item) => update("district", item)} />
+        <FilterGroup label="运动项目" options={["全部项目", ...catalog.sports.map(item=>item.name)]} selected={value.sport} onSelect={(item) => update("sport", item)} />
+        <FilterGroup label="北京区域" options={["全北京", ...catalog.regions.map(item=>item.name)]} selected={value.district} onSelect={(item) => update("district", item)} />
         <FilterGroup label="训练目标" options={["全部目标", ...TRAINING_GOAL_OPTIONS]} selected={value.goal} onSelect={(item) => update("goal", item)} />
         <FilterGroup label="服务对象" options={["全部人群", ...AUDIENCE_OPTIONS]} selected={value.audience} onSelect={(item) => update("audience", item)} />
         <FilterGroup label="希望时段" options={["不限", "工作日", "周末", "晚间"]} selected={value.desiredTime} onSelect={(item) => update("desiredTime", item as MatchPreferences["desiredTime"])} />
@@ -125,12 +128,12 @@ function FilterGroup({
   );
 }
 
-export function CitySheet({ district, onClose, onDistrict }: { district: string; onClose: () => void; onDistrict: (district: string) => void }) {
+export function CitySheet({ catalog, district, onClose, onDistrict }: { catalog:ServiceCatalog; district: string; onClose: () => void; onDistrict: (district: string) => void }) {
   return (
     <Sheet onClose={onClose} title="选择北京服务区域">
       <div className="zg-city-sheet">
-        <p>北京为首个运营试点城市，后续将根据教练供给逐步开放更多城市。</p>
-        {["全北京", ...BEIJING_DISTRICTS].map((item) => (
+        <p>目前仅在北京经营，服务区域随真实已上线教练更新。</p>
+        {["全北京", ...catalog.regions.map(item=>item.name)].map((item) => (
           <button className={district === item ? "is-active" : ""} key={item} onClick={() => { onDistrict(item); onClose(); }} type="button">
             <span><strong>{item}</strong><small>{item === "全北京" ? "查看全部已核验教练" : "优先展示可就近训练的教练"}</small></span>
             {district === item ? <Check aria-hidden size={18} /> : <ChevronRight aria-hidden size={17} />}

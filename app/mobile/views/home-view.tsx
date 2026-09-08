@@ -5,18 +5,11 @@ import { ArrowRight, MapPin, ShieldCheck } from "lucide-react";
 import { CoachCard, MatchScore, SearchBar } from "../components";
 import { getMatchResult } from "../domain";
 import type { MatchPreferences, MobileBooking, MobileCoach } from "../types";
-
-const sports = [
-  { symbol: "羽", label: "羽毛球" },
-  { symbol: "泳", label: "游泳" },
-  { symbol: "网", label: "网球" },
-  { symbol: "篮", label: "篮球" },
-  { symbol: "体", label: "体能" },
-  { symbol: "径", label: "田径" },
-];
+import type { ServiceCatalog } from '../../../shared/service-catalog';
 
 export function HomeView({
   activeBooking,
+  catalog,
   coaches,
   onDiscover,
   onOpenBooking,
@@ -31,6 +24,7 @@ export function HomeView({
   savedCoachIds,
 }: {
   activeBooking: MobileBooking | null;
+  catalog: ServiceCatalog;
   coaches: MobileCoach[];
   onDiscover: () => void;
   onOpenBooking: () => void;
@@ -44,13 +38,13 @@ export function HomeView({
   reviewTodo: MobileBooking | null;
   savedCoachIds: number[];
 }) {
-  const featured = coaches.find((coach) => coach.sport === preferences.sport) ?? coaches[0];
-  const featuredMatch = getMatchResult(featured, preferences);
   const recommended = coaches
     .map((coach) => ({ coach, match: getMatchResult(coach, preferences) }))
     .filter(({ match }) => match.eligible)
     .sort((left, right) => right.match.score - left.match.score)
     .slice(0, 3);
+  const featured = recommended[0]?.coach;
+  const featuredMatch = recommended[0]?.match;
 
   return (
     <div className="zg-view zg-home-view">
@@ -60,7 +54,7 @@ export function HomeView({
       </section>
 
       <nav aria-label="运动项目" className="zg-sport-tabs">
-        {sports.map((item) => (
+        {catalog.sports.map(({name: label}) => ({label,symbol:label.slice(-1)})).map((item) => (
           <button
             aria-current={preferences.sport === item.label ? "true" : undefined}
             className={preferences.sport === item.label ? "is-active" : ""}
@@ -82,7 +76,7 @@ export function HomeView({
       ) : null}
       {reviewTodo ? <button className="zg-review-todo-strip" onClick={onOpenReview} type="button"><span><strong>{reviewTodo.review.canResubmit ? "评价需要修改" : "课程待评价"}</strong><small>{reviewTodo.review.rejectionReason || "分享真实体验，审核后匿名展示"}</small></span><ArrowRight aria-hidden size={19} /></button> : null}
 
-      <button className="zg-featured-coach" onClick={() => onOpenCoach(featured)} type="button">
+      {featured && featuredMatch ? <button className="zg-featured-coach" onClick={() => onOpenCoach(featured)} type="button">
         <Image alt={`${featured.name}教练`} fill priority sizes="(max-width: 760px) 100vw, 430px" src={featured.heroUrl ?? "/mobile-coach-hero-v23.webp"} unoptimized />
         <span className="zg-featured-gradient" />
         <span className="zg-featured-copy">
@@ -91,7 +85,7 @@ export function HomeView({
           <em><ShieldCheck aria-hidden size={14} />{featured.verificationLabel ?? "履历已核验"}</em>
         </span>
         <MatchScore score={featuredMatch.score} />
-      </button>
+      </button> : <section className="zg-service-note" role="status"><div><strong>暂无匹配的已上线教练</strong><p>可以调整训练需求，或稍后查看当前项目。</p></div></section>}
 
       <section className="zg-section">
         <header className="zg-section-header">
@@ -114,7 +108,7 @@ export function HomeView({
 
       <section className="zg-service-note">
         <MapPin aria-hidden size={20} />
-        <div><strong>北京试点服务</strong><p>目录覆盖北京 16 区；演示资料与真实教练始终明确区分。</p></div>
+        <div><strong>北京试点服务</strong><p>{catalog.regions.length ? `当前服务区域：${catalog.regions.map((item)=>item.name).join('、')}。` : '服务区域以已上线教练资料为准。'}</p></div>
         <ArrowRight aria-hidden size={18} />
       </section>
     </div>

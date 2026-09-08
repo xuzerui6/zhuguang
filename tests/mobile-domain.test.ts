@@ -1,5 +1,41 @@
 import assert from "node:assert/strict";
+import { createRefreshLoop, mobileTimeout, readMobilePayload, retryDelay, fetchMobilePayload } from "../app/mobile/network-policy";
+import { consumesTrial } from "../shared/booking-rules";
+import { HomeView } from '../app/mobile/views/home-view';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+test('home keeps unsupported sports empty and uses only published catalog entries', () => {
+  const html=renderToStaticMarkup(createElement(HomeView,{activeBooking:null,coaches:demoCoaches,onDiscover:()=>{},onOpenBooking:()=>{},onOpenCoach:()=>{},onOpenReview:()=>{},onSearch:()=>{},onSelectSport:()=>{},onToggleSaved:()=>{},preferences:{audience:'成人',budget:1000,city:'北京',desiredTime:'不限',district:'全北京',goal:'全部目标',sport:'不存在的项目'},query:'',reviewTodo:null,savedCoachIds:[],catalog:{city:'北京',sports:[{id:'athletics',name:'田径'}],regions:[]}}));
+  assert.match(html,/暂无匹配的已上线教练/); assert.doesNotMatch(html,/zg-featured-coach|>羽毛球</);
+});
+test("trial eligibility uses only effective history across clients", () => {
+  for (const status of ['pending_coach','reschedule_requested','confirmed','completed']) assert.equal(consumesTrial(status),true,status);
+  for (const status of ['expired','rejected','cancelled_by_student','cancelled_by_coach','unknown']) assert.equal(consumesTrial(status),false,status);
+});
+
+test("mobile weak-network retries are coalesced and recover to normal polling", async () => {
+  assert.deepEqual([0,1,2,3,4,8].map(retryDelay),[15000,2000,5000,15000,30000,30000]);
+  assert.deepEqual([mobileTimeout('/bootstrap'),mobileTimeout('/coaches'),mobileTimeout('/bookings','POST')],[10000,10000,20000]);
+  let release!: (result: {status:string}) => void;
+  let calls=0; const delays:number[]=[];
+  const loop=createRefreshLoop(()=>{calls++; return new Promise<{status:string}>((resolve)=>{release=resolve;});},{set:(_cb,delay)=>{delays.push(delay);return delay;},clear:()=>{}});
+  const first=loop.run(); assert.equal(loop.run(),first); await Promise.resolve(); assert.equal(calls,1);
+  release({status:'error'}); await first; assert.equal(delays.at(-1),2000);
+  const retry=loop.run(); await Promise.resolve(); release({status:'success'}); await retry;
+  assert.equal(delays.at(-1),15000); loop.stop();
+  const html=await readMobilePayload(new Response('<html>gateway error</html>',{status:502,headers:{'content-type':'text/html','x-request-id':'qa'}}));
+  assert.equal(html.error?.code,'invalid_service_response'); assert.equal(html.error?.requestId,'qa');
+});
+test("mobile deadline includes stalled response bodies and caller cancellation", async () => {
+  let cancelled = false;
+  const stalled = async () => new Response(new ReadableStream({ cancel() { cancelled = true; } }), { headers: { 'content-type': 'application/json' } });
+  await assert.rejects(fetchMobilePayload('https://test/bootstrap', {}, 15, stalled), { name: 'TimeoutError' });
+  assert.equal(cancelled, true);
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(fetchMobilePayload('https://test/bootstrap', { signal: controller.signal }, 100, stalled), { name: 'AbortError' });
+});
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import { demoCoaches } from "../app/mobile/demo-data";
 import { createDemoCoachOverview } from "../app/mobile/coach/coach-app";
 import {
@@ -22,6 +58,11 @@ import { stableRolloutBucket } from "../server/api/releases";
 import { pushLockScreenBody } from "../server/api/push";
 import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal, validateScheduleDraft } from "../shared/scheduling";
 import { matchesAudience, matchesTrainingGoal } from "../shared/coach-catalog";
+
+test("P1 ended bookings never render pending confirmation or invented contact promises", async () => {
+  const source = await readFile(new URL("../app/mobile/views/bookings-view.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /24 小时内处理|确认后联系|\?\? venues\[0\]|\?\? coaches\[0\]/u);
+});
 import { calculateDurationPriceFen, durationMinutesBetween } from "../shared/pricing";
 import {
   canStartPullRefresh,

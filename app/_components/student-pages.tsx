@@ -1,4 +1,5 @@
 "use client";
+import { consumesTrial } from "../../shared/booking-rules";
 
 import {
   ArrowRight,
@@ -16,18 +17,21 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { BEIJING_DISTRICTS, SPORT_OPTIONS, TRAINING_GOAL_OPTIONS } from "../../shared/coach-catalog";
 import { calculateDurationPriceFen } from "../../shared/pricing";
+import { getBookingPresentation } from "../../shared/booking-presentation";
+import { completionIdempotencyKey } from "../../shared/completion-idempotency";
 import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal } from "../../shared/scheduling";
 import { REVIEW_TAGS } from "../../shared/reviews";
-import type { AccountProfile, BookingOptions, LearnerProfile, MobileBooking, MobileCoach, MobileConversation } from "../mobile/types";
+import type { AccountProfile, BookingOptions, LearnerProfile, MobileBooking, MobileCoach, MobileConversation, PlatformCapabilities } from "../mobile/types";
 import { coaches as fallbackCoaches } from "../_lib/web-platform";
 import { CoachDirectory } from "./coach-directory";
 import { describeBookingOptionsFailure, formatBeijingDate, formatFen, PlatformRequestError, platformRequest, platformUploadAvatar, trackProductEvent } from "./platform-client";
 import styles from "./platform-pages.module.css";
 import { LoadingState as SharedLoadingState } from "./async-states";
+import { useOperationPrompt } from "./operation-context";
 
 export type StudentSection = "home" | "coaches" | "bookings" | "messages" | "training" | "profile";
 
@@ -180,8 +184,9 @@ function StudentHome({ data }: { data: BootstrapData }) {
 }
 
 function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: BootstrapData; initialCoachId?: number; initialSlotId?: string; reload: () => Promise<void> }) {
+  const requestOperation = useOperationPrompt();
   const selectedCoach = data.coaches.find((coach) => coach.id === initialCoachId) ?? (initialCoachId ? undefined : data.coaches[0]);
-  const hasPriorEffectiveBooking = selectedCoach ? data.bookings.some((booking) => booking.coachId === selectedCoach.id && !["rejected", "cancelled_by_student", "cancelled_by_coach"].includes(booking.status)) : false;
+  const hasPriorEffectiveBooking = selectedCoach ? data.bookings.some((booking) => booking.coachId === selectedCoach.id && consumesTrial(booking.status)) : false;
   const bookingPriceLabel = hasPriorEffectiveBooking ? "常规课" : "首次试课";
   const [options, setOptions] = useState<BookingOptions | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(Boolean(selectedCoach));
@@ -203,8 +208,10 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
   const [agreementAccepted, setAgreementAccepted] = useState(false);
   const [proposals, setProposals] = useState<RescheduleProposal[]>([]);
   const [idempotencyKey, setIdempotencyKey] = useState(() => `web-booking-${crypto.randomUUID()}`);
+  const [capabilities, setCapabilities] = useState<PlatformCapabilities | null>(null);
   const loadProposals = useCallback(async () => { try { setProposals(await platformRequest<RescheduleProposal[]>("/api/v1/reschedule-proposals")); } catch { setProposals([]); } }, []);
   useEffect(() => { queueMicrotask(() => void loadProposals()); }, [loadProposals]);
+  useEffect(() => { void platformRequest<PlatformCapabilities>("/api/v1/capabilities").then(setCapabilities).catch(() => setCapabilities(null)); }, []);
   useEffect(() => {
     if (!selectedCoach) return;
     let active = true;
@@ -294,6 +301,26 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
     catch (actionError) { setError(actionError instanceof Error ? actionError.message : "改期处理失败"); }
     finally { setBusy(""); }
   }
+  async function respondToCompletion(id: string, decision: "accepted" | "disputed") {
+    const note = decision === "disputed" ? (await requestOperation("请简要说明异议，系统会同时创建售后工单"))?.trim() : "";
+    if (decision === "disputed" && !note) return;
+    setBusy(id); setError("");
+    try { await platformRequest(`/api/v1/booking-completion-requests/${encodeURIComponent(id)}/respond`, { body: { decision, note }, idempotencyKey: await completionIdempotencyKey(id, decision, note || ""), method: "POST" }); setNotice(decision === "accepted" ? "课程完成已确认" : "已提交异议并创建售后工单"); await reload(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "完成确认处理失败"); }
+    finally { setBusy(""); }
+  }
+
+  async function runTestPayment(bookingId: string) {
+    if (!capabilities?.onlineTransactions.enabled || capabilities.onlineTransactions.mode !== "test") return;
+    setBusy(bookingId); setError("");
+    try {
+      const order = await platformRequest<{ id: string }>(`/api/v1/bookings/${encodeURIComponent(bookingId)}/payment-orders`, { idempotencyKey: `web-test-payment-${crypto.randomUUID()}`, method: "POST" });
+      await platformRequest(`/api/v1/payment-orders/${encodeURIComponent(order.id)}/test-confirm`, { method: "POST" });
+      setNotice("隔离测试交易已完成，不代表真实收款");
+      await reload();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "测试交易未完成"); }
+    finally { setBusy(""); }
+  }
 
   return (
     <div className={styles.page}>
@@ -337,8 +364,11 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
           <div className={styles.tableHead}><span>教练</span><span>训练时间</span><span>费用</span><span>状态</span><span>操作</span></div>
           {data.bookings.map((booking) => {
             const coach = data.coaches.find((item) => item.id === booking.coachId);
-            const cancellable = ["pending_coach", "confirmed", "reschedule_requested"].includes(booking.status);
-            return <article className={styles.tableRow} key={booking.id}><span><strong>{coach?.name || "教练"}</strong><small>{coach?.sport || "专项训练"}</small></span><span><strong>{booking.dateLabel} {booking.date}</strong><small>{booking.time}–{booking.endTime}</small></span><span><strong>{formatFen(booking.feeFen)}</strong><small>{booking.paymentStatus === "offline_paid" ? "已标记线下收款" : "线下待支付"}</small></span><span><em className={styles.status} data-tone={statusTone(booking.status)}>{statusCopy[booking.status]}</em></span><span className={styles.rowActions}>{cancellable ? <button className={styles.danger} disabled={busy === booking.id} onClick={() => void cancel(booking.id)} type="button">取消预约</button> : <Link className={styles.secondary} href="/student/training">查看记录</Link>}</span></article>;
+            const presentation = getBookingPresentation(booking);
+            const cancellable = presentation.canCancel;
+            const awaitingCompletion = presentation.canComplete;
+            const canTestPay = capabilities?.onlineTransactions.enabled && capabilities.onlineTransactions.mode === "test" && presentation.canPay;
+return <article className={styles.tableRow} key={booking.id}><span><strong>{coach?.name || booking.coachName || "教练资料暂不可用"}</strong><small>{coach?.sport || "专项训练"}</small></span><span><strong>{booking.dateLabel} {booking.date}</strong><small>{booking.time}–{booking.endTime}</small></span><span><strong>{formatFen(booking.feeFen)}</strong><small>{presentation.paymentLabel}</small></span><span><em className={styles.status} data-tone={statusTone(booking.status)}>{presentation.label}</em></span><span className={styles.rowActions}>{awaitingCompletion ? <><button className={styles.secondary} disabled={busy === booking.completion?.id} onClick={() => void respondToCompletion(booking.completion!.id, "disputed")} type="button">提出异议</button><button className={styles.primary} disabled={busy === booking.completion?.id} onClick={() => void respondToCompletion(booking.completion!.id, "accepted")} type="button">确认完成</button></> : cancellable ? <button className={styles.danger} disabled={busy === booking.id} onClick={() => void cancel(booking.id)} type="button">取消预约</button> : <Link className={styles.secondary} href="/student/training">查看记录</Link>}{canTestPay ? <button className={styles.secondary} disabled={busy === booking.id} onClick={() => void runTestPayment(booking.id)} type="button">隔离测试支付</button> : null}</span></article>;
           })}
         </div> : <EmptyState copy="你提交的时间申请和已经确认的课程会出现在这里。" title="还没有预约记录" />}
       </section>
@@ -433,6 +463,7 @@ function TrainingPage({ data }: { data: BootstrapData }) {
 }
 
 function ProfilePage({ data, reload }: { data: BootstrapData; reload: () => Promise<void> }) {
+  const router = useRouter();
   const [selectedProfileId, setSelectedProfileId] = useState(data.learnerProfiles[0]?.id || "");
   const current = data.learnerProfiles.find((profile) => profile.id === selectedProfileId);
   const [notice, setNotice] = useState("");
@@ -506,7 +537,7 @@ function ProfilePage({ data, reload }: { data: BootstrapData; reload: () => Prom
   }
   async function deleteAccount() {
     setBusy(true);
-    try { await platformRequest("/api/v1/me", { method: "DELETE" }); window.location.assign("/"); }
+    try { await platformRequest("/api/v1/me", { method: "DELETE" }); router.replace("/"); }
     catch (deleteError) { setError(deleteError instanceof Error ? deleteError.message : "账号注销失败"); setDeleteOpen(false); setBusy(false); }
   }
   async function logout() {
@@ -515,7 +546,7 @@ function ProfilePage({ data, reload }: { data: BootstrapData; reload: () => Prom
     try {
       const response = await fetch("/api/auth/email/logout", { method: "POST" });
       if (!response.ok) throw new Error("退出登录失败，请稍后重试");
-      window.location.assign("/login");
+      router.replace("/login");
     } catch (logoutError) {
       setError(logoutError instanceof Error ? logoutError.message : "退出登录失败，请稍后重试");
       setBusy(false);

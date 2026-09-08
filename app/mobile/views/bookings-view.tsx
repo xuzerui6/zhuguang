@@ -1,32 +1,39 @@
 "use client";
 
-import { CalendarDays, Clock3, MapPin, MessageCircle, Phone, RotateCcw } from "lucide-react";
+import { CalendarDays, MapPin, MessageCircle, RotateCcw } from "lucide-react";
+import { getBookingPresentation } from "../../../shared/booking-presentation";
 import { BookingStatusPill, CoachAvatar, EmptyState, PageHeader } from "../components";
 import { getBookingBucket } from "../domain";
-import type { CoachVenue, MobileBooking, MobileCoach } from "../types";
+import type { CoachVenue, MobileBooking, MobileCoach, PlatformCapabilities } from "../types";
 
 type BookingTab = "pending" | "active" | "completed";
 
 export function BookingsView({
   bookings,
+  capabilities,
   coaches,
   onCancel,
+  onComplete,
   onDiscover,
   onMessage,
   onReschedule,
   onReview,
   onTab,
+  onTestPayment,
   tab,
   venues,
 }: {
   bookings: MobileBooking[];
+  capabilities: PlatformCapabilities | null;
   coaches: MobileCoach[];
   onCancel: (booking: MobileBooking) => void;
+  onComplete: (booking: MobileBooking, decision: "accepted" | "disputed") => void;
   onDiscover: () => void;
   onMessage: (coachId: number) => void;
   onReschedule: (booking: MobileBooking) => void;
   onReview: (booking: MobileBooking) => void;
   onTab: (tab: BookingTab) => void;
+  onTestPayment: (booking: MobileBooking) => void;
   tab: BookingTab;
   venues: CoachVenue[];
 }) {
@@ -50,31 +57,32 @@ export function BookingsView({
       {visibleBookings.length ? (
         <div className="zg-booking-list">
           {visibleBookings.map((booking) => {
-            const coach = coaches.find((item) => item.id === booking.coachId) ?? coaches[0];
-            const venue = venues.find((item) => item.id === booking.venueId) ?? venues[0];
+            const coach = coaches.find((item) => item.id === booking.coachId);
+            const venue = venues.find((item) => item.id === booking.venueId);
+            const display = getBookingPresentation(booking);
             return (
               <article className="zg-booking-card" key={booking.id}>
-                <header><BookingStatusPill booking={booking} /><small>提交于 {booking.submittedAt}</small></header>
+                <header><BookingStatusPill booking={booking} />{display.submittedAt ? <small>提交于 {display.submittedAt}</small> : null}</header>
                 <div className="zg-booking-coach-row">
-                  <CoachAvatar coach={coach} size="medium" />
-                  <span><strong>{coach.name}</strong><small>{coach.sport} · {coach.level}</small></span>
-                  <b>{booking.status === "pending_coach" ? "等待确认" : "线下待支付"}</b>
+                  {coach ? <CoachAvatar coach={coach} size="medium" /> : null}
+                  <span><strong>{coach?.name || booking.coachName || "预约教练"}</strong><small>{coach?.sport || booking.sport || ""}</small></span>
+                  {display.paymentLabel ? <b>{display.paymentLabel}</b> : null}
                 </div>
                 <dl>
                   <div><dt><CalendarDays aria-hidden size={18} /></dt><dd><strong>{booking.date}（{booking.dateLabel}）</strong><small>{booking.time}-{booking.endTime}</small></dd></div>
-                  <div><dt><MapPin aria-hidden size={18} /></dt><dd><strong>{venue.name}</strong><small>{venue.address}</small></dd></div>
+                  <div><dt><MapPin aria-hidden size={18} /></dt><dd><strong>{booking.locationType === "custom" ? booking.customDistrict || "协商训练地点" : booking.venueName || venue?.name || "查看预约地点记录"}</strong><small>{booking.locationType === "custom" ? booking.customAddress : venue?.address || ""}</small></dd></div>
                 </dl>
                 <ol className="zg-booking-timeline">
-                  <li className="is-complete"><span /> <div><strong>已提交申请</strong><small>{booking.submittedAt}</small></div></li>
-                  <li className={booking.status === "confirmed" ? "is-complete" : "is-current"}><span /> <div><strong>{booking.status === "confirmed" ? "教练已确认" : "待教练确认"}</strong><small>{booking.status === "confirmed" ? "课程时间已锁定" : "教练将在 24 小时内处理"}</small></div></li>
-                  <li><span /> <div><strong>确认后联系</strong><small>平台将同步完整联系方式</small></div></li>
+                  {display.timeline.map((node) => <li className={node.complete ? "is-complete" : "is-current"} key={node.title}><span /><div><strong>{node.title}</strong><small>{node.detail}</small></div></li>)}
                 </ol>
                 <div className="zg-booking-card-actions">
-                  {booking.status === "pending_coach" ? <button onClick={() => onCancel(booking)} type="button">取消申请</button> : null}
-                  {booking.status === "confirmed" ? <button onClick={() => onReschedule(booking)} type="button"><RotateCcw aria-hidden size={16} />修改时间</button> : null}
-                  {booking.review.canSubmit || booking.review.canResubmit ? <button className="is-primary" onClick={() => onReview(booking)} type="button">{booking.review.canResubmit ? "修改评价" : "评价教练"}</button> : null}
-                  <button className="is-primary" onClick={() => onMessage(coach.id)} type="button">
-                    {booking.status === "confirmed" ? <Phone aria-hidden size={16} /> : <MessageCircle aria-hidden size={16} />}
+                  {display.canComplete ? <><button onClick={() => onComplete(booking, "disputed")} type="button">提出异议</button><button className="is-primary" onClick={() => onComplete(booking, "accepted")} type="button">确认课程完成</button></> : null}
+                  {display.canCancel ? <button onClick={() => onCancel(booking)} type="button">取消申请</button> : null}
+                  {display.canReschedule ? <button onClick={() => onReschedule(booking)} type="button"><RotateCcw aria-hidden size={16} />修改时间</button> : null}
+                  {capabilities?.onlineTransactions.enabled && capabilities.onlineTransactions.mode === "test" && display.canPay ? <button onClick={() => onTestPayment(booking)} type="button">隔离测试支付</button> : null}
+                  {display.canReview ? <button className="is-primary" onClick={() => onReview(booking)} type="button">{booking.review.canResubmit ? "修改评价" : "评价教练"}</button> : null}
+                  <button className="is-primary" onClick={() => onMessage(booking.coachId)} type="button">
+                    <MessageCircle aria-hidden size={16} />
                     联系教练
                   </button>
                 </div>
@@ -86,9 +94,6 @@ export function BookingsView({
         <EmptyState action="去找教练" description={tab === "completed" ? "完成、取消、拒绝或失效的预约记录会保留在这里。" : "找到合适教练并提交试课后，服务进度会出现在这里。"} onAction={onDiscover} title={tab === "completed" ? "还没有已结束预约" : "暂时没有这类预约"} />
       )}
 
-      {tab === "active" && visibleBookings.length ? (
-        <section className="zg-upcoming-note"><Clock3 aria-hidden size={20} /><span><strong>课程前提醒</strong><small>开始前 2 小时会通过站内消息提醒。</small></span></section>
-      ) : null}
     </div>
   );
 }

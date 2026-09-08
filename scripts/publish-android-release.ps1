@@ -17,10 +17,19 @@ param(
 
   [int]$PauseVersionCode = 0,
 
+  [Parameter(Mandatory = $true)]
+  [ValidateLength(4, 500)]
+  [string]$Reason,
+
   [string]$ApiBaseUrl = 'https://api.beijingzhuguang.top'
 )
 
 $ErrorActionPreference = 'Stop'
+if ([uri]$ApiBaseUrl | Where-Object { $_.Scheme -ne 'https' -or $_.UserInfo }) { throw 'Use an HTTPS API origin without credentials.' }
+
+function Save-ReleaseJournal {
+  $journal | Export-Clixml -LiteralPath $journalPath -Force
+}
 
 if (-not $Notes.Count) {
   $Notes = @(
@@ -52,7 +61,21 @@ function Invoke-OperatorJson(
     Uri = "$ApiBaseUrl$Path"
   }
   if ($null -ne $Body) {
-    $parameters.Body = $Body | ConvertTo-Json -Depth 8 -Compress
+    $Body.confirmed = $true
+    $Body.reason = $Reason
+    $parameters.Headers = @{} + $Headers
+    $ordered = [ordered]@{}
+    foreach ($name in ($Body.Keys | Sort-Object)) { $ordered[$name] = $Body[$name] }
+    $payload = $ordered | ConvertTo-Json -Depth 8 -Compress
+    $operation = "$Method $Path"
+    if ($journal.operations.ContainsKey($operation)) {
+      if ($journal.operations[$operation].payload -ne $payload) { throw 'Existing operation has different parameters. Inspect the saved journal before retrying.' }
+    } else {
+      $journal.operations[$operation] = @{ key = [guid]::NewGuid().ToString(); payload = $payload }
+      Save-ReleaseJournal
+    }
+    $parameters.Headers['idempotency-key'] = $journal.operations[$operation].key
+    $parameters.Body = $journal.operations[$operation].payload
     $parameters.ContentType = 'application/json; charset=utf-8'
   }
   return Invoke-RestMethod @parameters
@@ -87,6 +110,12 @@ if ($manifest.signature -ne 'release' -or $manifest.packageId -ne 'com.zhuguang.
   throw 'Only the signed production package can be published.'
 }
 
+$journalDirectory = Join-Path $env:USERPROFILE '.zhuguang\release-journals'
+New-Item -ItemType Directory -Path $journalDirectory -Force | Out-Null
+$journalPath = Join-Path $journalDirectory "code-$VersionCode-$sha256.xml"
+$journal = if (Test-Path -LiteralPath $journalPath) { Import-Clixml -LiteralPath $journalPath } else { @{ api = $ApiBaseUrl; operations = @{}; upload = $null } }
+if ($journal.api -ne $ApiBaseUrl) { throw 'Release journal belongs to a different API. Do not reuse it across environments.' }
+
 $cloudflare = Import-Clixml -LiteralPath $cloudflareConfigPath
 $operatorSecret = Read-SecureValue $cloudflare.OPERATOR_API_SECRET
 $pilotAppKey = Read-SecureValue $cloudflare.PILOT_APP_KEY
@@ -96,8 +125,7 @@ $operatorHeaders = @{
   'x-zhuguang-app-key' = $pilotAppKey
 }
 
-try {
-  Write-Host "[release] Uploading $VersionName (code $VersionCode) to private R2 storage"
+function Invoke-ReleaseUpload {
   $uploadHeaders = @{
     'content-type' = 'application/vnd.android.package-archive'
     'x-operator-actor' = 'xuzerui6@gmail.com'
@@ -105,32 +133,59 @@ try {
     'x-release-version-name' = $VersionName
     'x-zhuguang-app-key' = $pilotAppKey
   }
-  $uploaded = Invoke-RestMethod `
+  $result = Invoke-RestMethod `
     -Headers $uploadHeaders `
     -InFile $apkPath `
     -Method Put `
     -TimeoutSec 90 `
     -Uri "$ApiBaseUrl/api/v1/operator/releases/$VersionCode/artifact"
+  if ($result.data.sha256 -ne $sha256 -or $result.data.sizeBytes -ne $file.Length -or $result.data.versionCode -ne $VersionCode -or $result.data.versionName -ne $VersionName) {
+    throw 'R2 upload verification does not match the local signed build manifest.'
+  }
+  $journal.upload = $result
+  Save-ReleaseJournal
+  return $result
+}
 
-  if ($uploaded.data.sha256 -ne $sha256 -or $uploaded.data.sizeBytes -ne $file.Length) {
-    throw 'R2 upload verification does not match the local APK.'
+try {
+  Write-Host "[release] Uploading $VersionName (code $VersionCode) to private R2 storage"
+  $uploaded = $journal.upload
+  if ($null -eq $uploaded) {
+    $uploaded = Invoke-ReleaseUpload
+  }
+
+  if ($uploaded.data.sha256 -ne $sha256 -or $uploaded.data.sizeBytes -ne $file.Length -or $uploaded.data.versionCode -ne $VersionCode -or $uploaded.data.versionName -ne $VersionName) {
+    throw 'Saved upload receipt does not match the local signed build manifest.'
   }
 
   Write-Host '[release] Creating immutable release metadata'
-  $release = @{
-    certificateSha256 = $manifest.certificateSha256
-    forced = $false
-    minimumSupportedVersionCode = $MinimumSupportedVersionCode
-    notes = $Notes
-    objectKey = $uploaded.data.objectKey
-    packageId = $manifest.packageId
-    rolloutPercentage = $RolloutPercentage
-    sha256 = $sha256
-    sizeBytes = $file.Length
-    versionCode = $VersionCode
-    versionName = $VersionName
+  $createPath = '/api/v1/operator/releases'
+  $createOperation = "Post $createPath"
+  $createAttempts = 0
+  while ($true) {
+    $createAttempts += 1
+    $release = @{
+      certificateSha256 = $manifest.certificateSha256
+      forced = $false
+      minimumSupportedVersionCode = $MinimumSupportedVersionCode
+      notes = $Notes
+      receiptId = $uploaded.data.receiptId
+      rolloutPercentage = $RolloutPercentage
+    }
+    try {
+      Invoke-OperatorJson -Method Post -Path $createPath -Headers $operatorHeaders -Body $release | Out-Null
+      break
+    } catch {
+      $failure = "$($_.Exception.Message) $($_.ErrorDetails.Message)"
+      $recoverableReceipt = $failure -match 'upload_receipt_invalid|release_artifact_mismatch'
+      if (-not $recoverableReceipt -or $createAttempts -ge 2) { throw }
+      Write-Host '[release] Upload receipt expired or no longer matches storage; uploading once more with a new operation key'
+      $journal.upload = $null
+      $journal.operations.Remove($createOperation)
+      Save-ReleaseJournal
+      $uploaded = Invoke-ReleaseUpload
+    }
   }
-  Invoke-OperatorJson -Method Post -Path '/api/v1/operator/releases' -Headers $operatorHeaders -Body $release | Out-Null
 
   Write-Host "[release] Publishing at $RolloutPercentage% rollout"
   Invoke-OperatorJson -Method Post -Path "/api/v1/operator/releases/$VersionCode/publish" -Headers $operatorHeaders -Body @{} | Out-Null

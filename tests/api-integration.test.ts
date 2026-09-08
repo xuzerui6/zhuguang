@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import test from "node:test";
 import { handleApiRequest } from "../server/api/router";
@@ -9,6 +9,45 @@ import { sendEmailOtp } from "../server/api/email";
 import { requestEmailOtpD1 } from "../server/api/email-auth";
 import { buildJPushPayload } from "../server/api/push";
 import { keyedHash } from "../server/api/security";
+import { sendOtpSms } from "../server/api/sms";
+import { getOpsOverviewD1, listOpsLeadsD1, getOpsProductFunnelD1 } from "../server/api/operations";
+import { classifyMetricEntityD1, updateOperatorCatalogItemD1 } from "../server/api/expansion";
+
+test("P1 operational counts exclude unclassified/QA and classification audit is atomic", async () => {
+  const database = new D1Adapter(); await migrate(database);
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: 'test', DB: database };
+  database.sqlite.exec(`INSERT INTO service_leads(id,contact_name,sport,district,goal,source,status,created_at,updated_at) VALUES
+    ('qa-lead','QA','田径','通州区','isolated','qa','new',1,1),('real-lead','Test','田径','通州区','isolated','qa','new',1,1),('old-lead','Legacy','田径','通州区','isolated','qa','new',1,1);
+    INSERT INTO product_events(id,session_id,surface,role,flow,step,outcome,created_at) VALUES ('event-qa','test','web','student','booking','start','ok',${Date.now()});`);
+  assert.deepEqual(await listOpsLeadsD1(env), []);
+  await classifyMetricEntityD1('service_lead','qa-lead','qa','隔离分类测试','operator','r1',env);
+  await classifyMetricEntityD1('service_lead','real-lead','production_eligible','隔离分类测试','operator','r2',env);
+  assert.equal((await listOpsLeadsD1(env)).length,1);
+  const overview = await getOpsOverviewD1(env);
+  assert.equal(overview.leads.reduce((n,row)=>n+Number(row.count),0),1);
+  assert.equal((await getOpsProductFunnelD1(env)).length,0);
+  await classifyMetricEntityD1('product_event','event-qa','qa','匿名事件分类','operator','r3',env);
+  database.sqlite.exec("CREATE TRIGGER qa_fail_audit BEFORE INSERT ON ops_audit_logs BEGIN SELECT RAISE(ABORT,'injected audit failure'); END;");
+  await assert.rejects(classifyMetricEntityD1('service_lead','qa-lead','production_eligible','审计失败测试','operator','r4',env),/injected/);
+  assert.equal(database.sqlite.prepare("SELECT classification FROM entity_metric_classifications WHERE entity_id='qa-lead'").get()?.classification,'qa');
+  const sport = database.sqlite.prepare('SELECT id,status FROM service_sports LIMIT 1').get()!;
+  await assert.rejects(updateOperatorCatalogItemD1('sport',String(sport.id),'disabled','审计失败测试','operator','r5',env),/injected/);
+  assert.equal(database.sqlite.prepare('SELECT status FROM service_sports WHERE id=?').get(sport.id as string)?.status,sport.status);
+  assert.equal(database.sqlite.prepare('SELECT count(*) AS n FROM service_leads').get()?.n,3);
+});
+
+test("patched Tencent SMS SDK constructs and retains success/failure semantics", async () => {
+  const sdk = await import("tencentcloud-sdk-nodejs-sms");
+  const proto = sdk.sms.v20210111.Client.prototype;
+  const original = proto.SendSms;
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', TENCENTCLOUD_SECRET_ID: "isolated", TENCENTCLOUD_SECRET_KEY: "isolated", TENCENT_SMS_SDK_APP_ID: "test", TENCENT_SMS_SIGN_NAME: "test", TENCENT_SMS_TEMPLATE_ID: "test" };
+  try {
+    proto.SendSms = async (input) => { assert.deepEqual(input.PhoneNumberSet, ["+8613800000000"]); return { RequestId: "test-send", SendStatusSet: [{ Code: "Ok" }] }; };
+    assert.equal(await sendOtpSms("13800000000", "000000", "test-challenge", env), "test-send");
+    proto.SendSms = async () => ({ RequestId: "test-failure", SendStatusSet: [{ Code: "Failed" }] });
+    await assert.rejects(sendOtpSms("13800000000", "000000", "test-challenge", env), (error: unknown) => (error as { status?: number }).status === 502);
+  } finally { proto.SendSms = original; }
+});
 
 if (!globalThis.crypto) Object.defineProperty(globalThis, "crypto", { value: webcrypto });
 
@@ -95,9 +134,15 @@ class StatementAdapter implements D1PreparedStatement {
 }
 
 class D1Adapter implements D1Database {
+  private batchQueue: Promise<unknown> = Promise.resolve();
   constructor(readonly sqlite = new DatabaseSync(":memory:")) {}
   prepare(query: string) { return new StatementAdapter(this.sqlite, query); }
   async batch<T = Record<string, unknown>>(statements: D1PreparedStatement[]) {
+    const result = this.batchQueue.then(() => this.executeBatch<T>(statements));
+    this.batchQueue = result.catch(() => undefined);
+    return result;
+  }
+  private async executeBatch<T>(statements: D1PreparedStatement[]) {
     this.sqlite.exec("BEGIN IMMEDIATE");
     try {
       const results = [];
@@ -159,6 +204,69 @@ class MemoryR2 implements R2Bucket {
 
 const context = { waitUntil(promise: Promise<unknown>) { void promise.catch(() => undefined); } };
 
+test("operator endpoints distinguish missing authentication from wrong role", async () => {
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", OPERATOR_API_SECRET: "isolated-operator-key" };
+  const anonymous = await request(env, "/api/v1/operator/overview");
+  assert.equal(anonymous.response.status, 401);
+  assert.equal((anonymous.payload?.error as { code: string }).code, "authentication_required");
+  const forged = await request(env, "/api/v1/operator/overview", { headers: { "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": "invalid" } });
+  assert.equal(forged.response.status, 401);
+  const other = await request(env, "/api/v1/operator/overview", { headers: { "x-operator-actor": "student@example.com", "x-operator-secret": env.OPERATOR_API_SECRET! } });
+  assert.equal(other.response.status, 403);
+  assert.equal((other.payload?.error as { code: string }).code, "role_forbidden");
+});
+
+test("operator public coach count excludes demo and unapproved supply", async () => {
+  const database = new D1Adapter(); await migrate(database); seedSupply(database);
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", DB: database, OPERATOR_API_SECRET: "count-test" };
+  await classifyMetricEntityD1('coach','1','production_eligible','隔离供给核验','operator','count',env);
+  const readCount = async () => {
+    const result = await request(env, "/api/v1/operator/overview", { headers: { "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": "count-test" } });
+    assert.equal(result.response.status, 200);
+    return ((result.payload?.data as { coaches: Array<{ status: string; count: number }> }).coaches).find((row) => row.status === "online")?.count ?? 0;
+  };
+  database.sqlite.prepare("UPDATE coaches SET profile_kind='demo',listing_status='online' WHERE id=1").run();
+  assert.equal(await readCount(), 0);
+  database.sqlite.prepare("UPDATE coaches SET profile_kind='real' WHERE id=1").run();
+  assert.equal(await readCount(), 1);
+  database.sqlite.prepare("UPDATE coaches SET audit_status='suspended' WHERE id=1").run();
+  assert.equal(await readCount(), 0);
+  database.sqlite.close();
+});
+
+test("P1 real-clock 31-minute isolated web session soak", { skip: process.env.ZHUGUANG_SESSION_SOAK !== "true", timeout: 1_930_000 }, async () => {
+  const { renewWebSession, forwardRenewedCookies } = await import("../app/_lib/web-auth-refresh");
+  const database = new D1Adapter();
+  await migrate(database);
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", DB: database, AUTH_HASH_SECRET: "soak-auth-secret-with-sufficient-length", PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 41).toString("base64"), OPERATOR_API_SECRET: "isolated-proxy-secret" };
+  const session = await authenticate(env, "13800000991");
+  const webEnv = { ZHUGUANG_MOBILE_API_URL: "https://api.local", ZHUGUANG_PILOT_APP_KEY: "isolated-channel", ZHUGUANG_OPERATOR_API_SECRET: env.OPERATOR_API_SECRET };
+  let cookie = `zg_web_access=${session.accessToken}; zg_web_refresh=${session.refreshToken}; zg_web_device=device-test`;
+  let refreshedAt = 0;
+  const fetcher: typeof fetch = async (input, init) => (await handleApiRequest(new Request(String(input), init), env, context))!;
+  const started = Date.now();
+  const report = { startedAt: new Date(started).toISOString(), completed: false, checks: [] as Array<{ minute: number; authenticated: boolean; rotated: boolean }> };
+  await mkdir("artifacts/qa/code25", { recursive: true });
+  for (const minute of [0, 16, 31]) {
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, started + minute * 60_000 - Date.now())));
+    if (minute === 31 && refreshedAt) await new Promise((resolve) => setTimeout(resolve, Math.max(0, refreshedAt + 15 * 60_000 + 1000 - Date.now())));
+    const incoming = new Request("https://web.local/student", { headers: { cookie } });
+    const token = cookie.match(/zg_web_access=([^;]+)/u)?.[1];
+    const identity = await fetcher("https://api.local/api/v1/me", { headers: { authorization: `Bearer ${token}`, "x-device-id": "device-test" } });
+    const result = await renewWebSession(incoming, webEnv, fetcher, identity.status === 401);
+    assert.ok(identity.ok || result.authenticated);
+    cookie = forwardRenewedCookies(incoming, result.changes).get("cookie")!;
+    if (result.changes.length) refreshedAt = Date.now();
+    console.log(`SESSION_SOAK minute=${minute} authenticated=true rotated=${result.changes.length > 0}`);
+    report.checks.push({ minute, authenticated: true, rotated: result.changes.length > 0 });
+    await writeFile("artifacts/qa/code25/session-soak.json", JSON.stringify(report, null, 2));
+  }
+  assert.equal(database.sqlite.prepare("SELECT count(*) AS total FROM session_rotation_claims").get()?.total, 2);
+  report.completed = true;
+  await writeFile("artifacts/qa/code25/session-soak.json", JSON.stringify(report, null, 2));
+  database.sqlite.close();
+});
+
 async function request(env: ApiEnv, path: string, init: RequestInit = {}) {
   const response = await handleApiRequest(new Request(`https://api.local${path}`, init), env, context);
   assert.ok(response);
@@ -170,13 +278,17 @@ function json(body: unknown, headers: Record<string, string> = {}): RequestInit 
   return { body: JSON.stringify(body), headers: { "content-type": "application/json", "x-device-id": "device-test", ...headers }, method: "POST" };
 }
 
-async function migrate(database: D1Adapter) {
+async function migrate(database: D1Adapter, through23 = true) {
   const directory = new URL("../drizzle/", import.meta.url);
-  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql", "0006_verified_coach_profiles.sql", "0007_operational_closure.sql", "0008_public_app_downloads.sql", "0009_business_scheduling.sql", "0010_student_time_requests.sql", "0011_user_account_profiles.sql", "0012_trusted_reviews_and_telemetry.sql", "0013_review_closure_and_message_receipts.sql", "0014_secure_service_leads.sql"]) {
+  for (const file of ["0000_late_hawkeye.sql", "0001_gifted_glorian.sql", "0002_brave_raza.sql", "0003_slimy_obadiah_stane.sql", "0004_rainy_vector.sql", "0006_verified_coach_profiles.sql", "0007_operational_closure.sql", "0008_public_app_downloads.sql", "0009_business_scheduling.sql", "0010_student_time_requests.sql", "0011_user_account_profiles.sql", "0012_trusted_reviews_and_telemetry.sql", "0013_review_closure_and_message_receipts.sql", "0014_secure_service_leads.sql", "0015_beijing_service_catalog.sql", "0016_booking_contract_and_evidence.sql", "0017_transaction_sandbox.sql", "0018_trust_metric_provenance.sql"]) {
     const source = await readFile(new URL(file, directory), "utf8");
     for (const statement of source.split("--> statement-breakpoint").map((item) => item.trim()).filter(Boolean)) database.sqlite.exec(statement);
   }
   database.sqlite.exec("PRAGMA foreign_keys = ON");
+  for (const file of ["0019_session_rotation_receipts.sql", "0020_completion_decision_idempotency.sql", "0021_entity_metric_classification.sql", "0022_public_review_provenance.sql", "0023_release_safety_and_classification.sql"]) {
+    if (!through23 && file.startsWith("0023")) continue;
+    database.sqlite.exec(await readFile(new URL(file, directory), "utf8"));
+  }
 }
 
 test("verified reviews enforce eligibility, privacy, thresholds, reactions and report resolution", async () => {
@@ -184,7 +296,7 @@ test("verified reviews enforce eligibility, privacy, thresholds, reactions and r
   await migrate(database);
   seedSupply(database);
   const operatorSecret = "operator-review-secret";
-  const env: ApiEnv = {
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com',
     APP_ENV: "test",
     AUTH_HASH_SECRET: "review-test-auth-secret-with-adequate-length",
     DB: database,
@@ -206,6 +318,11 @@ test("verified reviews enforce eligibility, privacy, thresholds, reactions and r
   const operatorHeaders = { "content-type": "application/json", "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": operatorSecret };
   const approved = await request(env, `/api/v1/operator/reviews/${reviewId}`, { body: JSON.stringify({ note: "真实履约内容审核通过", status: "approved" }), headers: operatorHeaders, method: "PATCH" });
   assert.equal(approved.response.status, 200);
+
+  for (const [entityType, entityId] of [["user", userId], ["booking", "booking-review"], ["coach", "1"], ["review", reviewId]]) {
+    const classified = await request(env, "/api/v1/operator/trust-metrics/classifications", json({ entityType, entityId, classification: "production_eligible", reason: "隔离测试公开评价资格" }, operatorHeaders));
+    assert.equal(classified.response.status, 201);
+  }
 
   env.PILOT_APP_KEY = "review-test-app-key";
   const publicReviews = await request(env, "/api/v1/coaches/1/reviews");
@@ -231,7 +348,7 @@ test("completed courses expose review eligibility, notify once and allow one rej
   await migrate(database);
   seedSupply(database);
   const operatorSecret = "operator-review-resubmit";
-  const env: ApiEnv = { APP_ENV: "test", AUTH_HASH_SECRET: "review-resubmit-auth-secret-long-enough", DB: database, OPERATOR_API_SECRET: operatorSecret, PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 33).toString("base64") };
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", AUTH_HASH_SECRET: "review-resubmit-auth-secret-long-enough", DB: database, OPERATOR_API_SECRET: operatorSecret, PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 33).toString("base64") };
   const student = await authenticate(env, "13800000882");
   const coach = await authenticate(env, "13800000883");
   const studentMe = await request(env, "/api/v1/me", { headers: { authorization: `Bearer ${student.accessToken}` } });
@@ -272,7 +389,7 @@ test("coach conversations preserve unread student messages and clear them only f
   const database = new D1Adapter();
   await migrate(database);
   seedSupply(database);
-  const env: ApiEnv = { APP_ENV: "test", AUTH_HASH_SECRET: "message-receipt-auth-secret-long-enough", DB: database, PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 34).toString("base64") };
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", AUTH_HASH_SECRET: "message-receipt-auth-secret-long-enough", DB: database, PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 34).toString("base64") };
   const student = await authenticate(env, "13800000884");
   const coach = await authenticate(env, "13800000885");
   const studentMe = await request(env, "/api/v1/me", { headers: { authorization: `Bearer ${student.accessToken}` } });
@@ -305,7 +422,7 @@ test("registered Android and iOS devices can request email OTP when Turnstile is
   await migrate(database);
   const deviceId = "device_123e4567-e89b-42d3-a456-426614174000";
   const now = Date.now();
-  const env: ApiEnv = {
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com',
     APP_ENV: "test",
     AUTH_HASH_SECRET: "test-auth-hash-secret-with-adequate-length",
     DB: database,
@@ -389,6 +506,8 @@ function seedSupply(database: D1Adapter) {
     VALUES (1, '周明', '羽毛球', '北京', '朝阳区', '国家队退役', '专项提升教练', '十年专业训练经验', 52000, 9900, 492, 386, 128,
       10, 9, '["青少年"]', '["专项提升"]', '["步伐与移动"]', '["周末 10:00"]', 'approved', ?, ?)
   `).run(now, now);
+  database.sqlite.prepare("INSERT OR IGNORE INTO coach_service_regions (coach_id, region_id, is_primary, created_at) VALUES (1, 'beijing-chaoyang', 1, ?)").run(now);
+  database.sqlite.prepare("INSERT OR IGNORE INTO coach_sports (coach_id, sport_id, is_primary, created_at) VALUES (1, 'sport-badminton', 1, ?)").run(now);
   database.sqlite.prepare("INSERT INTO venues (id, coach_id, name, address, city, district, active, created_at) VALUES ('venue-1', 1, '朝阳体育中心', '朝阳区安定路 1 号', '北京', '朝阳区', 1, ?)").run(now);
   database.sqlite.prepare("INSERT INTO availability_slots (id, coach_id, venue_id, starts_at, ends_at, status, created_at, updated_at) VALUES ('slot-1', 1, 'venue-1', ?, ?, 'open', ?, ?)").run(startsAt, endsAt, now, now);
 }
@@ -414,7 +533,7 @@ test("account profiles validate identity claims, protect avatar tickets and merg
   const media = new MemoryR2();
   await migrate(database);
   const operatorSecret = "operator-test-secret";
-  const env: ApiEnv = {
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com',
     APP_ENV: "test",
     AUTH_HASH_SECRET: "profile-test-auth-secret-with-adequate-length",
     DB: database,
@@ -501,7 +620,7 @@ test("D1 migration, auth rotation, favorite merge and slot concurrency form a re
   const database = new D1Adapter();
   await migrate(database);
   seedSupply(database);
-  const env: ApiEnv = {
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com',
     APP_ENV: "test",
     AUTH_HASH_SECRET: "test-auth-hash-secret-with-adequate-length",
     DB: database,
@@ -580,7 +699,7 @@ test("service leads remain backward compatible while contacts require audited si
   const database = new D1Adapter();
   await migrate(database);
   seedSupply(database);
-  const env: ApiEnv = {
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com',
     APP_ENV: "test",
     AUTH_HASH_SECRET: "test-auth-hash-secret-with-adequate-length",
     DB: database,
@@ -610,6 +729,12 @@ test("service leads remain backward compatible while contacts require audited si
   assert.equal(modern.response.status, 201);
   const noContact = await request(env, "/api/v1/service-leads", json({ contactName: "无联系方式", district: "通州区", goal: "咨询", sport: "田径" }));
   assert.equal(noContact.response.status, 422);
+  const privacyRequest = await request(env, "/api/v1/privacy-requests", json({
+    contactName: "匿名咨询用户",
+    contactWechat: "privacy_contact",
+    request: "请求查询并更正此前提交的训练咨询资料",
+  }));
+  assert.equal(privacyRequest.response.status, 201);
 
   const stored = database.sqlite.prepare("SELECT contact_email_encrypted, contact_phone_encrypted, contact_wechat_encrypted FROM service_leads ORDER BY created_at LIMIT 1").get() as { contact_email_encrypted: string; contact_phone_encrypted: string | null; contact_wechat_encrypted: string | null };
   assert.notEqual(stored.contact_email_encrypted, "student@example.com");
@@ -617,8 +742,8 @@ test("service leads remain backward compatible while contacts require audited si
   assert.equal(stored.contact_wechat_encrypted, null);
 
   const unauthorised = await request(env, "/api/v1/operator/leads");
-  assert.equal(unauthorised.response.status, 403);
-  const operatorView = await request(env, "/api/v1/operator/leads", { headers: { "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": "operator-test-secret" } });
+  assert.equal(unauthorised.response.status, 401);
+  const operatorView = await request(env, "/api/v1/operator/leads?classification=all", { headers: { "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": "operator-test-secret" } });
   assert.equal(operatorView.response.status, 200);
   const leads = operatorView.payload?.data as Array<Record<string, unknown>>;
   assert.equal(leads.some((lead) => "contact_email" in lead || "contact_phone" in lead || "contact_wechat" in lead), false);
@@ -627,7 +752,7 @@ test("service leads remain backward compatible while contacts require audited si
   assert.equal(emailLead.lead_kind, "student_inquiry");
 
   const deniedReveal = await request(env, `/api/v1/operator/service-leads/${emailLead.id}/contact-reveal`, { method: "POST" });
-  assert.equal(deniedReveal.response.status, 403);
+  assert.equal(deniedReveal.response.status, 401);
   const revealed = await request(env, `/api/v1/operator/service-leads/${emailLead.id}/contact-reveal`, {
     headers: { "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": "operator-test-secret" },
     method: "POST",
@@ -641,11 +766,237 @@ test("service leads remain backward compatible while contacts require audited si
   database.sqlite.close();
 });
 
+test("Beijing catalog, immutable contracts, fulfillment V2 and test payments stay feature-gated", async () => {
+  const database = new D1Adapter();
+  await migrate(database);
+  seedSupply(database);
+  database.sqlite.exec("UPDATE service_regions SET status = 'published'; UPDATE service_sports SET status = 'published'");
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com',
+    APP_ENV: "test",
+    AUTH_HASH_SECRET: "expansion-test-auth-secret-with-adequate-length",
+    BEIJING_CATALOG_V2_ENABLED: "true",
+    CANCELLATION_POLICY_VERSION_ID: "test-cancel-v1",
+    DB: database,
+    FULFILLMENT_V2_ENABLED: "true",
+    ONLINE_TRANSACTION_ENABLED: "true",
+    PAYMENT_PROVIDER: "test",
+    PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 44).toString("base64"),
+    EVIDENCE: new MemoryR2(),
+    SUPPORT_EVIDENCE_ENABLED: "true",
+    TERMS_VERSION_ID: "test-terms-v1",
+  };
+  const student = await authenticate(env, "13800000901");
+  const coach = await authenticate(env, "13800000902");
+  const studentMe = await request(env, "/api/v1/me", { headers: { authorization: `Bearer ${student.accessToken}` } });
+  const coachMe = await request(env, "/api/v1/me", { headers: { authorization: `Bearer ${coach.accessToken}` } });
+  const studentId = String((studentMe.payload?.data as { userId: string }).userId);
+  const coachUserId = String((coachMe.payload?.data as { userId: string }).userId);
+  const learnerId = String(database.sqlite.prepare("SELECT id FROM learner_profiles WHERE user_id = ? LIMIT 1").get(studentId)?.id);
+  database.sqlite.prepare("UPDATE coaches SET user_id = ? WHERE id = 1").run(coachUserId);
+  database.sqlite.prepare("INSERT INTO user_roles (user_id, role, status, granted_at, updated_at) VALUES (?, 'coach', 'active', ?, ?)").run(coachUserId, Date.now(), Date.now());
+
+  const catalog = await request(env, "/api/v1/catalog");
+  assert.equal(catalog.response.status, 200);
+  assert.deepEqual((catalog.payload?.data as { regions: Array<{ name: string }> }).regions.map((item) => item.name), ["朝阳区"]);
+  const outsideBeijing = await request(env, "/api/v1/bookings", json({ coachId: 1, customAddress: "测试地址", customDistrict: "上海市", durationMinutes: 60, learnerId, locationType: "custom", startsAt: Date.now() + 4 * 60 * 60_000 }, { authorization: `Bearer ${student.accessToken}`, "idempotency-key": "outside-beijing" }));
+  assert.equal(outsideBeijing.response.status, 422);
+
+const created = await request(env, "/api/v1/bookings", json({ coachId: 1, durationMinutes: 90, learnerId, locationType: "venue", startsAt: Date.now() + 5 * 60 * 60_000, venueId: "venue-1" }, { authorization: `Bearer ${student.accessToken}`, "idempotency-key": "v2-booking", "x-booking-flow": "2" }));
+  assert.equal(created.response.status, 201);
+  const bookingId = String((created.payload?.data as { id: string }).id);
+  const snapshot = database.sqlite.prepare("SELECT * FROM booking_contract_snapshots WHERE booking_id = ?").get(bookingId) as Record<string, unknown>;
+  assert.equal(snapshot.duration_minutes, 90);
+  assert.equal(snapshot.terms_version_id, "test-terms-v1");
+  assert.equal(JSON.parse(String(snapshot.location_json)).district, "朝阳区");
+
+  const legacy = await request(env, "/api/v1/bookings", json({ coachId: 1, durationMinutes: 60, learnerId, locationType: "venue", startsAt: Date.now() + 10 * 60 * 60_000, venueId: "venue-1" }, { authorization: `Bearer ${student.accessToken}`, "idempotency-key": "legacy-no-flow-header" }));
+  assert.equal(legacy.response.status, 201);
+  const legacyId = String((legacy.payload?.data as { id: string }).id);
+  assert.equal(database.sqlite.prepare("SELECT count(*) AS n FROM booking_contract_snapshots WHERE booking_id=?").get(legacyId)?.n, 0);
+  assert.equal((await request(env, `/api/v1/coach/bookings/${legacyId}/status`, json({ status: "confirmed" }, { authorization: `Bearer ${coach.accessToken}` }))).response.status, 200);
+  assert.equal((await request(env, `/api/v1/coach/bookings/${legacyId}/status`, json({ status: "completed" }, { authorization: `Bearer ${coach.accessToken}` }))).response.status, 200);
+
+  assert.equal((await request(env, `/api/v1/coach/bookings/${bookingId}/status`, json({ status: "confirmed" }, { authorization: `Bearer ${coach.accessToken}` }))).response.status, 200);
+  const ticket = await request(env, "/api/v1/support-tickets", json({ bookingId, body: "需要提交训练现场凭证", category: "service", subject: "测试证据权限" }, { authorization: `Bearer ${student.accessToken}` }));
+  assert.equal(ticket.response.status, 201);
+  const ticketId = String((ticket.payload?.data as { id: string }).id);
+  const uploaded = await request(env, `/api/v1/support-tickets/${ticketId}/attachments`, {
+    body: new Uint8Array([1, 2, 3]),
+    headers: { authorization: `Bearer ${student.accessToken}`, "content-type": "image/png", "x-file-name": encodeURIComponent("测试凭证.png") },
+    method: "POST",
+  });
+  assert.equal(uploaded.response.status, 201);
+  const attachmentId = String((uploaded.payload?.data as { id: string }).id);
+  const coachDownload = await request(env, `/api/v1/coach/support-tickets/${ticketId}/attachments/${attachmentId}`, { headers: { authorization: `Bearer ${coach.accessToken}` } });
+  assert.equal(coachDownload.response.status, 200);
+  assert.equal(coachDownload.response.headers.get("cache-control"), "private, no-store");
+  assert.deepEqual([...new Uint8Array(await coachDownload.response.arrayBuffer())], [1, 2, 3]);
+  const directComplete = await request(env, `/api/v1/coach/bookings/${bookingId}/status`, json({ status: "completed" }, { authorization: `Bearer ${coach.accessToken}` }));
+  assert.equal((directComplete.payload?.error as { code: string }).code, "completion_confirmation_required");
+  env.FULFILLMENT_V2_ENABLED = "false";
+  assert.equal((await request(env, `/api/v1/coach/bookings/${bookingId}/status`, json({ status: "completed" }, { authorization: `Bearer ${coach.accessToken}` }))).response.status, 409);
+  const completion = await request(env, `/api/v1/coach/bookings/${bookingId}/completion-request`, json({ note: "测试课程已完成" }, { authorization: `Bearer ${coach.accessToken}` }));
+  const completionId = String((completion.payload?.data as { id: string }).id);
+  assert.equal(completion.response.status, 201);
+  assert.equal((await request(env, `/api/v1/booking-completion-requests/${completionId}/respond`, json({ decision: "accepted" }, { authorization: `Bearer ${student.accessToken}` }))).response.status, 200);
+  assert.equal(database.sqlite.prepare("SELECT status FROM booking_requests WHERE id = ?").get(bookingId)?.status, "completed");
+
+  database.sqlite.prepare("UPDATE booking_requests SET status = 'confirmed' WHERE id = ?").run(bookingId);
+  const order = await request(env, `/api/v1/bookings/${bookingId}/payment-orders`, json({}, { authorization: `Bearer ${student.accessToken}`, "idempotency-key": "test-order-1" }));
+  assert.equal(order.response.status, 201);
+  const orderId = String((order.payload?.data as { id: string }).id);
+  assert.equal((await request(env, `/api/v1/payment-orders/${orderId}/test-confirm`, json({}, { authorization: `Bearer ${student.accessToken}` }))).response.status, 200);
+  assert.equal(database.sqlite.prepare("SELECT payment_status FROM booking_requests WHERE id = ?").get(bookingId)?.payment_status, "online_paid");
+
+  const productionBlocked = await request({ ...env, APP_ENV: "production" }, `/api/v1/bookings/${bookingId}/payment-orders`, json({}, { authorization: `Bearer ${student.accessToken}`, "idempotency-key": "production-must-block" }));
+  assert.equal((productionBlocked.payload?.error as { code: string }).code, "online_transaction_unavailable");
+  database.sqlite.close();
+});
+
+test("trust metrics exclude unclassified and QA history until explicitly eligible", async () => {
+  const database = new D1Adapter(); await migrate(database); seedSupply(database);
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", DB: database, PUBLIC_TRUST_METRICS_ENABLED: "true", OPERATOR_API_SECRET: "metric-secret" };
+  const empty = await request(env, "/api/v1/public/trust-metrics");
+  assert.deepEqual((empty.payload?.data as { metrics: unknown[] }).metrics, []);
+  const headers = { "content-type": "application/json", "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": "metric-secret" };
+  const classified = await request(env, "/api/v1/operator/trust-metrics/classifications", { body: JSON.stringify({ classification: "production_eligible", entityId: "1", entityType: "coach", reason: "真实教练资料已人工核验" }), headers, method: "POST" });
+  assert.equal(classified.response.status, 201);
+  const visible = await request(env, "/api/v1/public/trust-metrics");
+  assert.deepEqual((visible.payload?.data as { metrics: Array<{ key: string; value: number }> }).metrics, [{ key: "verifiedCoaches", label: "已核验公开教练", value: 1 }]);
+  database.sqlite.close();
+});
+
+test("P1 web refresh coalesces trusted retries without minting duplicate sessions", async () => {
+  const database = new D1Adapter(); await migrate(database); seedSupply(database);
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", DB: database, AUTH_HASH_SECRET: "refresh-regression-secret", OPERATOR_API_SECRET: "trusted-web-proxy", PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 17).toString("base64") };
+  const session = await authenticate(env, "13800000751");
+  database.sqlite.exec("UPDATE sessions SET access_expires_at = 0");
+  const init = () => json({ refreshToken: session.refreshToken }, { "x-operator-secret": "trusted-web-proxy", "idempotency-key": "refresh-regression-01" });
+  const results = await Promise.all([request(env, "/api/v1/auth/refresh", init()), request(env, "/api/v1/auth/refresh", init())]);
+  assert.deepEqual(results.map((r) => r.response.status), [200, 200]);
+  assert.ok(JSON.stringify(results[0].payload?.data) === JSON.stringify(results[1].payload?.data), "parallel refresh must return the same session");
+  assert.equal(database.sqlite.prepare("SELECT count(*) AS n FROM sessions WHERE revoked_at IS NULL").get()?.n, 1);
+  const replay = await request(env, "/api/v1/auth/refresh", init());
+  assert.ok(JSON.stringify(replay.payload?.data) === JSON.stringify(results[0].payload?.data), "trusted retry must return the same session");
+  const reuse = await request(env, "/api/v1/auth/refresh", json({ refreshToken: session.refreshToken }));
+  assert.equal(reuse.response.status, 401);
+  assert.equal(database.sqlite.prepare("SELECT count(*) AS n FROM sessions WHERE revoked_at IS NULL").get()?.n, 0);
+  database.sqlite.close();
+});
+
+test("native booking capability header is allowed by production CORS without exposing foreign origins", async () => {
+  const result = await request({ APP_ENV: "production" }, "/api/v1/bookings", { method: "OPTIONS", headers: { origin: "https://localhost", "access-control-request-method": "POST", "access-control-request-headers": "x-booking-flow,authorization" } });
+  assert.equal(result.response.headers.get("access-control-allow-origin"), "https://localhost");
+  assert.match(result.response.headers.get("access-control-allow-headers") || "", /\bx-booking-flow\b/u);
+  const foreign = await request({ APP_ENV: "production" }, "/api/v1/bookings", { method: "OPTIONS", headers: { origin: "https://untrusted.example" } });
+  assert.equal(foreign.response.headers.get("access-control-allow-origin"), null);
+});
+
+test("public channel identity never authorizes learner, coach or operator data", async () => {
+  const database = new D1Adapter();
+  await migrate(database);
+  seedSupply(database);
+  database.sqlite.prepare("UPDATE coaches SET siwc_email='xuzerui6@gmail.com' WHERE id=1").run();
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", DB: database, PILOT_APP_KEY: "public-channel-identity" };
+  for (const path of ["/api/v1/bookings", "/api/v1/coach/overview", "/api/v1/operator/coaches"]) {
+    const result = await request(env, path, { headers: { "x-zhuguang-app-key": env.PILOT_APP_KEY!, "x-operator-actor": "xuzerui6@gmail.com" } });
+    assert.equal(result.response.status, 401, path);
+  }
+  const forged = await request(env, "/api/v1/coach/overview", { headers: { "x-zhuguang-app-key": env.PILOT_APP_KEY!, "oai-authenticated-user-email": "xuzerui6@gmail.com" } });
+  assert.equal(forged.response.status, 401, "a client cannot manufacture a trusted coach email");
+  database.sqlite.close();
+});
+
+test("P1 completion decisions are atomic under contention and replay", async () => {
+  for (const decisions of [["accepted", "accepted"], ["accepted", "disputed"], ["disputed", "disputed"]]) {
+    const database = new D1Adapter(); await migrate(database); seedSupply(database);
+    const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", DB: database, AUTH_HASH_SECRET: "completion-regression-secret", PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 18).toString("base64"), FULFILLMENT_V2_ENABLED: "true" };
+    const student = await authenticate(env, "13800000752");
+    const userId = String(database.sqlite.prepare("SELECT user_id FROM sessions LIMIT 1").get()?.user_id);
+    const learnerId = String(database.sqlite.prepare("SELECT id FROM learner_profiles WHERE user_id = ? LIMIT 1").get(userId)?.id);
+    database.sqlite.prepare("INSERT INTO booking_requests (id,idempotency_key,user_id,learner_profile_id,coach_id,venue_id,slot_id,status,fee_fen,payment_status,note,created_at,updated_at) VALUES ('race-booking','race-booking',?,?,1,'venue-1','slot-1','confirmed',9900,'offline_paid','QA concurrency',?,?)").run(userId,learnerId,Date.now(),Date.now());
+    database.sqlite.prepare("INSERT INTO booking_completion_requests (id,booking_id,requested_by_user_id,status) VALUES ('race-completion','race-booking',?,'pending_student')").run(userId);
+    const submit = (decision: string, key: string) => request(env, "/api/v1/booking-completion-requests/race-completion/respond", json({ decision, note: "测试决定" }, { authorization: `Bearer ${student.accessToken}`, "idempotency-key": key }));
+    database.sqlite.exec("CREATE TRIGGER qa_fail_event BEFORE INSERT ON booking_events BEGIN SELECT RAISE(ABORT,'injected transaction failure'); END");
+    assert.equal((await submit("accepted", "completion-rollback")).response.status, 500);
+    assert.equal(database.sqlite.prepare("SELECT count(*) AS n FROM booking_completion_responses").get()?.n, 0);
+    assert.equal(database.sqlite.prepare("SELECT status FROM booking_completion_requests WHERE id='race-completion'").get()?.status, "pending_student");
+    database.sqlite.exec("DROP TRIGGER qa_fail_event");
+    const results = await Promise.all(decisions.map((decision, index) => submit(decision, `completion-${index}`)));
+    assert.equal(results.filter((r) => r.response.status === 200).length, 1);
+    assert.equal(results.filter((r) => r.response.status === 409).length, 1);
+    const winner = results.findIndex((r) => r.response.status === 200);
+    const replay = await submit(decisions[winner], `completion-${winner}`);
+    assert.deepEqual(replay.payload?.data, results[winner].payload?.data);
+    assert.equal(database.sqlite.prepare("SELECT count(*) AS n FROM booking_events WHERE booking_id='race-booking'").get()?.n, 1);
+    const ticketCount = database.sqlite.prepare("SELECT count(*) AS n FROM support_tickets WHERE completion_request_id='race-completion'").get()?.n;
+    assert.equal(ticketCount, decisions[winner] === "disputed" ? 1 : 0);
+    database.sqlite.close();
+  }
+});
+
+test("P1 logout revokes successors and encrypted retry receipts cannot restore them", async () => {
+  const database = new D1Adapter(); await migrate(database);
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", DB: database, AUTH_HASH_SECRET: "logout-regression-secret", OPERATOR_API_SECRET: "trusted-web-proxy", PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 17).toString("base64") };
+  const session = await authenticate(env, "13800000754");
+  const init = () => json({ refreshToken: session.refreshToken }, { "x-operator-secret": "trusted-web-proxy", "idempotency-key": "logout-race-refresh" });
+  const refreshed = await request(env, "/api/v1/auth/refresh", init());
+  assert.equal(refreshed.response.status, 200);
+  const logout = await request(env, "/api/v1/auth/logout-refresh", json({ refreshToken: session.refreshToken }));
+  assert.equal(logout.response.status, 200);
+  assert.equal((await request(env, "/api/v1/auth/refresh", init())).response.status, 401);
+  assert.equal(database.sqlite.prepare("SELECT count(*) AS n FROM sessions WHERE revoked_at IS NULL").get()?.n, 0);
+  database.sqlite.close();
+});
+
+test("P1 review metrics require own, booking and account provenance; ticket classification persists", async () => {
+  const database = new D1Adapter(); await migrate(database); seedSupply(database);
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", DB: database, AUTH_HASH_SECRET: "classification-auth-secret", PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 12).toString("base64"), OPERATOR_API_SECRET: "classification-secret", PUBLIC_TRUST_METRICS_ENABLED: "true" };
+  await authenticate(env, "13800000755");
+  const userId = String(database.sqlite.prepare("SELECT user_id FROM sessions LIMIT 1").get()?.user_id);
+  const learnerId = String(database.sqlite.prepare("SELECT id FROM learner_profiles WHERE user_id=? LIMIT 1").get(userId)?.id);
+  database.sqlite.prepare("INSERT INTO booking_requests (id,idempotency_key,user_id,learner_profile_id,coach_id,venue_id,slot_id,status,fee_fen,payment_status,note,created_at,updated_at) VALUES ('metric-booking','metric-booking',?,?,1,'venue-1','slot-1','completed',9900,'offline_paid','QA metrics',?,?)").run(userId,learnerId,Date.now(),Date.now());
+  database.sqlite.prepare("INSERT INTO coach_reviews(id,booking_id,user_id,coach_id,rating,body,status) VALUES('metric-review','metric-booking',?,1,5,'isolated fixture','approved')").run(userId);
+  database.sqlite.prepare("INSERT INTO support_tickets(id,created_by_user_id,created_by_role,category,subject) VALUES('metric-ticket',?,'student','other','QA fixture')").run(userId);
+  const classify = (entityType: string, entityId: string, classification: string) => request(env, "/api/v1/operator/trust-metrics/classifications", json({ entityType, entityId, classification, reason: "隔离数据分类验证" }, { "x-operator-secret": "classification-secret", "x-operator-actor": "xuzerui6@gmail.com" }));
+  const reviewCount = async () => ((await request(env,"/api/v1/public/trust-metrics")).payload?.data as { metrics: Array<{key:string;value:number}> }).metrics.find((m) => m.key === "verifiedReviews")?.value || 0;
+  const publicReviewCount = async () => ((await request(env, "/api/v1/coaches/1/reviews")).payload?.data as { summary: { total: number } }).summary.total;
+  assert.equal(await publicReviewCount(), 0, "unclassified reviews must not appear on coach profiles");
+  for (const [type,id] of [["user",userId],["booking","metric-booking"],["coach","1"]]) assert.equal((await classify(type,id,"production_eligible")).response.status,201);
+  assert.equal(await reviewCount(),0);
+  await classify("review","metric-review","production_eligible");
+  assert.equal(await reviewCount(),1);
+  assert.equal(await publicReviewCount(),1);
+  await classify("coach","1","qa");
+  assert.equal(await reviewCount(),0);
+  assert.equal(await publicReviewCount(),0);
+  await classify("coach","1","production_eligible");
+  await classify("review","metric-review","qa");
+  assert.equal(await reviewCount(),0);
+  await classify("review","metric-review","production_eligible");
+  await classify("user",userId,"excluded");
+  assert.equal(await reviewCount(),0);
+  await classify("support_ticket","metric-ticket","excluded");
+  assert.equal(database.sqlite.prepare("SELECT classification FROM entity_metric_classifications WHERE entity_type='support_ticket'").get()?.classification,"excluded");
+  database.sqlite.close();
+});
+
+test("P1 classification rejects nonexistent entities without false audit success", async () => {
+  const database = new D1Adapter(); await migrate(database); seedSupply(database);
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", DB: database, OPERATOR_API_SECRET: "classification-secret" };
+  for (const entityType of ["user", "coach", "booking", "review", "support_ticket"]) {
+    const response = await request(env, "/api/v1/operator/trust-metrics/classifications", json({ entityType, entityId: "999999", classification: "production_eligible", reason: "测试不存在记录" }, { "x-operator-secret": "classification-secret", "x-operator-actor": "xuzerui6@gmail.com" }));
+    assert.equal(response.response.status, 404);
+  }
+  assert.equal(database.sqlite.prepare("SELECT count(*) AS n FROM metric_classification_events").get()?.n, 0);
+  database.sqlite.close();
+});
+
 test("OTP policy enforces five attempts, hourly limits and production SMS configuration", async () => {
   const database = new D1Adapter();
   await migrate(database);
   seedSupply(database);
-  const env: ApiEnv = {
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com',
     APP_ENV: "test",
     AUTH_HASH_SECRET: "test-auth-hash-secret-with-adequate-length",
     DB: database,
@@ -688,7 +1039,7 @@ test("coach media honors quoted, weak and multi-value ETags", async () => {
   seedSupply(database);
   database.sqlite.prepare("UPDATE coaches SET avatar_object_key = 'coaches/1/avatar.webp' WHERE id = 1").run();
   await media.put("coaches/1/avatar.webp", "coach-avatar");
-  const env: ApiEnv = { APP_ENV: "test", DB: database, MEDIA: media, MOBILE_API_ORIGIN: "https://api.example.test" };
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", DB: database, MEDIA: media, MOBILE_API_ORIGIN: "https://api.example.test" };
 
   const catalog = await request(env, "/api/v1/coaches/1");
   assert.match((catalog.payload?.data as { avatarUrl: string }).avatarUrl, /^https:\/\/api\.example\.test\/api\/v1\/media\/coaches\/1\/avatar\?v=\d+$/u);
@@ -712,7 +1063,7 @@ test("operator listing controls hide public discovery without changing audit sta
   await migrate(database);
   seedSupply(database);
   const operatorSecret = "operator-listing-secret";
-  const env: ApiEnv = { APP_ENV: "test", DB: database, OPERATOR_API_SECRET: operatorSecret };
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", DB: database, OPERATOR_API_SECRET: operatorSecret };
   const operatorHeaders = { "content-type": "application/json", "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": operatorSecret };
 
   const before = await request(env, "/api/v1/coaches");
@@ -758,7 +1109,7 @@ test("public coach discovery normalizes natural-language filters and reports app
   const database = new D1Adapter();
   await migrate(database);
   seedSupply(database);
-  const env: ApiEnv = { APP_ENV: "test", DB: database };
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", DB: database };
 
   const result = await request(env, "/api/v1/coaches?sport=%E7%BE%BD%E6%AF%9B%E7%90%83%E9%A1%B9%E7%9B%AE&district=%E5%8C%97%E4%BA%AC%E5%B8%82%E6%9C%9D%E9%98%B3&goal=%E4%B8%93%E9%A1%B9%E8%AE%AD%E7%BB%83&audience=%E9%9D%92%E5%B0%91%E5%B9%B4%E5%84%BF%E7%AB%A5");
   assert.equal(result.response.status, 200);
@@ -784,7 +1135,7 @@ test("coach scheduling uses approved venues while operator business changes rema
   seedSupply(database);
   database.sqlite.exec("DELETE FROM availability_slots; DELETE FROM venues;");
   const operatorSecret = "operator-business-secret";
-  const env: ApiEnv = {
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com',
     APP_ENV: "test",
     AUTH_HASH_SECRET: "test-auth-hash-secret-with-adequate-length",
     DB: database,
@@ -862,7 +1213,7 @@ test("profile review, reschedule confirmation and support tickets keep public st
   await migrate(database);
   seedSupply(database);
   const operatorSecret = "operator-workflow-secret";
-  const env: ApiEnv = {
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com',
     APP_ENV: "test",
     AUTH_HASH_SECRET: "workflow-auth-hash-secret-with-adequate-length",
     DB: database,
@@ -910,7 +1261,7 @@ test("operator release flow validates artifacts, publishes and serves a ticketed
   const releases = new MemoryR2();
   const operatorSecret = "operator-test-secret";
   await migrate(database);
-  const env: ApiEnv = {
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com',
     APP_ENV: "test",
     AUTH_HASH_SECRET: "public-download-hash-secret-with-adequate-length",
     DB: database,
@@ -919,7 +1270,15 @@ test("operator release flow validates artifacts, publishes and serves a ticketed
     UPDATE_DOWNLOAD_SECRET: "download-test-secret",
   };
   const operatorHeaders: Record<string, string> = { "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": operatorSecret };
-  const apk = new TextEncoder().encode("signed-test-apk");
+  const apk = new TextEncoder().encode("PK\u0003\u0004signed-test-apk");
+
+  const invalidApk = await request(env, "/api/v1/operator/releases/6/artifact", {
+    body: new TextEncoder().encode("not-an-apk"),
+    headers: { ...operatorHeaders, "content-type": "application/vnd.android.package-archive", "x-release-version-name": "1.2.1" },
+    method: "PUT",
+  });
+  assert.equal(invalidApk.response.status, 422);
+  assert.equal(releases.objects.size, 0);
 
   const rejectedPath = await request(env, "/api/v1/operator/releases/6/artifact", {
     body: apk,
@@ -935,10 +1294,12 @@ test("operator release flow validates artifacts, publishes and serves a ticketed
     method: "PUT",
   });
   assert.equal(uploaded.response.status, 201);
-  const artifact = uploaded.payload?.data as { objectKey: string; sha256: string; sizeBytes: number };
-  assert.equal(artifact.objectKey, "android/1.2.1/zhuguang-android-private-1.2.1.apk");
+  const artifact = uploaded.payload?.data as { receiptId: string; objectKey: string; sha256: string; sizeBytes: number };
+  assert.equal(typeof artifact.receiptId, "string");
+  assert.match(artifact.objectKey, /^android\/1.2.1\//u);
 
   const mismatch = await request(env, "/api/v1/operator/releases", json({
+    confirmed: true, reason: "隔离验证版本创建", receiptId: artifact.receiptId,
     certificateSha256: "AA:BB",
     forced: false,
     minimumSupportedVersionCode: 5,
@@ -950,45 +1311,57 @@ test("operator release flow validates artifacts, publishes and serves a ticketed
     sizeBytes: artifact.sizeBytes,
     versionCode: 6,
     versionName: "1.2.1",
-  }, operatorHeaders));
+  }, { ...operatorHeaders, "idempotency-key": "release-mismatch" }));
   assert.equal(mismatch.response.status, 422);
 
   const created = await request(env, "/api/v1/operator/releases", json({
-    certificateSha256: "AA:BB",
+    certificateSha256: "ab".repeat(32),
+    confirmed: true, reason: "隔离验证版本创建", receiptId: artifact.receiptId,
     forced: false,
     minimumSupportedVersionCode: 5,
     notes: ["真机更新验证"],
-    objectKey: artifact.objectKey,
-    packageId: "com.zhuguang.coachos",
     rolloutPercentage: 50,
-    sha256: artifact.sha256,
-    sizeBytes: artifact.sizeBytes,
-    versionCode: 6,
-    versionName: "1.2.1",
-  }, operatorHeaders));
+  }, { ...operatorHeaders, "idempotency-key": "release-create-test" }));
   assert.equal(created.response.status, 201);
 
   const policy = await request(env, "/api/v1/operator/releases/6/policy", {
-    body: JSON.stringify({ forced: false, minimumSupportedVersionCode: 5, rolloutPercentage: 100 }),
-    headers: { ...operatorHeaders, "content-type": "application/json" },
+    body: JSON.stringify({ forced: false, minimumSupportedVersionCode: 5, rolloutPercentage: 100, confirmed: true, reason: "隔离验证版本策略" }),
+    headers: { ...operatorHeaders, "content-type": "application/json", "idempotency-key": "release-policy-test" },
     method: "PATCH",
   });
   assert.equal((policy.payload?.data as { rolloutPercentage: number }).rolloutPercentage, 100);
-  const published = await request(env, "/api/v1/operator/releases/6/publish", json({}, operatorHeaders));
+  const published = await request(env, "/api/v1/operator/releases/6/publish", json({ confirmed: true, reason: "隔离验证版本发布" }, { ...operatorHeaders, "idempotency-key": "release-publish-test" }));
   assert.equal((published.payload?.data as { status: string }).status, "published");
+
+  database.sqlite.exec("INSERT INTO users(id,status) VALUES ('notify-on','active'),('notify-off','active'); INSERT INTO notification_preferences(user_id,update_enabled) VALUES ('notify-off',0);");
+  const notify = () => request(env, "/api/v1/operator/releases/6/notify", json({ confirmed: true, reason: "隔离验证通知去重" }, { ...operatorHeaders, "idempotency-key": "release-notify-test" }));
+  const notifications = await Promise.all([notify(), notify()]);
+  assert.deepEqual(notifications[0].payload?.data, notifications[1].payload?.data);
+  assert.equal((notifications[0].payload?.data as { queuedUsers: number }).queuedUsers, 1);
+  assert.equal(database.sqlite.prepare("SELECT count(*) AS n FROM notifications WHERE user_id='notify-off'").get()?.n, 0);
+  assert.equal(database.sqlite.prepare("SELECT count(*) AS n FROM release_operations WHERE action='notify'").get()?.n, 1);
+  assert.equal(database.sqlite.prepare("SELECT count(*) AS n FROM ops_audit_logs WHERE action='release.notify'").get()?.n, 1);
+  database.sqlite.exec("CREATE TRIGGER fail_release_audit BEFORE INSERT ON ops_audit_logs WHEN NEW.action='release.pause' BEGIN SELECT RAISE(ABORT,'injected audit failure'); END;");
+  const paused = await request(env, "/api/v1/operator/releases/6/pause", json({ confirmed: true, reason: "隔离验证审计回滚" }, { ...operatorHeaders, "idempotency-key": "release-pause-test" }));
+  assert.equal(paused.response.status, 500);
+  assert.equal(database.sqlite.prepare("SELECT status FROM app_releases WHERE version_code=6").get()?.status, "published");
+  assert.equal(database.sqlite.prepare("SELECT count(*) AS n FROM release_operations WHERE action='pause'").get()?.n, 0);
 
   const listed = await request(env, "/api/v1/operator/releases", { headers: operatorHeaders });
   const releaseList = listed.payload?.data as Array<{ artifactPresent: boolean; versionCode: number }>;
   assert.deepEqual(releaseList.map((release) => [release.versionCode, release.artifactPresent]), [[6, true]]);
 
+  database.sqlite.prepare("UPDATE app_releases SET notes_json=? WHERE version_code=6")
+    .run(JSON.stringify(['"会话续期","弱网恢复","发布安全"']));
   const publicLatest = await request(env, "/api/v1/public/app/releases/latest");
   assert.equal(publicLatest.response.status, 200);
   assert.deepEqual(
     publicLatest.payload?.data && {
       minAndroid: (publicLatest.payload.data as { minAndroid: string }).minAndroid,
+      notes: (publicLatest.payload.data as { notes: string[] }).notes,
       versionCode: (publicLatest.payload.data as { versionCode: number }).versionCode,
     },
-    { minAndroid: "7.0", versionCode: 6 },
+    { minAndroid: "7.0", notes: ["会话续期", "弱网恢复", "发布安全"], versionCode: 6 },
   );
   const publicTicket = await request(env, "/api/v1/public/app/releases/6/download-ticket", {
     body: JSON.stringify({ downloadId: "browser-download-device-0001" }),
@@ -1012,7 +1385,81 @@ test("operator release flow validates artifacts, publishes and serves a ticketed
   assert.ok(download);
   assert.equal(download.status, 200);
   assert.equal(download.headers.get("x-content-sha256"), artifact.sha256);
-  assert.equal(await download.text(), "signed-test-apk");
+  assert.equal(await download.text(), "PK\u0003\u0004signed-test-apk");
+  database.sqlite.close();
+});
+
+test("0023 preserves populated classifications, audit rows, views and immutable triggers", async () => {
+  const db = new D1Adapter(); await migrate(db, false);
+  db.sqlite.exec(`INSERT INTO metric_classification_events(id,entity_type,entity_id,classification,reason,actor) VALUES ('old-event','booking','historical','qa','isolated preservation','test');
+    INSERT INTO entity_metric_classifications VALUES ('booking','historical','qa','old-event',123);
+    INSERT INTO ops_audit_logs(id,actor,action,entity_type,entity_id,detail_json,created_at) VALUES ('old-audit','test','test','booking','historical','{}',123);`);
+  const tables = db.sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[];
+  const before = tables.map(({ name }) => ({ name, columns: (db.sqlite.prepare(`PRAGMA table_info("${name}")`).all() as { name: string }[]).map((c) => `"${c.name}"`).join(','), rows: db.sqlite.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all() }));
+  db.sqlite.exec(await readFile(new URL("../drizzle/0023_release_safety_and_classification.sql", import.meta.url), "utf8"));
+  for (const table of before) assert.deepEqual(db.sqlite.prepare(`SELECT ${table.columns} FROM "${table.name}" ORDER BY rowid`).all(), table.rows, table.name);
+  assert.deepEqual(db.sqlite.prepare("PRAGMA foreign_key_check").all(), []);
+  assert.equal(db.sqlite.prepare("PRAGMA integrity_check").get()?.integrity_check, "ok");
+  assert.equal(db.sqlite.prepare("SELECT count(*) AS n FROM public_eligible_coach_reviews").get()?.n, 0);
+  assert.throws(() => db.sqlite.exec("DELETE FROM metric_classification_events"), /immutable/);
+  assert.throws(() => db.sqlite.exec("UPDATE ops_audit_logs SET actor='changed'"), /immutable/);
+  assert.equal(db.sqlite.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='index' AND name='entity_metric_classification_lookup'").get()?.n, 1);
+  db.sqlite.close();
+});
+
+test("release receipts expire, are single-use, reject malformed policies and survive failed audit", async () => {
+  const db = new D1Adapter(); await migrate(db);
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: 'test', DB: db, RELEASES: new MemoryR2(), OPERATOR_API_SECRET: 'isolated-release' };
+  const headers = { 'x-operator-actor': 'xuzerui6@gmail.com', 'x-operator-secret': 'isolated-release' };
+  const upload = async () => (await request(env,'/api/v1/operator/releases/25/artifact', { method:'PUT', body:'PK\u0003\u0004isolated-apk', headers: {...headers,'content-type':'application/vnd.android.package-archive','x-release-version-name':'1.3.10'} })).payload?.data as { receiptId: string };
+  const receipt = await upload();
+  const body = { receiptId: receipt.receiptId, confirmed:true, reason:'isolated validation', certificateSha256:'ab'.repeat(32), forced:false, minimumSupportedVersionCode:24, rolloutPercentage:10, notes:['isolated'] };
+  const create = (input: unknown, key: string) => request(env,'/api/v1/operator/releases',json(input,{...headers,'idempotency-key':key}));
+  for (const invalid of [{...body,certificateSha256:123},{...body,rolloutPercentage:1.5},{...body,forced:'false'},{...body,confirmed:false},{...body,reason:''}]) assert.equal((await create(invalid,crypto.randomUUID())).response.status,422);
+  db.sqlite.exec("UPDATE release_upload_receipts SET expires_at=1");
+  assert.equal((await create(body,'expired-receipt')).response.status,422);
+  body.receiptId=(await upload()).receiptId;
+  db.sqlite.exec("CREATE TRIGGER injected_release_audit BEFORE INSERT ON ops_audit_logs BEGIN SELECT RAISE(ABORT,'injected'); END;");
+  assert.equal((await create(body,'audit-retry-key')).response.status,500);
+  assert.equal(db.sqlite.prepare("SELECT consumed_at FROM release_upload_receipts WHERE id=?").get(body.receiptId)?.consumed_at,null);
+  db.sqlite.exec("DROP TRIGGER injected_release_audit");
+  const results = await Promise.all([create(body,'audit-retry-key'),create(body,'concurrent-create')]);
+  assert.equal(results.filter((r)=>r.response.status===201).length,1);
+  assert.ok(results.some((r)=>[409,422].includes(r.response.status)));
+  assert.equal((await create(body,results[0].response.status===201?'audit-retry-key':'concurrent-create')).response.status,201);
+  assert.equal((await create(body,'duplicate-consume')).response.status,422);
+  const revision = db.sqlite.prepare("SELECT revision FROM app_releases WHERE version_code=25").get()?.revision;
+  const originalBatch = db.batch.bind(db);
+  let releaseBoth!: () => void; let arrived = 0;
+  const barrier = new Promise<void>((resolve) => { releaseBoth = resolve; });
+  db.batch = async (statements) => { if (++arrived === 2) releaseBoth(); await barrier; return originalBatch(statements); };
+  const policies = await Promise.all([20,50].map((rolloutPercentage)=>request(env,'/api/v1/operator/releases/25/policy',{...json({...body,rolloutPercentage},{...headers,'idempotency-key':crypto.randomUUID()}),method:'PATCH'})));
+  assert.deepEqual(policies.map((r)=>r.response.status).sort(),[200,409]);
+  assert.equal(db.sqlite.prepare("SELECT revision FROM app_releases WHERE version_code=25").get()?.revision,Number(revision)+1);
+  db.sqlite.close();
+});
+
+test("release canary is restricted to an active installation, exact version and expiry", async () => {
+  const { latestReleaseD1, stableRolloutBucket } = await import("../server/api/releases");
+  const { sha256Hex } = await import("../server/api/security");
+  const database = new D1Adapter(); await migrate(database);
+  const now = Date.now();
+  database.sqlite.prepare(`INSERT INTO app_releases
+    (version_code,version_name,minimum_supported_version_code,forced,rollout_percentage,notes_json,size_bytes,sha256,certificate_sha256,package_id,object_key,status,published_at,created_at,updated_at)
+    VALUES (24,'1.3.9',5,0,10,'[]',10,'sha','cert','com.zhuguang.coachos','qa.apk','published',?,?,?)`).run(now,now,now);
+  let installationId = "qa-canary-0";
+  for (let i = 1; await stableRolloutBucket(installationId) < 10; i++) installationId = `qa-canary-${i}`;
+  const config = { versionCode: 24, installationSha256: await sha256Hex(installationId), expiresAt: now + 60_000 };
+  const env = { APP_ENV: "test", DB: database, RELEASE_CANARY_JSON: JSON.stringify(config) };
+  await assert.rejects(latestReleaseD1(installationId, 22, env), { code: "release_not_available" });
+  database.sqlite.prepare(`INSERT INTO app_installations (id,platform,app_version_code,app_version_name,status,last_seen_at,created_at,updated_at)
+    VALUES (?,'android',22,'1.3.7','active',?,?,?)`).run(installationId,now,now,now);
+  assert.equal((await latestReleaseD1(installationId, 22, env)).versionCode, 24);
+  for (const invalid of [{ ...config, versionCode: 25 }, { ...config, expiresAt: now - 1 }, { ...config, installationSha256: "0".repeat(64) }]) {
+    await assert.rejects(latestReleaseD1(installationId, 22, { ...env, RELEASE_CANARY_JSON: JSON.stringify(invalid) }), { code: "release_not_available" });
+  }
+  database.sqlite.prepare("UPDATE app_releases SET status='paused'").run();
+  await assert.rejects(latestReleaseD1(installationId, 22, env), { code: "release_not_available" });
   database.sqlite.close();
 });
 
@@ -1026,7 +1473,7 @@ test("public APK downloads require a complete 100% release and rate-limit anonym
       (version_code, version_name, minimum_supported_version_code, forced, rollout_percentage, notes_json, size_bytes, sha256, certificate_sha256, package_id, object_key, status, published_at, created_at, updated_at)
     VALUES (9, '1.2.4', 5, 0, 50, '[]', 10, 'sha', 'cert', 'com.zhuguang.coachos', 'android/1.2.4/app.apk', 'published', ?, ?, ?)
   `).run(now, now, now);
-  const env: ApiEnv = {
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com',
     APP_ENV: "test",
     AUTH_HASH_SECRET: "public-download-hash-secret-with-adequate-length",
     DB: database,

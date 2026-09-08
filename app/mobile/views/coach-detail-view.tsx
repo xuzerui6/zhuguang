@@ -21,6 +21,7 @@ import { formatYuan, getMatchResult } from "../domain";
 import type { MatchPreferences, MobileCoach } from "../types";
 import type { PublicCoachReviews } from "../../../shared/reviews";
 import { mobileApi } from "../api-client";
+import { useOperationPrompt } from "../../_components/operation-context";
 
 export function CoachDetailView({
   coach,
@@ -39,6 +40,7 @@ export function CoachDetailView({
   onToggleSaved: () => void;
   preferences: MatchPreferences;
 }) {
+  const requestOperation = useOperationPrompt();
   const match = getMatchResult(coach, preferences);
   const [reviews, setReviews] = useState<PublicCoachReviews | null>(null);
   const [reviewError, setReviewError] = useState("");
@@ -56,7 +58,7 @@ export function CoachDetailView({
     finally { setReviewBusy(""); }
   }
   async function reportReview(reviewId: string) {
-    const reason = window.prompt("请简要说明举报原因（至少4个字）");
+    const reason = await requestOperation("请简要说明举报原因（至少4个字）");
     if (!reason?.trim()) return;
     setReviewBusy(`${reviewId}-report`);
     try { await mobileApi.reportReview(reviewId, reason.trim()); setReviewNotice("举报已提交，运营会核查处理"); }
@@ -81,7 +83,7 @@ export function CoachDetailView({
 
       <section className="zg-detail-summary">
         <div className="zg-detail-name">
-          <div><h1>{coach.name}</h1><p>{coach.sport} · {coach.level}</p></div>
+          <div><h1>{coach.name}</h1><p>{coach.title || coach.sport}</p></div>
           <MatchScore score={match.score} />
         </div>
         <div className="zg-detail-meta">
@@ -90,8 +92,8 @@ export function CoachDetailView({
           {coach.responseMinutes ? <span><Clock3 aria-hidden size={15} />平均 {coach.responseMinutes} 分钟回复</span> : null}
         </div>
         <div className="zg-credential-grid">
-          <div><ShieldCheck aria-hidden size={25} /><span><strong>{coach.verificationLabel ?? `${coach.level}认证`}</strong><small>{coach.profileKind === "demo" ? "不代表真实教练" : coach.isNew ? "不展示未经核验的资质" : "身份与履历已核验"}</small></span></div>
-          <div><ShieldCheck aria-hidden size={25} /><span><strong>服务保障</strong><small>资质 · 安全 · 申诉</small></span></div>
+          <div><ShieldCheck aria-hidden size={25} /><span><strong>{coach.verificationLabel || "资料待补充"}</strong><small>{coach.profileKind === "demo" ? "不代表真实教练" : "以当前公开审核资料为准"}</small></span></div>
+          <div><ShieldCheck aria-hidden size={25} /><span><strong>预约规则</strong><small>教练确认 · 线下支付</small></span></div>
         </div>
       </section>
 
@@ -107,6 +109,7 @@ export function CoachDetailView({
         <h2>擅长领域</h2>
         <div className="zg-skill-list">{coach.strengths.map((item) => <span key={item}>{item}</span>)}</div>
       </section>
+      {coach.credentials?.length ? <section className="zg-detail-section"><h2>公开资质</h2><ul className="zg-reason-list">{coach.credentials.map((credential) => <li key={credential}><ShieldCheck aria-hidden size={17} />{credential}</li>)}</ul></section> : null}
 
       <section className="zg-detail-section zg-review-section">
         <header><h2>学员评价（{coach.reviewCount}）</h2></header>

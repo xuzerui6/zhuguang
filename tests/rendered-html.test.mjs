@@ -4,7 +4,7 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 process.env.ZHUGUANG_COACH_EMAILS = "qa-owner@example.com";
-process.env.ZHUGUANG_OPS_EMAILS = "qa-owner@example.com";
+process.env.PRIMARY_OPERATOR_EMAIL = "xuzerui6@gmail.com";
 process.env.PRODUCT_FILM_ENABLED = "false";
 
 async function read(path) {
@@ -52,14 +52,17 @@ test("server-renders a service-first homepage without prototype claims", async (
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
 });
 
-test("product film stays disabled by default without deleting its isolated media project", async () => {
+test("product film stays isolated from the production homepage and deployment", async () => {
   const response = await render();
   const html = await response.text();
   const homepage = await read("app/page.tsx");
   const manifest = await read("app/_lib/product-film.ts");
   const packageJson = await read("package.json");
 
-  assert.match(homepage, /process\.env\.PRODUCT_FILM_ENABLED === "true"/);
+  assert.doesNotMatch(homepage, /PRODUCT_FILM_ENABLED|ProductFilm|productFilm/);
+  const prepareScript = await read("scripts/prepare-web-worker-build.mjs");
+  assert.match(prepareScript, /PRODUCT_FILM_ENABLED !== "true"/);
+  assert.match(prepareScript, /zhuguang-product-film\.mp4/);
   assert.doesNotMatch(html, /看看逐光如何工作|从选择教练，到看见每一次进步/);
   assert.doesNotMatch(html, /<video\b|<track\b|zhuguang-product-film-(?:poster\.)?|zhuguang-product-film\.(?:webm|mp4|vtt)/i);
   assert.ok(manifest.indexOf("video/webm") < manifest.indexOf("video/mp4"));
@@ -131,6 +134,31 @@ test("public lead forms collect minimal contacts without publishing fake complia
   assert.match(footer, /SITE_OPERATOR_NAME/);
   assert.match(footer, /SITE_ICP_NUMBER/);
   assert.match(homepage, /minimumPublishedTrialPrice/);
+  assert.match(form, /<details className="zg-service-lead-more">/);
+  assert.match(form, /补充更多信息/);
+  assert.match(form, /BEIJING_DISTRICTS/);
+  assert.match(footer, /SITE_PUBLIC_SECURITY_NUMBER/);
+  assert.match(footer, /safeHttpsUrl/);
+});
+
+test("P0 and P1 public flows expose privacy requests and explicit mobile coach actions", async () => {
+  const [privacyResponse, header, directory, directoryStyles, privacyForm] = await Promise.all([
+    render("/privacy"),
+    read("app/_components/public-header.tsx"),
+    read("app/_components/coach-directory.tsx"),
+    read("app/_components/coach-directory.module.css"),
+    read("app/_components/privacy-request-form.tsx"),
+  ]);
+  const privacyHtml = await privacyResponse.text();
+  assert.match(privacyHtml, /提交隐私请求/);
+  assert.match(privacyForm, /\/api\/v1\/privacy-requests/);
+  assert.match(privacyForm, /无需登录/);
+  assert.match(header, /href="\/login\?next=\/student"/);
+  assert.equal((header.match(/href="\/login\?next=\/student"/gu) || []).length, 2);
+  assert.doesNotMatch(header, /href="\/login">(?:登录|进入平台)/u);
+  assert.match(directory, /查看档案/);
+  assert.match(directory, /咨询这位教练/);
+  assert.match(directoryStyles, /min-height:\s*44px/);
 });
 
 test("all public and workspace routes support direct rendering", async () => {
@@ -163,6 +191,8 @@ test("all public and workspace routes support direct rendering", async () => {
     ["/ops/users", "运营工作台导航"],
     ["/ops/content", "运营工作台导航"],
     ["/ops/releases", "运营工作台导航"],
+    ["/ops/catalog", "运营工作台导航"],
+    ["/ops/transactions", "运营工作台导航"],
   ];
 
   for (const [path, copy] of routes) {
@@ -246,8 +276,10 @@ test("keeps the native MVP and business API isolated from browser routing", asyn
   assert.match(router, /\/api\/v1/);
   assert.match(router, /pending_coach/);
   assert.match(repository, /idempotency/i);
-  assert.match(releaseProxy, /process\.env\.ZHUGUANG_OPERATOR_API_SECRET/);
-  assert.match(releaseProxy, /x-operator-secret/);
+  assert.match(releaseProxy, /platformGet/);
+  const sharedProxy = await readFile(new URL("../app/api/platform/route.ts", import.meta.url), "utf8");
+  assert.match(sharedProxy, /process\.env\.ZHUGUANG_OPERATOR_API_SECRET/);
+  assert.match(sharedProxy, /x-operator-secret/);
   for (const table of ["users", "learner_profiles", "coaches", "coach_credentials", "availability_slots", "favorites", "booking_requests", "booking_events", "conversations", "messages", "notifications", "auth_challenges", "sessions"]) {
     assert.match(schema, new RegExp(`\\b${table}\\b`));
   }
@@ -274,4 +306,50 @@ test("renders a public Android download entry without exposing a static APK", as
   assert.match(html, /正在读取正式版本/);
   assert.match(html, /三步完成安装/);
   assert.doesNotMatch(html, /href=["'][^"']+\.apk/iu);
+});
+
+test("P1 naturally expired cookies renew before SSR; present invalid tokens get one recovery path", async () => {
+  const previous = { ...process.env };
+  const originalFetch = globalThis.fetch;
+  Object.assign(process.env, { ZHUGUANG_MOBILE_API_URL: "https://isolated.invalid", ZHUGUANG_PILOT_APP_KEY: "test-channel", ZHUGUANG_OPERATOR_API_SECRET: "test-proxy" });
+  const identity = { userId: "qa-user", email: "xuzerui6@gmail.com", roles: ["student", "coach", "operator"], availableModes: ["student", "coach"], contactMasked: "QA", coach: { id: 5, name: "隔离测试教练", title: "测试档案", sport: "田径" } };
+  let refreshes = 0;
+  let identities = 0;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    const headers = new Headers(init?.headers);
+    if (url.endsWith("/auth/refresh")) { refreshes++; return Response.json({ data: { ...identity, accessToken: "renewed-access", refreshToken: "renewed-refresh" } }); }
+    if (url.endsWith("/me")) { identities++; return headers.get("authorization") === "Bearer renewed-access" ? Response.json({ data: identity }) : Response.json({ error: { code: "authentication_required" } }, { status: 401 }); }
+    if (url.endsWith("/coaches")) return Response.json({ data: [] });
+    return Response.json({ data: {} });
+  };
+  try {
+    const { default: worker } = await import(new URL("../dist/server/index.js", import.meta.url));
+    for (const path of ["/student", "/coach-workspace", "/ops", "/api/platform?path=%2Fapi%2Fv1%2Fme"]) {
+      const response = await worker.fetch(new Request(`http://localhost${path}`, { headers: { cookie: "zg_web_refresh=old-refresh; zg_web_device=web-qa", accept: "text/html" } }), {}, { waitUntil() {}, passThroughOnException() {} });
+      const body = await response.text();
+      assert.equal(response.status, 200, path);
+      assert.doesNotMatch(body, /需要登录|role_forbidden/);
+      const cookies = response.headers.get("set-cookie") || "";
+      assert.ok(cookies.includes("zg_web_access=renewed-access") && cookies.includes("HttpOnly") && cookies.includes("Secure"), "renewed cookies must reach the browser");
+    }
+    assert.equal(refreshes, 4);
+    const context = { waitUntil() {}, passThroughOnException() {} };
+    for (const path of ['/student','/coach-workspace','/ops']) {
+      identities = 0;
+      const valid = await worker.fetch(new Request(`http://localhost${path}`,{headers:{cookie:'zg_web_access=renewed-access; zg_web_refresh=old-refresh; zg_web_device=web-qa'}}),{},context);
+      assert.doesNotMatch(await valid.text(),/需要登录|role_forbidden/);
+      assert.equal(identities,1,'one identity check per protected SSR');
+      const expired = await worker.fetch(new Request(`http://localhost${path}`,{headers:{cookie:'zg_web_access=expired; zg_web_refresh=old-refresh; zg_web_device=web-qa'}}),{},context);
+      assert.match(await expired.text(),/正在恢复登录状态/);
+    }
+    assert.equal(refreshes,4,'present cookies never refresh in middleware');
+    const recovery = await worker.fetch(new Request('http://localhost/api/auth/email/refresh',{method:'POST',headers:{origin:'http://localhost',cookie:'zg_web_access=expired; zg_web_refresh=old-refresh; zg_web_device=web-qa'}}),{},context);
+    assert.equal(recovery.status,200); assert.equal(refreshes,5);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const key of ["ZHUGUANG_MOBILE_API_URL", "ZHUGUANG_PILOT_APP_KEY", "ZHUGUANG_OPERATOR_API_SECRET"]) {
+      if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key];
+    }
+  }
 });

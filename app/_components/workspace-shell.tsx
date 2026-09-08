@@ -46,7 +46,17 @@ function getNavigation(area: Exclude<WebArea, "public">): NavItem[] {
 export function WorkspaceShell({ area, children, session }: { area: Exclude<WebArea, "public">; children: React.ReactNode; session: WebSession }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [profilePromptOpen, setProfilePromptOpen] = useState(() => !session.profileCompleted && typeof sessionStorage !== "undefined" && sessionStorage.getItem("zhuguang:profile-prompt-dismissed") !== "true");
+  const [profilePromptOpen, setProfilePromptOpen] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (!session.profileCompleted && sessionStorage.getItem("zhuguang:profile-prompt-dismissed") !== "true") {
+        setProfilePromptOpen(true);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [session.profileCompleted]);
   const navigation = useMemo(() => getNavigation(area).filter((item) => session.permissions.includes(item.permission)), [area, session.permissions]);
   const active = navigation.find((item) => item.href === pathname) ?? [...navigation].sort((a, b) => b.href.length - a.href.length).find((item) => pathname.startsWith(`${item.href}/`)) ?? navigation[0];
 

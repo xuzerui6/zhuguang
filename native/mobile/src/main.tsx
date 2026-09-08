@@ -1,14 +1,13 @@
 import { StrictMode, useState } from "react";
+import { OperationProvider } from '../../../app/_components/operation-provider';
 import { createRoot } from "react-dom/client";
 import MobileStudentApp from "../../../app/mobile-student-app";
 import { demoCoaches } from "../../../app/mobile/demo-data";
-import { usesBundledDemoData } from "../../../app/mobile/api-client";
 import "../../../app/globals.css";
 import "../../../app/mobile/mobile.css";
 import "./native.css";
 
 function NativeMobileApp() {
-  const demoMode = usesBundledDemoData();
   const [audience, setAudience] = useState("青少年");
   const [city, setCity] = useState("北京");
   const [goal, setGoal] = useState("短跑专项");
@@ -44,6 +43,6 @@ if (!root) throw new Error("Native app root is missing");
 
 createRoot(root).render(
   <StrictMode>
-    <NativeMobileApp />
+    <OperationProvider><NativeMobileApp /></OperationProvider>
   </StrictMode>,
 );

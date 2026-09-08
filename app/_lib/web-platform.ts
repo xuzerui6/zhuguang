@@ -1,4 +1,5 @@
 import { coachCatalog, type CoachPublicProfile } from "../../shared/coach-catalog";
+import { EMPTY_SERVICE_CATALOG, type ServiceCatalog } from '../../shared/service-catalog';
 import type { BookingSlot, MobileCoach } from "../mobile/types";
 import type { PublicCoachReviews } from "../../shared/reviews";
 
@@ -39,6 +40,7 @@ export type NavItem = {
 };
 
 export type WebSession = {
+  serviceStatus?: "anonymous" | "authenticated" | "token_invalid" | "upstream_unavailable";
   accountId: string | null;
   avatarUrl?: string;
   availableAreas: Array<Exclude<WebArea, "public">>;
@@ -80,6 +82,7 @@ export const opsNavigation: NavItem[] = [
   { group: "概览", href: "/ops", icon: "dashboard", id: "ops-home", label: "运营概览", permission: "ops:manage" },
   { group: "业务运营", href: "/ops/matching", icon: "matching", id: "ops-matching", label: "匹配中心", permission: "ops:manage" },
   { group: "业务运营", href: "/ops/bookings", icon: "calendar", id: "ops-bookings", label: "预约履约", permission: "ops:manage" },
+  { group: "业务运营", href: "/ops/catalog", icon: "matching", id: "ops-catalog", label: "北京服务目录", permission: "ops:manage" },
   { group: "教练与风控", href: "/ops/coaches", icon: "coaches", id: "ops-coaches", label: "教练管理", permission: "ops:manage" },
   { group: "教练与风控", href: "/ops/profile-reviews", icon: "credential", id: "ops-profile-reviews", label: "资料审核", permission: "ops:manage" },
   { group: "用户服务", href: "/ops/users", icon: "users", id: "ops-users", label: "学员服务", permission: "ops:manage" },
@@ -87,6 +90,7 @@ export const opsNavigation: NavItem[] = [
   { group: "用户服务", href: "/ops/support", icon: "message", id: "ops-support", label: "售后工单", permission: "ops:manage" },
   { group: "平台管理", href: "/ops/content", icon: "content", id: "ops-content", label: "内容与协议", permission: "ops:manage" },
   { group: "平台管理", href: "/ops/audit", icon: "course", id: "ops-audit", label: "审计日志", permission: "ops:manage" },
+  { group: "平台管理", href: "/ops/transactions", icon: "payment", id: "ops-transactions", label: "交易与指标", permission: "ops:manage" },
   { group: "平台管理", href: "/ops/releases", icon: "release", id: "ops-releases", label: "版本发布", permission: "release:read" },
 ];
 
@@ -113,7 +117,7 @@ export function mapMobileCoachToWeb(coach: MobileCoach): CoachProfile {
     bookingEnabled: coach.bookingEnabled !== false,
     canConsult: coach.canConsult !== false && coach.profileKind !== "demo",
     city: "北京",
-    credentials: coach.credentials ?? coach.proof.filter((item) => !["演示资料", "不可预约", "运动经历与公开资料已核验", "服务保障已开通", "服务区域已确认"].includes(item)),
+    credentials: coach.credentials ?? [],
     district: coach.district || "北京",
     experience: coach.experienceYears || 0,
     goals: coach.goals,
@@ -159,12 +163,24 @@ export async function loadPublicCoaches(): Promise<CoachProfile[]> {
   const origin = (process.env.ZHUGUANG_MOBILE_API_URL || "https://api.beijingzhuguang.top").replace(/\/$/u, "");
   try {
     const response = await fetch(`${origin}/api/v1/coaches`, { cache: "no-store", headers, signal: AbortSignal.timeout(4_000) });
-    if (!response.ok) return publicCoaches;
+    if (!response.ok) return [];
     const payload = await response.json() as { data?: MobileCoach[] };
-    return payload.data?.map(mapMobileCoachToWeb).filter((coach) => coach.profileKind === "real") || publicCoaches;
+    return payload.data?.map(mapMobileCoachToWeb).filter((coach) => coach.profileKind === "real") || [];
   } catch {
-    return publicCoaches;
+    return [];
   }
+}
+
+export async function loadPublicServiceCatalog(): Promise<ServiceCatalog> {
+  const headers=publicApiHeaders();
+  if (!headers) return EMPTY_SERVICE_CATALOG;
+  const origin=(process.env.ZHUGUANG_MOBILE_API_URL || 'https://api.beijingzhuguang.top').replace(/\/$/u,'');
+  try {
+    const response=await fetch(`${origin}/api/v1/catalog`,{cache:'no-store',headers,signal:AbortSignal.timeout(10_000)});
+    if (!response.ok) return EMPTY_SERVICE_CATALOG;
+    const payload=await response.json() as {data?:ServiceCatalog};
+    return payload.data?.city==='北京' ? payload.data : EMPTY_SERVICE_CATALOG;
+  } catch { return EMPTY_SERVICE_CATALOG; }
 }
 
 export async function loadPublicCoachById(id: number | string): Promise<CoachProfile | undefined> {
@@ -179,7 +195,7 @@ export async function loadPublicCoachById(id: number | string): Promise<CoachPro
     const payload = await response.json() as { data?: MobileCoach };
     return payload.data ? mapMobileCoachToWeb(payload.data) : undefined;
   } catch {
-    return getPublicCoachById(coachId);
+    return undefined;
   }
 }
 

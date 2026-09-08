@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { allowedForPlatformSession } from "../../_lib/platform-proxy-policy";
 import { getWebSession, WEB_ACCESS_COOKIE } from "../../_lib/web-session";
+import { relayStream } from "../../_lib/stream-relay";
 
 const fallbackApiUrl = "https://api.beijingzhuguang.top";
 
@@ -13,6 +14,7 @@ async function relay(request: Request) {
     return NextResponse.json({ error: { code: "invalid_path", message: "接口路径无效" } }, { status: 422 });
   }
   const session = await getWebSession();
+  if (session.serviceStatus === "upstream_unavailable") return NextResponse.json({ error: { code: "session_service_unavailable", message: "身份服务暂时不可用，请重试" } }, { status: 503 });
   if (!allowedForPlatformSession(path, method, session.permissions)) {
     const authenticated = session.isAuthenticated;
     return NextResponse.json({ error: {
@@ -35,6 +37,7 @@ async function relay(request: Request) {
     "x-zhuguang-app-key": appKey,
   });
   const cookieStore = await cookies();
+  headers.set("x-device-id", cookieStore.get("zg_web_device")?.value || "zhuguang-web");
   const accessToken = cookieStore.get(WEB_ACCESS_COOKIE)?.value;
   if (accessToken) headers.set("authorization", `Bearer ${accessToken}`);
   if (session.email) headers.set("oai-authenticated-user-email", session.email);
@@ -47,23 +50,15 @@ async function relay(request: Request) {
     headers.set("x-operator-actor", session.email || session.accountId || "operator");
   }
   const contentType = request.headers.get("content-type");
+  headers.set("x-booking-flow", "2");
   if (contentType) headers.set("content-type", contentType);
   const idempotencyKey = request.headers.get("idempotency-key");
   if (idempotencyKey && /^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(idempotencyKey)) {
     headers.set("idempotency-key", idempotencyKey);
   }
   const baseUrl = (process.env.ZHUGUANG_MOBILE_API_URL || fallbackApiUrl).replace(/\/$/u, "");
-  const upstream = await fetch(`${baseUrl}${path}`, {
-    body: method === "GET" || method === "HEAD" ? undefined : await request.arrayBuffer(),
-    cache: "no-store",
-    headers,
-    method,
-    signal: AbortSignal.timeout(10_000),
-  });
-  return new NextResponse(await upstream.text(), {
-    headers: { "cache-control": "no-store", "content-type": upstream.headers.get("content-type") || "application/json; charset=utf-8" },
-    status: upstream.status,
-  });
+  try { return await relayStream(request, `${baseUrl}${path}`, headers); }
+  catch { return NextResponse.json({ error: { code: "upstream_unavailable", message: "平台服务暂时无法连接，请重试" } }, { status: 503 }); }
 }
 
 export const GET = relay;

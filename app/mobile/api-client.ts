@@ -1,4 +1,6 @@
 import { createRequestId } from "./domain";
+import { fetchMobilePayload } from "./network-policy";
+import { completionIdempotencyKey } from "../../shared/completion-idempotency";
 import { getMobilePlatform, getOrCreateDeviceId, readSession, writeSession } from "./device";
 import type {
   AccountProfile,
@@ -14,23 +16,25 @@ import type {
   MobileNotification,
   MobileIdentity,
   MobileSession,
+  PlatformCapabilities,
 } from "./types";
 import type { PublicCoachReviews } from "../../shared/reviews";
 
-type ApiSuccess<T> = { data: T; meta?: Record<string, unknown> };
 type ApiFailure = { error: { code: string; message: string; requestId: string; fieldErrors?: Record<string, string> } };
 
 export class MobileApiError extends Error {
   code: string;
   fieldErrors?: Record<string, string>;
   requestId: string;
+  status: number;
 
-  constructor(payload: ApiFailure["error"]) {
+  constructor(payload: ApiFailure["error"], status = 0) {
     super(payload.message);
     this.name = "MobileApiError";
     this.code = payload.code;
     this.requestId = payload.requestId;
     this.fieldErrors = payload.fieldErrors;
+    this.status = status;
   }
 }
 
@@ -51,29 +55,13 @@ export function usesBundledDemoData() {
   return !getBuildValue("VITE_API_BASE_URL");
 }
 
-const API_TIMEOUT_MS = 4_000;
-
-async function fetchWithTimeout(input: string, init: RequestInit = {}) {
-  const controller = new AbortController();
-  const abortFromCaller = () => controller.abort();
-  const timer = globalThis.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-  init.signal?.addEventListener("abort", abortFromCaller, { once: true });
-  if (init.signal?.aborted) controller.abort();
-
-  try {
-    return await fetch(input, { ...init, signal: controller.signal });
-  } finally {
-    globalThis.clearTimeout(timer);
-    init.signal?.removeEventListener("abort", abortFromCaller);
-  }
-}
-
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
   const session = await readSession();
   const headers = new Headers(init.headers);
   const deviceId = await getOrCreateDeviceId();
   headers.set("accept", "application/json");
   headers.set("x-app-platform", getMobilePlatform());
+  headers.set("x-booking-flow", "2");
   headers.set("x-app-version", getBuildValue("VITE_APP_VERSION") ?? "1.1.0");
   headers.set("x-app-version-code", getBuildValue("VITE_APP_VERSION_CODE") ?? "3");
   headers.set("x-device-id", deviceId);
@@ -83,46 +71,66 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
   if (session?.accessToken) headers.set("authorization", `Bearer ${session.accessToken}`);
 
-  const response = await fetchWithTimeout(`${getApiBaseUrl()}${path}`, { ...init, headers });
+  const { response, payload } = await fetchMobilePayload(`${getApiBaseUrl()}${path}`, { ...init, headers });
   if (response.status === 401 && retry && session?.refreshToken) {
     const refreshed = await refreshSession(session.refreshToken);
     if (refreshed) return request<T>(path, init, false);
   }
 
-  const payload = (await response.json()) as ApiSuccess<T> | ApiFailure;
-  if (!response.ok || "error" in payload) {
-    throw new MobileApiError("error" in payload ? payload.error : {
+  if (!response.ok || payload.error || payload.data === undefined) {
+    throw new MobileApiError(payload.error ?? {
       code: "request_failed",
       message: "服务暂时不可用，请稍后重试",
       requestId: response.headers.get("x-request-id") ?? createRequestId(),
-    });
+    }, response.status);
   }
-  return payload.data;
+  return payload.data as T;
 }
 
-async function refreshSession(refreshToken: string) {
+const refreshes = new Map<string, Promise<MobileSession | null>>();
+let sessionEpoch = 0;
+
+function refreshSession(refreshToken: string) {
+  const existing = refreshes.get(refreshToken);
+  if (existing) return existing;
+  const operation = rotateSession(refreshToken, sessionEpoch).finally(() => refreshes.delete(refreshToken));
+  refreshes.set(refreshToken, operation);
+  return operation;
+}
+
+async function rotateSession(refreshToken: string, epoch: number) {
+  const current = await readSession();
+  if (!current || epoch !== sessionEpoch) return null;
+  if (current.refreshToken !== refreshToken) return current;
   try {
     const headers = new Headers({ "content-type": "application/json" });
     headers.set("x-device-id", await getOrCreateDeviceId());
     const appKey = getBuildValue("VITE_PILOT_APP_KEY");
     if (appKey) headers.set("x-zhuguang-app-key", appKey);
-    const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/v1/auth/refresh`, {
+    const { response, payload } = await fetchMobilePayload(`${getApiBaseUrl()}/api/v1/auth/refresh`, {
       body: JSON.stringify({ refreshToken }),
       headers,
       method: "POST",
     });
-    if (!response.ok) throw new Error("refresh failed");
-    const payload = (await response.json()) as ApiSuccess<MobileSession>;
-    await writeSession(payload.data);
-    return payload.data;
+    if (!response.ok) {
+      if ((response.status === 401 || response.status === 403) && epoch === sessionEpoch) await writeSession(null);
+      return null;
+    }
+    const data = payload.data as MobileSession | undefined;
+    if (!data || typeof data.accessToken !== 'string' || typeof data.refreshToken !== 'string') return null;
+    if (epoch !== sessionEpoch) return null;
+    await writeSession(data);
+    return data;
   } catch {
-    await writeSession(null);
+    // A network outage must not destroy the last recoverable session.
     return null;
   }
 }
 
 export const mobileApi = {
+  capabilities: () => request<PlatformCapabilities>("/api/v1/capabilities"),
   bootstrap: () => request<{
+    catalog?: import("../../shared/service-catalog").ServiceCatalog;
     accountProfile?: AccountProfile;
     bookings: MobileBooking[];
     coaches: MobileCoach[];
@@ -157,7 +165,13 @@ export const mobileApi = {
     await writeSession(session);
     return session;
   }),
-  logout: () => request<void>("/api/v1/auth/logout", { method: "POST" }).finally(() => writeSession(null)),
+  logout: async () => {
+    const session = await readSession();
+    if (session?.refreshToken) await request<void>("/api/v1/auth/logout-refresh", { body: JSON.stringify({ refreshToken: session.refreshToken }), method: "POST" }, false);
+    sessionEpoch++;
+    await Promise.allSettled(refreshes.values());
+    await writeSession(null);
+  },
   deleteAccount: () => request<{ deletionEffectiveAt: number; retainedForDisputesDays: number }>("/api/v1/users/me", { method: "DELETE" }).finally(() => writeSession(null)),
   setFavorite: (coachId: number, favorite: boolean) => request<{ favoriteCoachIds: number[] }>(`/api/v1/favorites/${coachId}`, {
     method: favorite ? "PUT" : "DELETE",
@@ -203,6 +217,9 @@ export const mobileApi = {
     method: profile.id ? "PUT" : "POST",
   }),
   cancelBooking: (bookingId: string) => request<MobileBooking>(`/api/v1/bookings/${bookingId}/cancel`, { method: "POST" }),
+  respondCompletion: async (completionId: string, decision: "accepted" | "disputed", note = "") => request(`/api/v1/booking-completion-requests/${encodeURIComponent(completionId)}/respond`, { body: JSON.stringify({ decision, note }), headers: { "idempotency-key": await completionIdempotencyKey(completionId, decision, note) }, method: "POST" }),
+  createTestPaymentOrder: (bookingId: string) => request<{ amountFen: number; id: string; status: string }>(`/api/v1/bookings/${encodeURIComponent(bookingId)}/payment-orders`, { headers: { "idempotency-key": createRequestId("test-payment") }, method: "POST" }),
+  confirmTestPayment: (orderId: string) => request(`/api/v1/payment-orders/${encodeURIComponent(orderId)}/test-confirm`, { method: "POST" }),
   sendMessage: (conversationId: string, body: string) => request<MobileConversation>(`/api/v1/conversations/${conversationId}/messages`, {
     body: JSON.stringify({ body }),
     method: "POST",
@@ -219,6 +236,7 @@ export const mobileApi = {
     headers: { "idempotency-key": createRequestId("coach-booking") },
     method: "POST",
   }),
+  coachRequestCompletion: (bookingId: string, note = "") => request(`/api/v1/coach/bookings/${encodeURIComponent(bookingId)}/completion-request`, { body: JSON.stringify({ note }), method: "POST" }),
   coachSetAvailability: (online: boolean) => request<{ effectiveOnline: boolean; online: boolean }>("/api/v1/coach/availability", {
     body: JSON.stringify({ online }), method: "PATCH",
   }),

@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "zhuguang-api-isolated-qa",
+  "main": "worker/mobile-api.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "d1_databases": [{ "binding": "DB", "database_name": "zhuguang-local-qa", "database_id": "00000000-0000-0000-0000-000000000024", "migrations_dir": "drizzle" }],
+  "vars": { "APP_ENV": "test", "BEIJING_CATALOG_V2_ENABLED": "true", "FULFILLMENT_V2_ENABLED": "true", "ONLINE_TRANSACTION_ENABLED": "false", "PUBLIC_TRUST_METRICS_ENABLED": "false", "SUPPORT_EVIDENCE_ENABLED": "false" }
+}

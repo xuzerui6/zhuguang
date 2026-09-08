@@ -4,13 +4,14 @@ import styles from "./public-site.module.css";
 
 export function PublicFooter() {
   const publicDetails = [
-    process.env.SITE_OPERATOR_NAME ? { label: "经营主体", value: process.env.SITE_OPERATOR_NAME } : null,
-    process.env.SITE_SUPPORT_EMAIL ? { label: "客服邮箱", value: process.env.SITE_SUPPORT_EMAIL } : null,
-    process.env.SITE_SUPPORT_PHONE ? { label: "客服电话", value: process.env.SITE_SUPPORT_PHONE } : null,
-    process.env.SITE_COMPLAINT_CONTACT ? { label: "投诉联系", value: process.env.SITE_COMPLAINT_CONTACT } : null,
-  ].filter((item): item is { label: string; value: string } => Boolean(item));
+    detail("经营主体", process.env.SITE_OPERATOR_NAME),
+    detail("客服邮箱", process.env.SITE_SUPPORT_EMAIL, "email"),
+    detail("客服电话", process.env.SITE_SUPPORT_PHONE, "phone"),
+    detail("投诉联系", process.env.SITE_COMPLAINT_CONTACT),
+  ].filter((item): item is { href?: string; label: string; value: string } => Boolean(item));
   const icpNumber = process.env.SITE_ICP_NUMBER?.trim();
   const publicSecurityNumber = process.env.SITE_PUBLIC_SECURITY_NUMBER?.trim();
+  const publicSecurityUrl = safeHttpsUrl(process.env.SITE_PUBLIC_SECURITY_URL);
   return (
     <footer className={styles.footer}>
       <div className={styles.footerMain}>
@@ -42,9 +43,27 @@ export function PublicFooter() {
       </div>
       <div className={styles.footerBottom}>
         <div><span>© 2026 逐光运动教练服务平台</span><span>官网公开浏览 · 平台登录使用</span></div>
-        {publicDetails.length ? <div className={styles.footerBusiness}>{publicDetails.map((item) => <span key={item.label}>{item.label}：{item.value}</span>)}</div> : null}
-        {icpNumber || publicSecurityNumber ? <div className={styles.footerFilings}>{icpNumber ? <a href="https://beian.miit.gov.cn/" rel="noreferrer" target="_blank">{icpNumber}</a> : null}{publicSecurityNumber ? <span>{publicSecurityNumber}</span> : null}</div> : null}
+        {publicDetails.length ? <div className={styles.footerBusiness}>{publicDetails.map((item) => <span key={item.label}>{item.label}：{item.href ? <a href={item.href}>{item.value}</a> : item.value}</span>)}</div> : null}
+        {icpNumber || publicSecurityNumber ? <div className={styles.footerFilings}>{icpNumber ? <a href="https://beian.miit.gov.cn/" rel="noreferrer" target="_blank">{icpNumber}</a> : null}{publicSecurityNumber ? publicSecurityUrl ? <a href={publicSecurityUrl} rel="noreferrer" target="_blank">{publicSecurityNumber}</a> : <span>{publicSecurityNumber}</span> : null}</div> : null}
       </div>
     </footer>
   );
+}
+
+function detail(label: string, input: string | undefined, kind?: "email" | "phone") {
+  const value = input?.trim();
+  if (!value) return null;
+  if (kind === "email") return /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(value) ? { href: `mailto:${value}`, label, value } : null;
+  if (kind === "phone") return /^[+\d][\d\s()-]{5,30}$/u.test(value) ? { href: `tel:${value.replace(/[^+\d]/gu, "")}`, label, value } : null;
+  return { label, value };
+}
+
+function safeHttpsUrl(input: string | undefined) {
+  if (!input?.trim()) return undefined;
+  try {
+    const url = new URL(input);
+    return url.protocol === "https:" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }

@@ -10,10 +10,15 @@ def jpushAppKey = System.getenv('JPUSH_APP_KEY') ?: 'NOT_CONFIGURED'
 def vivoAppId = System.getenv('JPUSH_VIVO_APP_ID') ?: ''
 def vivoAppKey = System.getenv('JPUSH_VIVO_APP_KEY') ?: ''
 def releaseSigningConfigured = [releaseKeystorePath, releaseKeyAlias, releaseStorePassword, releaseKeyPassword].every { it }
-def releaseTaskRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
-
-if (releaseTaskRequested && !releaseSigningConfigured) {
-    throw new GradleException('Release signing variables are required. Keep the keystore and passwords outside the repository.')
+// Inspect the task graph so lintRelease remains usable without signing secrets,
+// while indirect aggregate builds cannot accidentally package an unsigned release.
+gradle.taskGraph.whenReady { graph ->
+    def packagesRelease = graph.allTasks.any { task ->
+        task.project == project && task.name ==~ /(?i)(package|bundle|assemble|install)release(bundle|universalapk)?/
+    }
+    if (packagesRelease && !releaseSigningConfigured) {
+        throw new GradleException('Release signing variables are required. Keep the keystore and passwords outside the repository.')
+    }
 }
 
 android {

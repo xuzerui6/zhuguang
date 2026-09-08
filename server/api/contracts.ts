@@ -1,10 +1,13 @@
+import { BODY_LIMITS, readBoundedBody } from "./request-body";
+
 export interface ApiEnv {
   APP_ENV?: string;
   AUTH_HASH_SECRET?: string;
   COACH_EMAIL_ALLOWLIST?: string;
-  OPS_EMAIL_ALLOWLIST?: string;
+  PRIMARY_OPERATOR_EMAIL?: string;
   CORS_ORIGINS?: string;
   DB?: D1Database;
+  EVIDENCE?: R2Bucket;
   MEDIA?: R2Bucket;
   RELEASES?: R2Bucket;
   MOBILE_API_ORIGIN?: string;
@@ -14,6 +17,7 @@ export interface ApiEnv {
   SMS_NOTIFICATION_TEMPLATE_ID?: string;
   SMS_DAILY_BUDGET?: string;
   UPDATE_DOWNLOAD_SECRET?: string;
+  RELEASE_CANARY_JSON?: string;
   OPERATOR_API_SECRET?: string;
   JPUSH_APP_KEY?: string;
   JPUSH_MASTER_SECRET?: string;
@@ -28,6 +32,14 @@ export interface ApiEnv {
   TENCENT_SES_FROM_NAME?: string;
   TENCENT_SES_TEMPLATE_ID?: string;
   TURNSTILE_SECRET_KEY?: string;
+  BEIJING_CATALOG_V2_ENABLED?: string;
+  FULFILLMENT_V2_ENABLED?: string;
+  SUPPORT_EVIDENCE_ENABLED?: string;
+  ONLINE_TRANSACTION_ENABLED?: string;
+  PAYMENT_PROVIDER?: string;
+  PUBLIC_TRUST_METRICS_ENABLED?: string;
+  TERMS_VERSION_ID?: string;
+  CANCELLATION_POLICY_VERSION_ID?: string;
 }
 
 export interface ApiExecutionContext {
@@ -86,10 +98,9 @@ function jsonResponse(payload: unknown, status: number, requestId: string) {
 }
 
 export async function readJson<T>(request: Request): Promise<T> {
-  const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (contentLength > 32_768) throw new ApiError(413, "payload_too_large", "请求内容过大");
+  const bytes = await readBoundedBody(request, BODY_LIMITS.json);
   try {
-    return await request.json() as T;
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as T;
   } catch {
     throw new ApiError(400, "invalid_json", "请求内容格式不正确");
   }

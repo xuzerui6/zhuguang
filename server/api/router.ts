@@ -54,6 +54,7 @@ import {
   markStudentConversationReadD1,
   markOfflinePaidD1,
   refreshSessionD1,
+  logoutRefreshD1,
   requestOtpD1,
   requestAccountContactChallengeD1,
   readAccountAvatarD1,
@@ -74,7 +75,6 @@ import {
   assertOperator,
   createDownloadTicketD1,
   createPublicDownloadTicketD1,
-  createReleaseD1,
   downloadReleaseD1,
   latestReleaseD1,
   latestPublicReleaseD1,
@@ -82,13 +82,28 @@ import {
   recordUpdateEventD1,
   registerInstallationD1,
   saveNotificationPreferencesD1,
-  setReleaseStatusD1,
-  updateReleasePolicyD1,
   uploadReleaseArtifactD1,
 } from "./releases";
-import { dispatchPushDeliveriesD1, queueVersionNotificationsD1, sendOperatorTestPushD1 } from "./push";
+import { dispatchPushDeliveriesD1, sendOperatorTestPushD1 } from "./push";
+import { executeReleaseOperation, type ReleaseCommand } from "./release-operations";
 import { assertPilotApp, normalizePhone, randomId, verifyTurnstile } from "./security";
 import { requestEmailOtpD1, verifyEmailOtpD1 } from "./email-auth";
+import {
+  classifyMetricEntityD1,
+  confirmTestPaymentD1,
+  createCompletionRequestD1,
+  createRefundRequestD1,
+  createTestPaymentOrderD1,
+  downloadSupportEvidenceD1,
+  getPlatformCapabilities,
+  getPublicTrustMetricsD1,
+  listOperatorCatalogD1,
+  listOperatorTransactionsD1,
+  listPublicCatalogD1,
+  respondCompletionRequestD1,
+  updateOperatorCatalogItemD1,
+  uploadSupportEvidenceD1,
+} from "./expansion";
 import {
   createCoachReviewD1,
   createCoachReviewReplyD1,
@@ -98,6 +113,7 @@ import {
   createSupportTicketD1,
   createServiceLeadD1,
   createTrainingRecordD1,
+  exportOpsLeadsMaskedD1,
   batchUpdateOpsCoachListingD1,
   getOpsOverviewD1,
   getOpsProductFunnelD1,
@@ -199,6 +215,18 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
       ok: true,
       releases: Boolean(env.RELEASES),
     }, requestId);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/capabilities") {
+    return success(getPlatformCapabilities(env), requestId);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/catalog") {
+    return success(await listPublicCatalogD1(env), requestId);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/public/trust-metrics") {
+    return success(await getPublicTrustMetricsD1(env), requestId);
   }
 
   const accountAvatarMatch = path.match(/^\/api\/v1\/account-avatar\/([^/]+)$/u);
@@ -321,12 +349,44 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
 
   if (request.method === "GET" && path === "/api/v1/operator/overview") {
     assertOperator(request, env);
-    return success(await getOpsOverviewD1(env), requestId);
+    return success(await getOpsOverviewD1(env, url.searchParams.get('classification')), requestId);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/operator/catalog") {
+    assertOperator(request, env);
+    return success(await listOperatorCatalogD1(env), requestId);
+  }
+
+  const operatorCatalogMatch = path.match(/^\/api\/v1\/operator\/catalog\/(regions|sports)\/([^/]+)$/u);
+  if (request.method === "PATCH" && operatorCatalogMatch) {
+    assertOperator(request, env);
+    const body = await readJson<{ reason?: unknown; status?: unknown }>(request);
+    return success(await updateOperatorCatalogItemD1(
+      operatorCatalogMatch[1] === "regions" ? "region" : "sport",
+      decodeURIComponent(operatorCatalogMatch[2]),
+      requireString(body.status, "status", 30) as "configured" | "published" | "disabled",
+      requireString(body.reason, "reason", 500), operatorActor(request), requestId, env,
+    ), requestId);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/operator/transactions") {
+    assertOperator(request, env);
+    return success(await listOperatorTransactionsD1(env), requestId);
+  }
+
+  if (request.method === "POST" && path === "/api/v1/operator/trust-metrics/classifications") {
+    assertOperator(request, env);
+    const body = await readJson<{ classification?: unknown; entityId?: unknown; entityType?: unknown; reason?: unknown }>(request);
+    return success(await classifyMetricEntityD1(
+      requireString(body.entityType, "entityType", 30), requireString(body.entityId, "entityId", 180),
+      requireString(body.classification, "classification", 30), requireString(body.reason, "reason", 500),
+      operatorActor(request), requestId, env,
+    ), requestId, undefined, 201);
   }
 
   if (request.method === "GET" && path === "/api/v1/operator/analytics/funnel") {
     await assertOperator(request, env);
-    return success(await getOpsProductFunnelD1(env), requestId);
+    return success(await getOpsProductFunnelD1(env, url.searchParams.get('classification')), requestId);
   }
 
   if (request.method === "POST" && path === "/api/v1/operator/push/test") {
@@ -347,7 +407,12 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
 
   if (request.method === "GET" && path === "/api/v1/operator/leads") {
     assertOperator(request, env);
-    return success(await listOpsLeadsD1(env), requestId);
+    return success(await listOpsLeadsD1(env, url.searchParams.get('classification')), requestId);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/operator/leads/export") {
+    assertOperator(request, env);
+    return success(await exportOpsLeadsMaskedD1(operatorActor(request), requestId, env, url.searchParams.get('classification')), requestId);
   }
 
   const operatorLeadContactMatch = path.match(/^\/api\/v1\/operator\/service-leads\/([^/]+)\/contact-reveal$/u);
@@ -361,9 +426,10 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   const operatorLeadMatch = path.match(/^\/api\/v1\/operator\/leads\/([^/]+)$/u);
   if (request.method === "PATCH" && operatorLeadMatch) {
     assertOperator(request, env);
-    const body = await readJson<{ assignedTo?: unknown; note?: unknown; status?: unknown }>(request);
+    const body = await readJson<{ assignedTo?: unknown; followUpDueAt?: unknown; note?: unknown; status?: unknown }>(request);
     return success(await updateOpsLeadD1(decodeURIComponent(operatorLeadMatch[1]), {
       assignedTo: typeof body.assignedTo === "string" ? body.assignedTo.slice(0, 100) : undefined,
+      followUpDueAt: body.followUpDueAt == null ? undefined : Number(body.followUpDueAt),
       note: typeof body.note === "string" ? body.note.slice(0, 1000) : undefined,
       status: typeof body.status === "string" ? body.status : undefined,
     }, operatorActor(request), env), requestId);
@@ -371,7 +437,7 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
 
   if (request.method === "GET" && path === "/api/v1/operator/bookings") {
     assertOperator(request, env);
-    return success(await listOpsBookingsD1(env), requestId);
+    return success(await listOpsBookingsD1(env, url.searchParams.get('classification')), requestId);
   }
 
   if (request.method === "GET" && path === "/api/v1/operator/coaches") {
@@ -463,7 +529,7 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
 
   if (request.method === "GET" && path === "/api/v1/operator/users") {
     assertOperator(request, env);
-    return success(await listOpsUsersD1(env), requestId);
+    return success(await listOpsUsersD1(env, url.searchParams.get('classification')), requestId);
   }
 
   const operatorUserProfileMatch = path.match(/^\/api\/v1\/operator\/users\/([^/]+)\/profile$/u);
@@ -595,8 +661,8 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
 
   if (request.method === "POST" && path === "/api/v1/operator/releases") {
     assertOperator(request, env);
-    const body = await readJson<Parameters<typeof createReleaseD1>[0]>(request);
-    return success(await createReleaseD1(body, env), requestId, undefined, 201);
+    const body = await readJson<ReleaseCommand>(request);
+    return success(await executeReleaseOperation(request, "create", 0, body, requestId, env), requestId, undefined, 201);
   }
 
   if (request.method === "GET" && path === "/api/v1/operator/releases") {
@@ -613,27 +679,22 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   const operatorReleasePolicyMatch = path.match(/^\/api\/v1\/operator\/releases\/(\d+)\/policy$/u);
   if (request.method === "PATCH" && operatorReleasePolicyMatch) {
     assertOperator(request, env);
-    const body = await readJson<{ forced?: unknown; minimumSupportedVersionCode?: unknown; rolloutPercentage?: unknown }>(request);
-    return success(await updateReleasePolicyD1(Number(operatorReleasePolicyMatch[1]), {
-      forced: body.forced === true,
-      minimumSupportedVersionCode: positiveInteger(body.minimumSupportedVersionCode, "minimumSupportedVersionCode"),
-      rolloutPercentage: nonNegativeInteger(body.rolloutPercentage, "rolloutPercentage"),
-    }, env), requestId);
+    const body = await readJson<ReleaseCommand>(request);
+    return success(await executeReleaseOperation(request, "policy", Number(operatorReleasePolicyMatch[1]), body, requestId, env), requestId);
   }
 
   const operatorReleaseStatusMatch = path.match(/^\/api\/v1\/operator\/releases\/(\d+)\/(publish|pause)$/u);
   if (request.method === "POST" && operatorReleaseStatusMatch) {
     assertOperator(request, env);
-    return success(await setReleaseStatusD1(Number(operatorReleaseStatusMatch[1]), operatorReleaseStatusMatch[2] === "publish" ? "published" : "paused", env), requestId);
+    const body = await readJson<ReleaseCommand>(request);
+    return success(await executeReleaseOperation(request, operatorReleaseStatusMatch[2] as "publish" | "pause", Number(operatorReleaseStatusMatch[1]), body, requestId, env), requestId);
   }
 
   const operatorReleaseNotifyMatch = path.match(/^\/api\/v1\/operator\/releases\/(\d+)\/notify$/u);
   if (request.method === "POST" && operatorReleaseNotifyMatch) {
     assertOperator(request, env);
-    if (!env.DB) throw new ApiError(503, "database_unavailable", "业务数据库暂时不可用");
-    const release = await env.DB.prepare("SELECT version_name FROM app_releases WHERE version_code = ? AND status = 'published'").bind(Number(operatorReleaseNotifyMatch[1])).first<{ version_name: string }>();
-    if (!release) throw new ApiError(404, "release_not_found", "只能为已发布版本触发通知");
-    const queued = await queueVersionNotificationsD1(release.version_name, env);
+    const body = await readJson<ReleaseCommand>(request);
+    const queued = await executeReleaseOperation(request, "notify", Number(operatorReleaseNotifyMatch[1]), body, requestId, env);
     ctx.waitUntil(dispatchPushDeliveriesD1(env));
     return success(queued, requestId, undefined, 202);
   }
@@ -657,8 +718,8 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     });
   }
 
-  if (request.method === "POST" && (path === "/api/v1/service-leads" || path === "/api/v1/partnership-leads")) {
-    const body = await readJson<{ coachId?: unknown; contactEmail?: unknown; contactName?: unknown; contactPhone?: unknown; contactWechat?: unknown; desiredTime?: unknown; district?: unknown; goal?: unknown; learnerStage?: unknown; sport?: unknown; turnstileToken?: unknown }>(request);
+  if (request.method === "POST" && (path === "/api/v1/service-leads" || path === "/api/v1/partnership-leads" || path === "/api/v1/privacy-requests")) {
+    const body = await readJson<{ coachId?: unknown; contactEmail?: unknown; contactName?: unknown; contactPhone?: unknown; contactWechat?: unknown; desiredTime?: unknown; district?: unknown; goal?: unknown; learnerStage?: unknown; request?: unknown; sport?: unknown; turnstileToken?: unknown }>(request);
     if (local) return success({ id: randomId("lead"), status: "new" }, requestId, undefined, 201);
     await verifyTurnstile(request, body.turnstileToken, env);
     const identity = local ? null : await authenticateStudent(request, env, false);
@@ -669,12 +730,12 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
       contactPhone: typeof body.contactPhone === "string" ? body.contactPhone.slice(0, 30) : undefined,
       contactWechat: typeof body.contactWechat === "string" ? body.contactWechat.slice(0, 64) : undefined,
       desiredTime: typeof body.desiredTime === "string" ? body.desiredTime.slice(0, 160) : undefined,
-      district: requireString(body.district, "district", 40),
-      goal: requireString(body.goal, "goal", 160),
-      leadKind: path === "/api/v1/partnership-leads" ? "coach_partnership" : "student_inquiry",
+      district: path === "/api/v1/privacy-requests" ? "北京" : requireString(body.district, "district", 40),
+      goal: path === "/api/v1/privacy-requests" ? requireString(body.request, "request", 1000) : requireString(body.goal, "goal", 160),
+      leadKind: path === "/api/v1/privacy-requests" ? "privacy_request" : path === "/api/v1/partnership-leads" ? "coach_partnership" : "student_inquiry",
       learnerStage: typeof body.learnerStage === "string" ? body.learnerStage : undefined,
       source: request.headers.get("x-app-platform") === "android" ? "android" : "web",
-      sport: requireString(body.sport, "sport", 40),
+      sport: path === "/api/v1/privacy-requests" ? "隐私请求" : requireString(body.sport, "sport", 40),
       userId: identity?.userId,
     }, env), requestId, undefined, 201);
   }
@@ -763,7 +824,17 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   if (request.method === "POST" && path === "/api/v1/auth/refresh") {
     const body = await readJson<{ refreshToken?: unknown }>(request);
     const refreshToken = requireString(body.refreshToken, "refreshToken", 256);
-    return success(local ? refreshLocalSession(refreshToken, deviceId) : await refreshSessionD1(refreshToken, deviceId, env), requestId);
+    const proxySecret = request.headers.get("x-operator-secret");
+    const trusted = Boolean(env.OPERATOR_API_SECRET && proxySecret === env.OPERATOR_API_SECRET);
+    const key = request.headers.get("idempotency-key");
+    const trustedKey = trusted && key && /^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(key) ? key : undefined;
+    return success(local ? refreshLocalSession(refreshToken, deviceId) : await refreshSessionD1(refreshToken, deviceId, env, trustedKey), requestId);
+  }
+
+  if (request.method === "POST" && path === "/api/v1/auth/logout-refresh") {
+    const body = await readJson<{ refreshToken?: unknown }>(request);
+    if (!local) await logoutRefreshD1(requireString(body.refreshToken, "refreshToken", 256), deviceId, env);
+    return success({ loggedOut: true }, requestId);
   }
 
   if (request.method === "POST" && path === "/api/v1/auth/logout") {
@@ -873,6 +944,7 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
       if (locationType !== "venue" && locationType !== "custom") throw new ApiError(422, "invalid_location_type", "请选择训练地点方式");
       booking = await createTimeRequestBookingD1(bookingIdentity!, {
         coachId,
+        fulfillmentV2: request.headers.get("x-booking-flow") === "2",
         customAddress: typeof body.customAddress === "string" ? body.customAddress : undefined,
         customDistrict: typeof body.customDistrict === "string" ? body.customDistrict : undefined,
         customLocationNote: typeof body.customLocationNote === "string" ? body.customLocationNote : undefined,
@@ -1027,6 +1099,47 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     }, "student", env), requestId, undefined, 201);
   }
 
+  const completionResponseMatch = path.match(/^\/api\/v1\/booking-completion-requests\/([^/]+)\/respond$/u);
+  if (request.method === "POST" && completionResponseMatch) {
+    const body = await readJson<{ decision?: unknown; note?: unknown }>(request);
+    const decision = requireString(body.decision, "decision", 20);
+    if (decision !== "accepted" && decision !== "disputed") throw new ApiError(422, "invalid_completion_decision", "请选择确认完成或提出异议");
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地演示数据不写入完成确认");
+    const key = request.headers.get("idempotency-key") || undefined;
+    if (key && !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(key)) throw new ApiError(422, "invalid_idempotency_key", "请求标识无效");
+    return success(await respondCompletionRequestD1((await authenticateStudent(request, env))!, decodeURIComponent(completionResponseMatch[1]), decision, typeof body.note === "string" ? body.note : "", env, key, requestId), requestId);
+  }
+
+  const supportAttachmentMatch = path.match(/^\/api\/v1\/support-tickets\/([^/]+)\/attachments(?:\/([^/]+))?$/u);
+  if (request.method === "POST" && supportAttachmentMatch && !supportAttachmentMatch[2]) {
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地演示数据不上传售后附件");
+    return success(await uploadSupportEvidenceD1((await authenticateStudent(request, env))!, decodeURIComponent(supportAttachmentMatch[1]), request, env), requestId, undefined, 201);
+  }
+  if (request.method === "GET" && supportAttachmentMatch?.[2]) {
+    if (local) throw new ApiError(404, "support_attachment_not_found", "本地演示数据没有售后附件");
+    const identity = (await authenticateStudent(request, env))!;
+    return downloadSupportEvidenceD1(identity, decodeURIComponent(supportAttachmentMatch[1]), decodeURIComponent(supportAttachmentMatch[2]), identity.userId, requestId, env);
+  }
+
+  const paymentOrderMatch = path.match(/^\/api\/v1\/bookings\/([^/]+)\/payment-orders$/u);
+  if (request.method === "POST" && paymentOrderMatch) {
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地演示数据不创建交易");
+    const idempotencyKey = requireString(request.headers.get("idempotency-key"), "idempotency-key", 180);
+    return success(await createTestPaymentOrderD1((await authenticateStudent(request, env))!, decodeURIComponent(paymentOrderMatch[1]), idempotencyKey, env), requestId, undefined, 201);
+  }
+
+  const paymentConfirmMatch = path.match(/^\/api\/v1\/payment-orders\/([^/]+)\/test-confirm$/u);
+  if (request.method === "POST" && paymentConfirmMatch) {
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地演示数据不创建交易");
+    return success(await confirmTestPaymentD1((await authenticateStudent(request, env))!, decodeURIComponent(paymentConfirmMatch[1]), env), requestId);
+  }
+
+  if (request.method === "POST" && path === "/api/v1/refund-requests") {
+    const body = await readJson<{ amountFen?: unknown; paymentOrderId?: unknown; reason?: unknown }>(request);
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地演示数据不创建退款");
+    return success(await createRefundRequestD1((await authenticateStudent(request, env))!, requireString(body.paymentOrderId, "paymentOrderId", 180), Number(body.amountFen), requireString(body.reason, "reason", 500), env), requestId, undefined, 201);
+  }
+
   if (request.method === "GET" && path === "/api/v1/learner-profiles") {
     if (local) authenticateLocal(request);
     else await authenticateStudent(request, env);
@@ -1073,6 +1186,13 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     ctx.waitUntil(sendStudentBookingStatusSms(bookingId, status, env));
     ctx.waitUntil(dispatchPushDeliveriesD1(env));
     return success(booking, requestId);
+  }
+
+  const coachCompletionMatch = path.match(/^\/api\/v1\/coach\/bookings\/([^/]+)\/completion-request$/u);
+  if (request.method === "POST" && coachCompletionMatch) {
+    const body = await readJson<{ note?: unknown }>(request);
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地演示数据不写入完成确认");
+    return success(await createCompletionRequestD1(await authenticateCoach(request, env), decodeURIComponent(coachCompletionMatch[1]), typeof body.note === "string" ? body.note : "", env), requestId, undefined, 201);
   }
 
   if (request.method === "POST" && path === "/api/v1/coach/slots") {
@@ -1172,6 +1292,20 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     }, "coach", env), requestId, undefined, 201);
   }
 
+  const coachSupportAttachmentMatch = path.match(/^\/api\/v1\/coach\/support-tickets\/([^/]+)\/attachments(?:\/([^/]+))?$/u);
+  if (request.method === "POST" && coachSupportAttachmentMatch && !coachSupportAttachmentMatch[2]) {
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地演示数据不上传售后附件");
+    const coach = await authenticateCoach(request, env);
+    if (!coach.userId) throw new ApiError(401, "authentication_required", "请先登录教练账号");
+    return success(await uploadSupportEvidenceD1(coach, decodeURIComponent(coachSupportAttachmentMatch[1]), request, env), requestId, undefined, 201);
+  }
+  if (request.method === "GET" && coachSupportAttachmentMatch?.[2]) {
+    if (local) throw new ApiError(404, "support_attachment_not_found", "本地演示数据没有售后附件");
+    const coach = await authenticateCoach(request, env);
+    if (!coach.userId) throw new ApiError(401, "authentication_required", "请先登录教练账号");
+    return downloadSupportEvidenceD1(coach, decodeURIComponent(coachSupportAttachmentMatch[1]), decodeURIComponent(coachSupportAttachmentMatch[2]), coach.userId, requestId, env);
+  }
+
   const coachMessageMatch = path.match(/^\/api\/v1\/coach\/conversations\/([^/]+)\/messages$/u);
   if (request.method === "POST" && coachMessageMatch) {
     const body = await readJson<{ body?: unknown }>(request);
@@ -1253,12 +1387,6 @@ function positiveInteger(value: unknown, field: string) {
   return parsed;
 }
 
-function nonNegativeInteger(value: unknown, field: string) {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) throw new ApiError(422, "validation_failed", "请检查提交内容", { [field]: "必须为非负整数" });
-  return parsed;
-}
-
 function timestamp(value: unknown, field: string) {
   const parsed = typeof value === "number" ? value : Date.parse(String(value ?? ""));
   if (!Number.isFinite(parsed)) throw new ApiError(422, "validation_failed", "请检查时间", { [field]: "时间格式无效" });
@@ -1292,7 +1420,7 @@ function withCors(response: Response, request: Request, env: ApiEnv, requestId: 
     headers.set("access-control-allow-origin", origin);
     headers.append("vary", "origin");
   }
-  headers.set("access-control-allow-headers", "authorization, content-type, idempotency-key, x-app-platform, x-app-version, x-app-version-code, x-device-id, x-operator-actor, x-operator-secret, x-release-version-name, x-request-id, x-zhuguang-app-key");
+  headers.set("access-control-allow-headers", "authorization, content-type, idempotency-key, x-app-platform, x-app-version, x-app-version-code, x-booking-flow, x-device-id, x-file-name, x-operator-actor, x-operator-secret, x-release-version-name, x-request-id, x-zhuguang-app-key");
   headers.set("access-control-allow-methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
   headers.set("access-control-expose-headers", "x-request-id");
   headers.set("referrer-policy", "no-referrer");

@@ -1,4 +1,5 @@
 import { cookies, headers } from "next/headers";
+import { cache } from "react";
 import { getChatGPTUser } from "../chatgpt-auth";
 import type { ChatGPTUser } from "../chatgpt-auth";
 import { resolveCloudflareAccessToken, verifyCloudflareAccessToken } from "./cloudflare-access";
@@ -19,7 +20,7 @@ type MobileIdentity = {
   userId?: string;
 };
 
-const PRIMARY_OPERATOR_EMAIL = "xuzerui6@gmail.com";
+import { isPrimaryOperator } from "../../shared/operator-policy";
 
 function configuredEmails(value: string | undefined): Set<string> {
   return new Set((value ?? "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean));
@@ -27,11 +28,12 @@ function configuredEmails(value: string | undefined): Set<string> {
 
 function sessionFromChatGPT(
   user: ChatGPTUser | null,
-  roleConfiguration: { coachEmails?: string; opsEmails?: string } = {},
+  roleConfiguration: { coachEmails?: string; primaryOperatorEmail?: string } = {},
 ): WebSession {
   if (!user) {
     return {
       accountId: null,
+      serviceStatus: "anonymous",
       authorizationSource: "anonymous",
       availableAreas: [],
       displayName: "访客",
@@ -48,12 +50,13 @@ function sessionFromChatGPT(
     permissions.push("coach:work");
     availableAreas.push("coach");
   }
-  if (user.email.trim().toLowerCase() === PRIMARY_OPERATOR_EMAIL) {
+  if (isPrimaryOperator(user.email, roleConfiguration.primaryOperatorEmail)) {
     permissions.push("ops:manage", "release:read");
     availableAreas.push("ops");
   }
   return {
     accountId: user.id,
+    serviceStatus: "authenticated",
     authorizationSource: availableAreas.length > 1 ? "allowlist" : "siwc",
     availableAreas,
     displayName: user.displayName,
@@ -63,27 +66,28 @@ function sessionFromChatGPT(
   };
 }
 
-async function mobileIdentityFromCookie(): Promise<MobileIdentity | null> {
+async function mobileIdentityFromCookie(): Promise<{ identity?: MobileIdentity; serviceStatus: NonNullable<WebSession["serviceStatus"]> }> {
   const cookieStore = await cookies();
   const accessToken = cookieStore.get(WEB_ACCESS_COOKIE)?.value;
   const appKey = process.env.ZHUGUANG_PILOT_APP_KEY;
-  if (!accessToken || !appKey) return null;
+  if (!accessToken) return { serviceStatus: cookieStore.get(WEB_REFRESH_COOKIE)?.value ? "upstream_unavailable" : "anonymous" };
+  if (!appKey) return { serviceStatus: "upstream_unavailable" };
   const baseUrl = (process.env.ZHUGUANG_MOBILE_API_URL || "https://api.beijingzhuguang.top").replace(/\/$/u, "");
   try {
     const response = await fetch(`${baseUrl}/api/v1/me`, {
       cache: "no-store",
       headers: {
         authorization: `Bearer ${accessToken}`,
-        "x-device-id": "zhuguang-web",
+        "x-device-id": cookieStore.get("zg_web_device")?.value || "zhuguang-web",
         "x-zhuguang-app-key": appKey,
       },
       signal: AbortSignal.timeout(4_000),
     });
-    if (!response.ok) return null;
+    if (!response.ok) return { serviceStatus: response.status === 401 ? "token_invalid" : "upstream_unavailable" };
     const payload = await response.json() as { data?: MobileIdentity };
-    return payload.data ?? null;
+    return payload.data?.userId ? { identity: payload.data, serviceStatus: "authenticated" } : { serviceStatus: "upstream_unavailable" };
   } catch {
-    return null;
+    return { serviceStatus: "upstream_unavailable" };
   }
 }
 
@@ -107,13 +111,26 @@ async function cloudflareAccessUser(): Promise<ChatGPTUser | null> {
 
 export function createWebSession(
   user: ChatGPTUser | null,
-  roleConfiguration: { coachEmails?: string; opsEmails?: string } = {},
+  roleConfiguration: { coachEmails?: string; primaryOperatorEmail?: string } = {},
 ): WebSession {
   return sessionFromChatGPT(user, roleConfiguration);
 }
 
-export async function getWebSession(): Promise<WebSession> {
-  const identity = await mobileIdentityFromCookie();
+const requestSessions = new WeakMap<Headers, Promise<WebSession>>();
+export const getWebSession = cache(async (): Promise<WebSession> => {
+  const requestHeaders = await headers();
+  let session = requestSessions.get(requestHeaders);
+  if (!session) {
+    session = resolveWebSession();
+    requestSessions.set(requestHeaders, session);
+  }
+  return session;
+});
+
+async function resolveWebSession(): Promise<WebSession> {
+  const result = await mobileIdentityFromCookie();
+  const identity = result.identity;
+  if (result.serviceStatus === "upstream_unavailable" || result.serviceStatus === "token_invalid") return { ...sessionFromChatGPT(null), serviceStatus: result.serviceStatus };
   if (identity?.userId) {
     const roles = new Set(identity.roles ?? ["student"]);
     const availableAreas: WebSession["availableAreas"] = ["student"];
@@ -123,12 +140,13 @@ export async function getWebSession(): Promise<WebSession> {
       permissions.push("coach:work");
     }
     const email = identity.email?.trim().toLowerCase() || null;
-    if (roles.has("operator") && email === PRIMARY_OPERATOR_EMAIL) {
+    if (roles.has("operator") && isPrimaryOperator(email, process.env.PRIMARY_OPERATOR_EMAIL)) {
       availableAreas.push("ops");
       permissions.push("ops:manage", "release:read");
     }
     return {
       accountId: identity.userId,
+      serviceStatus: "authenticated",
       avatarUrl: identity.profile?.avatarUrl,
       authorizationSource: "email",
       availableAreas,
@@ -141,7 +159,7 @@ export async function getWebSession(): Promise<WebSession> {
   }
   const roleConfiguration = {
     coachEmails: process.env.ZHUGUANG_COACH_EMAILS,
-    opsEmails: process.env.ZHUGUANG_OPS_EMAILS,
+    primaryOperatorEmail: process.env.PRIMARY_OPERATOR_EMAIL,
   };
   if (process.env.CF_ACCESS_ENABLED === "true") {
     const accessUser = await cloudflareAccessUser();

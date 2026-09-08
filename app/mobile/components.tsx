@@ -219,7 +219,7 @@ export function CoachCard({
             <strong>{coach.name}</strong>
             {coach.verified !== false ? <em><ShieldCheck aria-hidden size={14} />{coach.verificationLabel ?? coach.level}</em> : null}
           </span>
-          <small>{coach.profileKind === "demo" ? `${coach.sport} · 演示资料` : coach.reviewCount < 3 ? `${coach.sport} · ${coach.reviewCount ? `${coach.reviewCount}条履约评价` : "新教练"}` : `${coach.sport} · ${coach.experienceYears ?? 0}年教学经验`}</small>
+          <small>{coach.profileKind === "demo" ? `${coach.sport} · 演示资料` : `${coach.sport} · ${coach.experienceYears ? `${coach.experienceYears}年教学经验` : coach.district}`}</small>
           <span className="zg-coach-card-meta">
             {coach.profileKind === "demo" ? <b className="is-demo">演示</b> : coach.reviewCount < 3 ? <b className="is-new">{coach.reviewCount ? `${coach.reviewCount}条评价` : "新教练"}</b> : <b><Star aria-hidden fill="currentColor" size={14} />{coach.rating}</b>}
             {coach.distanceKm ? <i>{coach.distanceKm.toFixed(1)}km</i> : <i>{coach.district}</i>}

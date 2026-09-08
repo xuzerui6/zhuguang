@@ -765,7 +765,9 @@
   background: #e9f5ef;
   border-radius: 4px;
   color: var(--zg-brand);
+  flex: 0 0 auto;
   padding: 2px 5px;
+  white-space: nowrap;
 }
 
 .zg-coach-card-meta i {
@@ -1090,18 +1092,22 @@
 }
 
 .zg-credential-grid strong {
+  display: -webkit-box;
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .zg-credential-grid small {
   color: var(--zg-muted);
+  display: -webkit-box;
   font-size: 9px;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .zg-reason-list {

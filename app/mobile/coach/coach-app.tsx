@@ -1,4 +1,5 @@
 "use client";
+import { useRefreshLoop } from "../use-refresh-loop";
 
 import {
   BadgeCheck,
@@ -22,11 +23,13 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useOperationPrompt } from "../../_components/operation-context";
 import { mobileApi, usesBundledDemoData } from "../api-client";
 import { createDemoBooking, createDemoConversations, demoCoaches } from "../demo-data";
 import { impact, listenForAppResume } from "../device";
 import { PullToRefresh } from "../pull-to-refresh";
 import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal } from "../../../shared/scheduling";
+import { getBookingPresentation } from "../../../shared/booking-presentation";
 import type {
   AccountProfile,
   BookingStatus,
@@ -59,17 +62,6 @@ const tabItems: Array<{ icon: typeof LayoutDashboard; label: string; tab: CoachT
   { icon: UserRound, label: "我的", tab: "profile" },
 ];
 
-const statusCopy: Record<BookingStatus, string> = {
-  cancelled_by_coach: "已取消",
-  cancelled_by_student: "学员已取消",
-  completed: "已完成",
-  confirmed: "已确认",
-  pending_coach: "待确认",
-  rejected: "已拒绝",
-  expired: "已失效",
-  reschedule_requested: "待改期",
-};
-
 export function createDemoCoachOverview(summary: CoachAccountSummary): CoachOverview {
   const pending = { ...createDemoBooking(), id: "booking_coach_pending", status: "pending_coach" as const };
   const pendingTwo = { ...pending, id: "booking_coach_pending_2", learnerId: "learner_xu", time: "18:00", endTime: "19:30" };
@@ -95,20 +87,23 @@ export function createDemoCoachOverview(summary: CoachAccountSummary): CoachOver
 function BookingRow({
   booking,
   compact = false,
+  fulfillmentV2 = false,
   onAction,
   sport,
 }: {
   booking: MobileBooking;
   compact?: boolean;
+  fulfillmentV2?: boolean;
   onAction: (booking: MobileBooking, status: BookingStatus | "paid" | "proposal") => void;
   sport: string;
 }) {
   const pending = booking.status === "pending_coach";
+  const presentation = getBookingPresentation(booking);
   return (
     <article className="zg-coach-booking-row">
       <span className="zg-coach-student-avatar">{booking.learnerId.slice(-2).toUpperCase()}</span>
       <div className="zg-coach-booking-copy">
-        <div><strong>{booking.learnerName || "预约学员"}</strong><small>{statusCopy[booking.status]}</small></div>
+        <div><strong>{booking.learnerName || "预约学员"}</strong><small>{presentation.label}</small></div>
         <p><CalendarDays aria-hidden size={14} />{booking.dateLabel} {booking.time}-{booking.endTime}</p>
         <p><Clock3 aria-hidden size={14} />{booking.sport || sport} · {booking.note || "体验训练"}</p>
       </div>
@@ -119,11 +114,11 @@ function BookingRow({
           <button aria-label="拒绝预约" onClick={() => onAction(booking, "rejected")} type="button"><X aria-hidden size={16} /></button>
         </div>
       ) : null}
-      {!compact && booking.status === "confirmed" ? (
+      {!compact && presentation.canReschedule ? (
         <div className="zg-coach-row-actions">
-          <button className="is-primary" onClick={() => onAction(booking, "completed")} type="button">完成课程</button>
+          <button className="is-primary" onClick={() => onAction(booking, "completed")} type="button">{fulfillmentV2 ? "发起完成确认" : "完成课程"}</button>
           <button onClick={() => onAction(booking, "proposal")} type="button">新方案</button>
-          <button onClick={() => onAction(booking, "paid")} type="button">{booking.paymentStatus === "offline_paid" ? "已收款" : "标记收款"}</button>
+          <button disabled={booking.paymentStatus !== "offline_unpaid"} onClick={() => onAction(booking, "paid")} type="button">{booking.paymentStatus === "offline_paid" ? "已收款" : booking.paymentStatus === "online_paid" ? "已支付" : "标记收款"}</button>
         </div>
       ) : null}
     </article>
@@ -131,6 +126,7 @@ function BookingRow({
 }
 
 export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onOpenUpdates, onSwitchStudent, onTabChange, summary }: CoachAppProps) {
+  const requestOperation = useOperationPrompt();
   const demoMode = useMemo(() => usesBundledDemoData(), []);
   const [tab, setTab] = useState<CoachTab>(initialTab);
   const [overview, setOverview] = useState<CoachOverview>(() => createDemoCoachOverview(summary));
@@ -152,13 +148,16 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
     window.setTimeout(() => setToast(""), 2200);
   }, []);
 
-  const refresh = useCallback((): Promise<PullRefreshResult> => {
+  const fetchOverview = useCallback((): Promise<PullRefreshResult> => {
     if (refreshInFlight.current) return refreshInFlight.current;
     if (!navigator.onLine) return Promise.resolve({ status: "error", message: "当前离线，无法刷新" });
     if (demoMode) return Promise.resolve({ status: "success", updatedAt: Date.now() });
     const request = (async (): Promise<PullRefreshResult> => {
       try {
-        const [remote, reviewRows] = await Promise.all([mobileApi.coachOverview(), mobileApi.coachReviewsForCoach().catch(() => [] as CoachReviewRow[])]);
+        const [remote, reviewRows] = await Promise.all([
+          mobileApi.coachOverview(),
+          mobileApi.coachReviewsForCoach().catch(() => [] as CoachReviewRow[]),
+        ]);
         setOverview(remote);
         setConversations(remote.conversations);
         setReviews(reviewRows);
@@ -173,25 +172,22 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
     });
     return request;
   }, [demoMode]);
+  const refresh = useRefreshLoop(fetchOverview, !demoMode);
 
   const replyToReview = useCallback(async (review: CoachReviewRow) => {
-    const body = window.prompt("回复将经过运营审核后公开，请勿填写学员姓名或联系方式");
+    const body = await requestOperation("回复将经过运营审核后公开，请勿填写学员姓名或联系方式", "", 2);
     if (!body?.trim()) return;
     try { await mobileApi.coachReplyToReview(review.id, body); showToast("回复已提交审核"); await refresh(); }
     catch (error) { showToast(error instanceof Error ? error.message : "回复提交失败"); }
-  }, [refresh, showToast]);
+  }, [refresh, requestOperation, showToast]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void refresh(), 0);
     const removeResume = listenForAppResume(() => void refresh());
-    const interval = demoMode ? undefined : window.setInterval(() => {
-      if (document.visibilityState === "visible" && navigator.onLine) void refresh();
-    }, 15_000);
     const refreshOnNetwork = () => void refresh();
     window.addEventListener("online", refreshOnNetwork);
     return () => {
       window.clearTimeout(timer);
-      if (interval) window.clearInterval(interval);
       window.removeEventListener("online", refreshOnNetwork);
       removeResume();
     };
@@ -273,6 +269,13 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
         }));
         showToast("线下收款状态已记录");
       } else {
+        if (!demoMode && action === "completed" && booking.fulfillmentVersion === 2) {
+          await mobileApi.coachRequestCompletion(booking.id);
+          await refresh();
+          showToast("已发起完成确认，等待学员确认");
+          void impact("medium");
+          return;
+        }
         if (!demoMode) await mobileApi.coachSetBookingStatus(booking.id, action);
         setOverview((current) => ({
           ...current,
@@ -286,7 +289,7 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
     } finally {
       setBusyBookingId(null);
     }
-  }, [demoMode, overview.venues, showToast]);
+  }, [demoMode, overview.venues, refresh, showToast]);
 
   const submitProposal = useCallback(async () => {
     if (!proposalBooking || !proposalVenueId) return;
@@ -328,7 +331,7 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
         <div className="zg-coach-page">
           <section className="zg-coach-identity">
             <span className="zg-coach-mode-avatar">{summary.name.slice(0, 1)}</span>
-            <div><h1>{summary.name}</h1><p>{summary.sport} · {summary.title}</p></div>
+            <div><h1>{summary.name}</h1><p>{overview.coach.title || overview.coach.sport}</p></div>
             <BadgeCheck aria-label="已认证教练" size={22} />
           </section>
           <section className="zg-coach-kpis">
@@ -339,12 +342,12 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
           <section className="zg-coach-section">
             <header><h2>待处理预约</h2><button onClick={() => openAppointments("pending")} type="button">全部({pending.length})<ChevronRight aria-hidden size={15} /></button></header>
             <div className={busyBookingId ? "is-busy" : ""}>
-              {pending.length ? pending.map((booking) => <BookingRow booking={booking} key={booking.id} onAction={updateBooking} sport={overview.coach.sport} />) : <p className="zg-coach-empty">所有预约都已处理</p>}
+              {pending.length ? pending.map((booking) => <BookingRow booking={booking} fulfillmentV2={booking.fulfillmentVersion === 2} key={booking.id} onAction={updateBooking} sport={overview.coach.sport} />) : <p className="zg-coach-empty">所有预约都已处理</p>}
             </div>
           </section>
           <section className="zg-coach-section">
             <header><h2>近期课程</h2><button onClick={() => openAppointments("active")} type="button">全部({active.length})<ChevronRight aria-hidden size={15} /></button></header>
-            {active.map((booking) => <BookingRow booking={booking} compact key={booking.id} onAction={updateBooking} sport={overview.coach.sport} />)}
+            {active.map((booking) => <BookingRow booking={booking} compact fulfillmentV2={booking.fulfillmentVersion === 2} key={booking.id} onAction={updateBooking} sport={overview.coach.sport} />)}
           </section>
           <section className="zg-coach-section zg-coach-review-list">
             <header><h2>真实学员评价</h2><span>{reviews.length}条</span></header>
@@ -362,7 +365,7 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
             <button aria-selected={appointmentFilter === "completed"} className={appointmentFilter === "completed" ? "is-active" : ""} onClick={() => setAppointmentFilter("completed")} role="tab" type="button">已结束 {ended.length}</button>
           </div>
           <section className="zg-coach-appointment-list">
-            {filteredBookings.length ? filteredBookings.map((booking) => <BookingRow booking={booking} key={booking.id} onAction={updateBooking} sport={overview.coach.sport} />) : <p className="zg-coach-empty">该分组暂无预约</p>}
+            {filteredBookings.length ? filteredBookings.map((booking) => <BookingRow booking={booking} fulfillmentV2={booking.fulfillmentVersion === 2} key={booking.id} onAction={updateBooking} sport={overview.coach.sport} />) : <p className="zg-coach-empty">该分组暂无预约</p>}
           </section>
         </div>
       ) : null}
@@ -409,7 +412,7 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
         <div className="zg-coach-page">
           <div className="zg-coach-page-title"><div><small>教练模式</small><h1>我的工作台</h1></div><button aria-label="编辑账号资料" onClick={onEditAccountProfile} type="button"><Settings aria-hidden /></button></div>
           <button className="zg-coach-account-card" onClick={onEditAccountProfile} type="button"><span>{accountProfile?.avatarUrl ? <Image alt="账号头像" height={52} src={accountProfile.avatarUrl} unoptimized width={52} /> : (accountProfile?.nickname || "逐").slice(0,1)}</span><div><small>当前登录账号</small><strong>{accountProfile?.nickname || "昵称待完善"}</strong><p>{accountProfile?.district || "北京"} · 账号资料与公开教练档案相互独立</p></div><ChevronRight aria-hidden size={18} /></button>
-          <section className="zg-coach-profile-card"><span>{summary.name.slice(0, 1)}</span><div><h2>{summary.name}教练</h2><p><BadgeCheck aria-hidden size={15} />人工审核已通过</p><small>{summary.sport} · {summary.title}</small></div></section>
+          <section className="zg-coach-profile-card"><span>{summary.name.slice(0, 1)}</span><div><h2>{summary.name}教练</h2><p><BadgeCheck aria-hidden size={15} />人工审核已通过</p><small>{overview.coach.title || overview.coach.sport}</small></div></section>
           <section className="zg-coach-profile-menu">
             <button onClick={() => navigate("schedule")} type="button"><CalendarDays aria-hidden /><span><strong>接单状态与日程</strong><small>控制上线状态并查看确认课程</small></span><ChevronRight aria-hidden /></button>
             <button onClick={() => openAppointments("active")} type="button"><CircleDollarSign aria-hidden /><span><strong>课程与收款</strong><small>完成课程并记录线下收款</small></span><ChevronRight aria-hidden /></button>

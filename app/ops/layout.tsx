@@ -12,6 +12,6 @@ export const dynamic = "force-dynamic";
 
 export default async function OpsLayout({ children }: { children: React.ReactNode }) {
   const session = await getWebSession();
-  if (!canAccessArea(session, "ops")) return <AccessDenied area="ops" authenticated={session.isAuthenticated} />;
+  if (!canAccessArea(session, "ops")) return <AccessDenied area="ops" authenticated={session.isAuthenticated} recoverable={session.serviceStatus === "token_invalid"} unavailable={session.serviceStatus === "upstream_unavailable"} />;
   return <WorkspaceShell area="ops" session={session}>{children}</WorkspaceShell>;
 }

@@ -1,4 +1,7 @@
 import { canTransitionBooking } from "../../app/mobile/domain";
+import { EFFECTIVE_BOOKING_SQL } from "../../shared/booking-rules";
+import { listPublicCatalogD1 } from "./expansion";
+import { BODY_LIMITS, readBoundedBody } from "./request-body";
 import { matchesAudience, matchesTrainingGoal } from "../../shared/coach-catalog";
 import { calculateDurationPriceFen, durationMinutesBetween } from "../../shared/pricing";
 import { validateScheduleDraft } from "../../shared/scheduling";
@@ -43,7 +46,7 @@ export type StudentIdentity = {
   userId: string;
 };
 
-export const PRIMARY_OPERATOR_EMAIL = "xuzerui6@gmail.com";
+import { isPrimaryOperator } from "../../shared/operator-policy";
 
 export type CoachIdentity = {
   coachId: number;
@@ -169,7 +172,7 @@ export async function uploadAccountAvatarD1(identity: StudentIdentity, request: 
   if ((request.headers.get("content-type") ?? "").split(";")[0] !== "image/webp") throw new ApiError(415, "avatar_type_invalid", "头像仅支持 WebP 图片");
   const declared = Number(request.headers.get("content-length") ?? 0);
   if (declared > 1024 * 1024) throw new ApiError(413, "avatar_too_large", "头像文件不能超过 1MB");
-  const bytes = new Uint8Array(await request.arrayBuffer());
+  const bytes = new Uint8Array(await readBoundedBody(request, BODY_LIMITS.avatar));
   if (!bytes.length || bytes.length > 1024 * 1024) throw new ApiError(413, "avatar_too_large", "头像文件不能超过 1MB");
   if (!isWebp(bytes)) throw new ApiError(415, "avatar_signature_invalid", "头像文件格式无效");
   await profileEvent(identity, request, "avatar_uploaded", { size: bytes.length }, env);
@@ -282,7 +285,7 @@ export async function verifyAccountContactChallengeD1(identity: StudentIdentity,
     const current = await database.prepare("SELECT email_encrypted FROM users WHERE id = ?").bind(identity.userId).first<Row>();
     if (current?.email_encrypted) {
       const currentEmail = (await decryptPhone(stringValue(current.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? "")).toLowerCase();
-      if (currentEmail === PRIMARY_OPERATOR_EMAIL) throw new ApiError(403, "protected_operator_contact", "最高权限账号的登录邮箱不能在此处更换");
+      if (isPrimaryOperator(currentEmail, env.PRIMARY_OPERATOR_EMAIL)) throw new ApiError(403, "protected_operator_contact", "最高权限账号的登录邮箱不能在此处更换");
     }
   }
   const update = kind === "email"
@@ -306,7 +309,7 @@ function publicCoachMediaUrl(row: Row, kind: "avatar" | "card" | "hero", env?: A
 }
 
 function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
-  const reviewCount = numberValue(row.review_count);
+  const reviewCount = numberValue(row.public_review_count ?? row.review_count);
   const availability = jsonArray(row.availability_summary_json);
   const isNew = reviewCount === 0 && numberValue(row.lessons) === 0;
   const profileKind = row.profile_kind === "demo" ? "demo" : "real";
@@ -327,7 +330,7 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
   const verificationLabel = profileKind === "demo"
     ? "演示资料"
     : row.audit_status === "approved" && profileComplete
-      ? "资料已核验"
+      ? "公开资料已审核"
       : "资料待补充";
   return {
     accent: "#087A50",
@@ -360,8 +363,8 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
       ? ["演示资料", "不可预约"]
       : profileCompleteness === "partial"
         ? [verificationLabel, "服务区域已确认"]
-        : [...credentials, "运动经历与公开资料已核验", "服务保障已开通"],
-    rating: numberValue(row.rating_basis_points) / 100,
+        : [...credentials, verificationLabel],
+    rating: reviewCount >= 3 ? numberValue(row.public_rating_basis_points ?? row.rating_basis_points) / 100 : 0,
     responseMinutes: numberValue(row.response_minutes),
     reviewCount,
     sport: stringValue(row.sport),
@@ -382,6 +385,7 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
 }
 
 function beijingDateParts(startsAt: number, endsAt: number) {
+  if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt) || startsAt <= 0 || endsAt <= startsAt) return { date: "", dateLabel: "训练时间待核对", time: "", endTime: "" };
   const dateFormatter = new Intl.DateTimeFormat("en-CA", { day: "2-digit", month: "2-digit", timeZone: "Asia/Shanghai", year: "numeric" });
   const timeFormatter = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", hour12: false, minute: "2-digit", timeZone: "Asia/Shanghai" });
   const date = dateFormatter.format(new Date(startsAt));
@@ -433,7 +437,8 @@ function mapBooking(row: Row): MobileBooking {
     paymentStatus: stringValue(row.payment_status) as MobileBooking["paymentStatus"],
     slotId: stringValue(row.slot_id),
     status: stringValue(row.status) as BookingStatus,
-    submittedAt: "已提交",
+    submittedAt: numberValue(row.created_at) > 0 ? new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(numberValue(row.created_at))) : "",
+    fulfillmentVersion: row.contract_snapshot_id ? 2 : 1,
     venueId: stringValue(row.venue_id),
     venueName: row.venue_name ? stringValue(row.venue_name) : undefined,
     customAddress: row.custom_address ? stringValue(row.custom_address) : undefined,
@@ -443,6 +448,12 @@ function mapBooking(row: Row): MobileBooking {
     expiresAt: row.expires_at ? numberValue(row.expires_at) : undefined,
     locationType: row.location_type ? stringValue(row.location_type) as MobileBooking["locationType"] : "venue",
     review,
+    completion: row.completion_id ? {
+      coachNote: row.completion_coach_note ? stringValue(row.completion_coach_note) : undefined,
+      id: stringValue(row.completion_id),
+      status: stringValue(row.completion_status) as NonNullable<MobileBooking["completion"]>["status"],
+      studentNote: row.completion_student_note ? stringValue(row.completion_student_note) : undefined,
+    } : undefined,
   };
 }
 
@@ -519,7 +530,7 @@ async function authenticateTrustedWebStudent(emailInput: string, env: ApiEnv): P
       `).bind(userId, now, now),
     ]);
   }
-  if (email === PRIMARY_OPERATOR_EMAIL) {
+  if (isPrimaryOperator(email, env.PRIMARY_OPERATOR_EMAIL)) {
     await database.prepare(`
       INSERT INTO user_roles (user_id, role, status, granted_at, updated_at)
       VALUES (?, 'operator', 'active', ?, ?)
@@ -582,7 +593,7 @@ export async function getMobileIdentityD1(identity: StudentIdentity, env: ApiEnv
     email,
     phoneMasked: contactMasked,
     profile,
-    roles: [...new Set((roleRows.results ?? []).map((row) => stringValue(row.role)).filter((role): role is "student" | "coach" | "operator" => role === "student" || role === "coach" || role === "operator"))],
+    roles: [...new Set((roleRows.results ?? []).map((row) => stringValue(row.role)).filter((role): role is "student" | "coach" | "operator" => role === "student" || role === "coach" || (role === "operator" && isPrimaryOperator(email, env.PRIMARY_OPERATOR_EMAIL))))],
     userId: identity.userId,
   };
 }
@@ -740,17 +751,29 @@ export async function verifyOtpD1(
   };
 }
 
-export async function refreshSessionD1(refreshToken: string, deviceId: string, env: ApiEnv): Promise<MobileSession> {
+export async function refreshSessionD1(refreshToken: string, deviceId: string, env: ApiEnv, trustedRequestKey?: string): Promise<MobileSession> {
   const database = db(env);
   const tokenHash = await sha256Hex(refreshToken);
   const row = await database.prepare(`
     SELECT s.*, u.phone_last4, u.email_encrypted FROM sessions s JOIN users u ON u.id = s.user_id
-    WHERE s.refresh_token_hash = ?
+    WHERE s.refresh_token_hash = ? AND u.status = 'active'
   `).bind(tokenHash).first<Row>();
   if (!row) throw new ApiError(401, "invalid_session", "登录状态已失效，请重新验证手机号");
   const now = Date.now();
+  const requestHash = trustedRequestKey ? await keyedHash(trustedRequestKey, env.AUTH_HASH_SECRET ?? "") : null;
+  const replay = async (): Promise<MobileSession | null> => {
+    if (!requestHash || stringValue(row.device_id) !== deviceId) return null;
+    const receipt = await database.prepare(`SELECT r.result_encrypted FROM web_refresh_receipts r
+      JOIN sessions s ON s.id = r.child_session_id JOIN users u ON u.id = s.user_id
+      WHERE r.parent_session_id = ? AND r.request_hash = ? AND r.device_id = ? AND r.expires_at > ?
+        AND s.revoked_at IS NULL AND u.status = 'active'`).bind(row.id, requestHash, deviceId, Date.now()).first<Row>();
+    return receipt ? JSON.parse(await decryptPhone(stringValue(receipt.result_encrypted), env.PHONE_ENCRYPTION_KEY ?? "")) as MobileSession : null;
+  };
+  const revokeFamily = () => database.prepare("UPDATE sessions SET revoked_at = coalesce(revoked_at, ?) WHERE user_id = ? AND device_id = ?").bind(now, row.user_id, row.device_id).run();
   if (row.revoked_at) {
-    await database.prepare("UPDATE sessions SET revoked_at = coalesce(revoked_at, ?) WHERE user_id = ? AND device_id = ?").bind(now, row.user_id, row.device_id).run();
+    const cached = await replay();
+    if (cached) return cached;
+    await revokeFamily();
     throw new ApiError(401, "refresh_reuse_detected", "检测到会话异常，请重新验证手机号");
   }
   if (numberValue(row.refresh_expires_at) <= now || stringValue(row.device_id) !== deviceId) {
@@ -762,14 +785,6 @@ export async function refreshSessionD1(refreshToken: string, deviceId: string, e
     : maskPhone(stringValue(row.phone_last4));
   const session = newSessionRecord(stringValue(row.user_id), deviceId, contactMasked, authMethod, stringValue(row.id));
   const [accessTokenHash, refreshTokenHash] = await Promise.all([session.accessTokenHashPromise, session.refreshTokenHashPromise]);
-  await database.batch([
-    database.prepare("UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").bind(now, row.id),
-    database.prepare(`
-      INSERT INTO sessions
-        (id, user_id, device_id, auth_method, access_token_hash, refresh_token_hash, access_expires_at, refresh_expires_at, rotated_from_id, last_seen_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(session.id, row.user_id, deviceId, authMethod, accessTokenHash, refreshTokenHash, session.expiresAt, session.refreshExpiresAt, row.id, now, now),
-  ]);
   const mobileIdentity = await getMobileIdentityD1({
     authMethod,
     contactMasked,
@@ -778,7 +793,7 @@ export async function refreshSessionD1(refreshToken: string, deviceId: string, e
     sessionId: session.id,
     userId: stringValue(row.user_id),
   }, env);
-  return {
+  const result: MobileSession = {
     accessToken: session.accessToken,
     authMethod,
     availableModes: mobileIdentity.availableModes,
@@ -789,10 +804,48 @@ export async function refreshSessionD1(refreshToken: string, deviceId: string, e
     profile: mobileIdentity.profile,
     refreshToken: session.refreshToken,
   };
+  const operationId = randomId("rotation");
+  const statements = [
+    database.prepare(`INSERT INTO session_rotation_claims (parent_session_id, operation_id, child_session_id, created_at)
+      SELECT id, ?, ?, ? FROM sessions WHERE id = ? AND revoked_at IS NULL AND refresh_expires_at > ? AND device_id = ?
+        AND EXISTS (SELECT 1 FROM users WHERE users.id = sessions.user_id AND users.status = 'active')`)
+      .bind(operationId, session.id, now, row.id, now, deviceId),
+    database.prepare(`INSERT INTO sessions
+      (id,user_id,device_id,auth_method,access_token_hash,refresh_token_hash,access_expires_at,refresh_expires_at,rotated_from_id,last_seen_at,created_at)
+      SELECT ?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM session_rotation_claims WHERE operation_id = ?)`)
+      .bind(session.id,row.user_id,deviceId,authMethod,accessTokenHash,refreshTokenHash,session.expiresAt,session.refreshExpiresAt,row.id,now,now,operationId),
+    database.prepare("UPDATE sessions SET revoked_at = ? WHERE id = ? AND EXISTS (SELECT 1 FROM session_rotation_claims WHERE operation_id = ?)").bind(now,row.id,operationId),
+    database.prepare("DELETE FROM web_refresh_receipts WHERE expires_at <= ?").bind(now),
+  ];
+  if (requestHash) {
+    const encrypted = await encryptPhone(JSON.stringify(result), env.PHONE_ENCRYPTION_KEY ?? "");
+    statements.push(database.prepare(`INSERT INTO web_refresh_receipts (parent_session_id,child_session_id,device_id,request_hash,result_encrypted,expires_at)
+      SELECT ?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM session_rotation_claims WHERE operation_id = ?)`)
+      .bind(row.id,session.id,deviceId,requestHash,encrypted,now + 30_000,operationId));
+  }
+  try {
+    const applied = await database.batch(statements);
+    if (applied[0].meta.changes) return result;
+  } catch (error) {
+    const cached = await replay();
+    if (cached) return cached;
+    const claimed = await database.prepare("SELECT 1 FROM session_rotation_claims WHERE parent_session_id = ?").bind(row.id).first();
+    if (!claimed) throw error;
+  }
+  const cached = await replay();
+  if (cached) return cached;
+  await revokeFamily();
+  throw new ApiError(401, "refresh_reuse_detected", "登录状态已失效，请重新登录");
 }
 
 export async function logoutD1(identity: StudentIdentity, env: ApiEnv) {
-  await db(env).prepare("UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").bind(Date.now(), identity.sessionId).run();
+  await db(env).prepare("UPDATE sessions SET revoked_at = coalesce(revoked_at, ?) WHERE user_id = ? AND device_id = ?").bind(Date.now(), identity.userId, identity.deviceId).run();
+}
+
+export async function logoutRefreshD1(refreshToken: string, deviceId: string, env: ApiEnv) {
+  const hash = await sha256Hex(refreshToken);
+  await db(env).prepare(`UPDATE sessions SET revoked_at = coalesce(revoked_at, ?) WHERE (user_id, device_id) IN
+    (SELECT user_id, device_id FROM sessions WHERE refresh_token_hash = ? AND device_id = ?)`).bind(Date.now(), hash, deviceId).run();
 }
 
 export async function deleteAccountD1(identity: StudentIdentity, env: ApiEnv) {
@@ -804,10 +857,10 @@ export async function deleteAccountD1(identity: StudentIdentity, env: ApiEnv) {
   `).bind(identity.userId).first<Row>();
   if (account?.email_encrypted) {
     const email = (await decryptPhone(stringValue(account.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? "")).trim().toLowerCase();
-    if (email === PRIMARY_OPERATOR_EMAIL) throw new ApiError(403, "protected_operator_account", "最高权限账号不能被注销");
+    if (isPrimaryOperator(email, env.PRIMARY_OPERATOR_EMAIL)) throw new ApiError(403, "protected_operator_account", "最高权限账号不能被注销");
   }
   const now = Date.now();
-  await database.batch([
+  const statements = [
     database.prepare(`
       UPDATE users SET phone_hash = ?, phone_encrypted = NULL, phone_last4 = NULL,
         email_hash = ?, email_encrypted = NULL, email_domain = NULL,
@@ -822,7 +875,8 @@ export async function deleteAccountD1(identity: StudentIdentity, env: ApiEnv) {
       UPDATE learner_profiles SET name = '已注销学员', guardian_name = NULL, guardian_phone_encrypted = NULL, goal = '', updated_at = ?
       WHERE user_id = ?
     `).bind(now, identity.userId),
-  ]);
+  ];
+  await database.batch(statements);
   if (env.MEDIA && account?.avatar_object_key) await env.MEDIA.delete(stringValue(account.avatar_object_key)).catch(() => undefined);
   return { deletionEffectiveAt: now, retainedForDisputesDays: 90 };
 }
@@ -843,9 +897,11 @@ export async function listCoachesD1(env: ApiEnv, filters: URLSearchParams) {
     values.push(maxPriceFen);
   }
   const query = `SELECT coaches.*,
+    (SELECT count(*) FROM public_eligible_coach_reviews r WHERE r.coach_id = coaches.id) AS public_review_count,
+    (SELECT round(avg(r.rating) * 100) FROM public_eligible_coach_reviews r WHERE r.coach_id = coaches.id) AS public_rating_basis_points,
     (SELECT name FROM venues WHERE venues.coach_id = coaches.id AND active = 1 ORDER BY created_at LIMIT 1) AS venue_name,
     (SELECT count(*) FROM availability_slots slots WHERE slots.coach_id = coaches.id AND slots.status = 'open' AND slots.starts_at > unixepoch() * 1000) AS open_slot_count
-    FROM coaches WHERE ${clauses.join(" AND ")} ORDER BY CASE profile_kind WHEN 'real' THEN 0 ELSE 1 END, rating_basis_points DESC, lessons DESC, id ASC LIMIT 100`;
+    FROM coaches WHERE ${clauses.join(" AND ")} ORDER BY CASE WHEN public_review_count >= 3 THEN public_rating_basis_points ELSE 0 END DESC, id ASC LIMIT 100`;
   const result = await db(env).prepare(query).bind(...values).all<Row>();
   const goal = filters.get("goal") ?? "";
   const audience = filters.get("audience") ?? "";
@@ -856,6 +912,8 @@ export async function listCoachesD1(env: ApiEnv, filters: URLSearchParams) {
 
 export async function getCoachD1(coachId: number, env: ApiEnv) {
   const row = await db(env).prepare(`SELECT coaches.*,
+    (SELECT count(*) FROM public_eligible_coach_reviews r WHERE r.coach_id = coaches.id) AS public_review_count,
+    (SELECT round(avg(r.rating) * 100) FROM public_eligible_coach_reviews r WHERE r.coach_id = coaches.id) AS public_rating_basis_points,
     (SELECT name FROM venues WHERE venues.coach_id = coaches.id AND active = 1 ORDER BY created_at LIMIT 1) AS venue_name,
     (SELECT count(*) FROM availability_slots slots WHERE slots.coach_id = coaches.id AND slots.status = 'open' AND slots.starts_at > unixepoch() * 1000) AS open_slot_count
     FROM coaches WHERE id = ? AND profile_kind = 'real'`).bind(coachId).first<Row>();
@@ -920,13 +978,18 @@ async function listLearners(userId: string, env: ApiEnv): Promise<LearnerProfile
 
 async function listBookings(userId: string, env: ApiEnv) {
   await expirePendingBookingRequestsD1(env);
+  const completionSelect = ", cr.id AS completion_id, cr.status AS completion_status, cr.coach_note AS completion_coach_note, cr.student_note AS completion_student_note";
+  const completionJoin = "LEFT JOIN booking_completion_requests cr ON cr.booking_id = b.id";
   const result = await db(env).prepare(`
-    SELECT b.*, s.starts_at, s.ends_at, d.duration_minutes, d.location_type, d.custom_district, d.custom_address, d.custom_note, d.expires_at,
-      r.id AS review_id, r.status AS review_status, r.review_note, r.resubmission_count AS review_resubmission_count
+    SELECT b.*, s.starts_at, s.ends_at, c.name AS coach_name, c.sport, v.name AS venue_name, d.duration_minutes, d.location_type, d.custom_district, d.custom_address, d.custom_note, d.expires_at,
+      r.id AS review_id, r.status AS review_status, r.review_note, r.resubmission_count AS review_resubmission_count ${completionSelect}
     FROM booking_requests b
     JOIN availability_slots s ON s.id = b.slot_id
+    LEFT JOIN coaches c ON c.id = b.coach_id
+    LEFT JOIN venues v ON v.id = b.venue_id
     LEFT JOIN booking_request_details d ON d.booking_id = b.id
     LEFT JOIN coach_reviews r ON r.booking_id = b.id
+    ${completionJoin}
     WHERE b.user_id = ? ORDER BY b.created_at DESC LIMIT 100
   `).bind(userId).all<Row>();
   return (result.results ?? []).map(mapBooking);
@@ -973,8 +1036,8 @@ async function listConversations(userId: string, env: ApiEnv): Promise<MobileCon
 }
 
 export async function bootstrapD1(request: Request, env: ApiEnv) {
-  const [coaches, identity] = await Promise.all([listCoachesD1(env, new URLSearchParams()), authenticateStudent(request, env, false)]);
-  if (!identity) return { bookings: [], coaches, conversations: [], favoriteCoachIds: [], learnerProfiles: [], minimumAppVersion: "1.0.0" };
+  const [coaches, identity, catalog] = await Promise.all([listCoachesD1(env, new URLSearchParams()), authenticateStudent(request, env, false), listPublicCatalogD1(env)]);
+  if (!identity) return { bookings: [], coaches, catalog, conversations: [], favoriteCoachIds: [], learnerProfiles: [], minimumAppVersion: "1.0.0" };
   const [bookings, conversations, favoriteRows, learnerProfiles, accountProfile] = await Promise.all([
     listBookings(identity.userId, env),
     listConversations(identity.userId, env),
@@ -985,6 +1048,7 @@ export async function bootstrapD1(request: Request, env: ApiEnv) {
   return {
     bookings,
     coaches,
+    catalog,
     conversations,
     favoriteCoachIds: (favoriteRows.results ?? []).map((row) => numberValue(row.coach_id)),
     learnerProfiles,
@@ -1042,6 +1106,7 @@ export async function createTimeRequestBookingD1(
   identity: StudentIdentity,
   input: {
     coachId: number;
+    fulfillmentV2?: boolean;
     customAddress?: string;
     customDistrict?: string;
     customLocationNote?: string;
@@ -1068,6 +1133,7 @@ export async function createTimeRequestBookingD1(
   if (input.startsAt > now + MAX_BOOKING_HORIZON_MS) fieldErrors.startsAt = "只能预约未来60天内的时间";
   if (input.locationType !== "venue" && input.locationType !== "custom") fieldErrors.locationType = "请选择训练地点方式";
   if (input.locationType === "custom" && (!input.customDistrict?.trim() || !input.customAddress?.trim())) fieldErrors.customAddress = "请填写期望区域和详细地点";
+  if (input.locationType === "custom" && input.customDistrict && !BEIJING_DISTRICTS.includes(input.customDistrict.trim() as (typeof BEIJING_DISTRICTS)[number])) fieldErrors.customDistrict = "训练地点仅限北京 16 区";
   if (Object.keys(fieldErrors).length) throw new ApiError(422, "invalid_booking_request", "请检查预约时间和地点", fieldErrors);
 
   const coach = await database.prepare(`SELECT * FROM coaches WHERE id = ? AND profile_kind = 'real'
@@ -1093,12 +1159,12 @@ export async function createTimeRequestBookingD1(
   const endsAt = input.startsAt + input.durationMinutes * 60_000;
   const expiresAt = Math.min(now + 24 * 60 * 60_000, input.startsAt);
   const prior = await database.prepare(`SELECT id FROM booking_requests WHERE user_id = ? AND coach_id = ?
-    AND status NOT IN ('rejected', 'expired', 'cancelled_by_student', 'cancelled_by_coach') LIMIT 1`
+    AND status IN (${EFFECTIVE_BOOKING_SQL}) LIMIT 1`
   ).bind(identity.userId, input.coachId).first<Row>();
   const basePriceFen = prior ? numberValue(coach.price_fen) : numberValue(coach.trial_price_fen);
   const feeFen = calculateDurationPriceFen(basePriceFen, input.durationMinutes);
 
-  await database.batch([
+  const createStatements = [
     database.prepare(`INSERT INTO availability_slots
       (id, coach_id, venue_id, starts_at, ends_at, status, source, owner_booking_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, 'held', 'student_request', ?, ?, ?)`
@@ -1127,7 +1193,23 @@ export async function createTimeRequestBookingD1(
       SELECT ?, user_id, 'coach_booking_pending', '有新的训练时间申请', '请确认、拒绝或提出新的时间地点方案。', 'booking', ?, 'coach', 'zhuguang://coach/appointments', ?
       FROM coaches WHERE id = ? AND user_id IS NOT NULL`
     ).bind(randomId("notification"), bookingId, now, input.coachId),
-  ]);
+  ];
+  if (input.fulfillmentV2 && env.FULFILLMENT_V2_ENABLED?.trim().toLowerCase() === "true") {
+    const snapshotId = randomId("contract_snapshot");
+    const venue = await database.prepare("SELECT name, address, district FROM venues WHERE id = ?").bind(venueId).first<Row>();
+    createStatements.push(
+      database.prepare(`INSERT INTO booking_contract_snapshots
+        (id, booking_id, coach_id, learner_profile_id, city, sport, duration_minutes, fee_fen, location_json,
+         pricing_json, terms_version_id, cancellation_policy_version_id, created_at)
+        VALUES (?, ?, ?, ?, '北京', ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(snapshotId, bookingId, input.coachId, learner.id, stringValue(coach.sport), input.durationMinutes, feeFen,
+          JSON.stringify({ address: input.locationType === "custom" ? input.customAddress : venue?.address, district: input.locationType === "custom" ? input.customDistrict : venue?.district, name: venue?.name, type: input.locationType, venueId: input.locationType === "venue" ? venueId : undefined }),
+          JSON.stringify({ basePriceFen, durationMultiplier: input.durationMinutes / 60, firstValidBooking: !prior }),
+          env.TERMS_VERSION_ID ?? null, env.CANCELLATION_POLICY_VERSION_ID ?? null, now),
+      database.prepare("UPDATE booking_requests SET contract_snapshot_id = ? WHERE id = ?").bind(snapshotId, bookingId),
+    );
+  }
+  await database.batch(createStatements);
   const created = await database.prepare(`SELECT b.*, s.starts_at, s.ends_at, d.* FROM booking_requests b
     JOIN availability_slots s ON s.id = b.slot_id JOIN booking_request_details d ON d.booking_id = b.id WHERE b.id = ?`
   ).bind(bookingId).first<Row>();
@@ -1171,7 +1253,7 @@ export async function createBookingD1(
           CAST(ROUND((CASE WHEN EXISTS (
             SELECT 1 FROM booking_requests prior
             WHERE prior.user_id = ? AND prior.coach_id = ?
-              AND prior.status NOT IN ('rejected', 'cancelled_by_student', 'cancelled_by_coach')
+              AND prior.status IN (${EFFECTIVE_BOOKING_SQL})
           ) THEN c.price_fen ELSE c.trial_price_fen END) * (s.ends_at - s.starts_at) / 3600000.0) AS INTEGER),
           'offline_unpaid', ?, ?, ?
         FROM coaches c JOIN availability_slots s ON s.id = ? WHERE c.id = ?
@@ -1304,27 +1386,27 @@ export async function authenticateCoach(request: Request, env: ApiEnv): Promise<
       userId: mobileIdentity.userId,
     };
   }
-  const email = request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase();
-  if (!email) throw new ApiError(401, "coach_sign_in_required", "请使用已获邀的教练账号登录");
-  const allowlist = (env.COACH_EMAIL_ALLOWLIST ?? "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
-  if (allowlist.length && !allowlist.includes(email)) throw new ApiError(403, "coach_not_invited", "该账号尚未加入教练试点名单");
-  const row = await db(env).prepare("SELECT id, name FROM coaches WHERE lower(siwc_email) = ? AND profile_kind = 'real' AND audit_status = 'approved'").bind(email).first<Row>();
-  if (!row) throw new ApiError(403, "coach_not_approved", "教练身份尚未通过人工审核");
-  return { coachId: numberValue(row.id), email, name: stringValue(row.name) };
+  throw new ApiError(401, "authentication_required", "请先登录已绑定的教练账号");
 }
 
 export async function coachOverviewD1(identity: CoachIdentity, env: ApiEnv) {
   const database = db(env);
   await expirePendingBookingRequestsD1(env);
-  const coachRow = await database.prepare("SELECT * FROM coaches WHERE id = ? AND profile_kind = 'real' AND audit_status = 'approved'").bind(identity.coachId).first<Row>();
+  const coachRow = await database.prepare(`SELECT coaches.*,
+    (SELECT count(*) FROM public_eligible_coach_reviews r WHERE r.coach_id=coaches.id) AS public_review_count,
+    (SELECT round(avg(r.rating)*100) FROM public_eligible_coach_reviews r WHERE r.coach_id=coaches.id) AS public_rating_basis_points
+    FROM coaches WHERE id = ? AND profile_kind = 'real' AND audit_status = 'approved'`).bind(identity.coachId).first<Row>();
   if (!coachRow) throw new ApiError(403, "coach_not_approved", "教练身份尚未通过人工审核或已被暂停");
+  const completionSelect = ", cr.id AS completion_id, cr.status AS completion_status, cr.coach_note AS completion_coach_note, cr.student_note AS completion_student_note";
+  const completionJoin = "LEFT JOIN booking_completion_requests cr ON cr.booking_id = b.id";
   const [coach, bookings, conversations, slots, venues] = await Promise.all([
     Promise.resolve(mapCoach(coachRow, env)),
     database.prepare(`
       SELECT b.*, s.starts_at, s.ends_at, s.source, l.name AS learner_name, v.name AS venue_name, c.name AS coach_name, c.sport,
-        d.duration_minutes, d.location_type, d.custom_district, d.custom_address, d.custom_note, d.expires_at
+        d.duration_minutes, d.location_type, d.custom_district, d.custom_address, d.custom_note, d.expires_at ${completionSelect}
       FROM booking_requests b JOIN availability_slots s ON s.id = b.slot_id
       LEFT JOIN booking_request_details d ON d.booking_id = b.id
+      ${completionJoin}
       JOIN learner_profiles l ON l.id = b.learner_profile_id
       JOIN venues v ON v.id = b.venue_id
       JOIN coaches c ON c.id = b.coach_id
@@ -1381,6 +1463,7 @@ export async function coachTransitionBookingD1(identity: CoachIdentity, bookingI
     WHERE b.id = ? AND b.coach_id = ?
   `).bind(bookingId, identity.coachId).first<Row>();
   if (!booking) throw new ApiError(404, "booking_not_found", "未找到该预约");
+  if (toStatus === "completed" && booking.contract_snapshot_id) throw new ApiError(409, "completion_confirmation_required", "请发起课程完成确认，由学员确认后完成履约");
   const fromStatus = stringValue(booking.status) as BookingStatus;
   if (!canTransitionBooking(fromStatus, toStatus)) throw new ApiError(409, "invalid_booking_transition", "不允许从当前状态执行该操作");
   if (!new Set<BookingStatus>(["confirmed", "reschedule_requested", "completed", "rejected", "cancelled_by_coach"]).has(toStatus)) {

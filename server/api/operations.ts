@@ -1,4 +1,7 @@
 import { ApiError, type ApiEnv } from "./contracts";
+import { isPrimaryOperator } from '../../shared/operator-policy';
+import { classificationCounts, classificationFilter, classificationSql, parseClassification } from './data-classification';
+import { BEIJING_DISTRICTS, normalizeDistrict } from "../../shared/coach-catalog";
 import type { CoachIdentity, StudentIdentity } from "./repository";
 import { decryptContact, encryptContact, normalizeEmail, normalizePhone, randomId } from "./security";
 import { REVIEW_TAGS, type PublicCoachReview, type PublicCoachReviews, type ReviewTag } from "../../shared/reviews";
@@ -23,16 +26,19 @@ function reviewTags(value: unknown): ReviewTag[] {
   }
 }
 
-export async function getOpsOverviewD1(env: ApiEnv) {
+export async function getOpsOverviewD1(env: ApiEnv, selected?: string | null) {
   const database = db(env);
+  const classification = parseClassification(selected);
   const [leads, bookings, coaches, users, deliveries] = await Promise.all([
-    database.prepare("SELECT status, count(*) AS count FROM service_leads GROUP BY status").all<Row>(),
-    database.prepare("SELECT status, count(*) AS count FROM booking_requests GROUP BY status").all<Row>(),
-    database.prepare("SELECT listing_status AS status, count(*) AS count FROM coaches WHERE audit_status = 'approved' GROUP BY listing_status").all<Row>(),
-    database.prepare("SELECT status, count(*) AS count FROM users GROUP BY status").all<Row>(),
+    database.prepare(`SELECT l.status,count(*) AS count FROM service_leads l WHERE ${classificationFilter('service_lead','l')} GROUP BY l.status`).bind(classification,classification).all<Row>(),
+    database.prepare(`SELECT b.status,count(*) AS count FROM booking_requests b WHERE ${classificationFilter('booking','b')} GROUP BY b.status`).bind(classification,classification).all<Row>(),
+    database.prepare(`SELECT c.listing_status AS status,count(*) AS count FROM coaches c WHERE c.audit_status='approved' AND c.profile_kind='real' AND c.city='北京' AND ${classificationFilter('coach','c')} GROUP BY c.listing_status`).bind(classification,classification).all<Row>(),
+    database.prepare(`SELECT u.status,count(*) AS count FROM users u WHERE ${classificationFilter('user','u')} GROUP BY u.status`).bind(classification,classification).all<Row>(),
     database.prepare("SELECT status, count(*) AS count FROM push_deliveries GROUP BY status").all<Row>(),
   ]);
   return {
+    classification,
+    classifications: await classificationCounts(env),
     bookings: rows(bookings),
     coaches: rows(coaches),
     leads: rows(leads),
@@ -50,7 +56,7 @@ export async function createServiceLeadD1(input: {
   desiredTime?: string;
   district: string;
   goal: string;
-  leadKind?: "student_inquiry" | "coach_partnership";
+  leadKind?: "student_inquiry" | "coach_partnership" | "privacy_request";
   learnerStage?: string;
   source?: string;
   sport: string;
@@ -78,6 +84,10 @@ export async function createServiceLeadD1(input: {
     contactPhone ? encryptContact(contactPhone, encryptionKey) : Promise.resolve(null),
     contactWechat ? encryptContact(contactWechat, encryptionKey) : Promise.resolve(null),
   ]);
+  const district = input.leadKind === "privacy_request" ? "北京" : normalizeDistrict(input.district);
+  if (input.leadKind !== "privacy_request" && !BEIJING_DISTRICTS.includes(district as (typeof BEIJING_DISTRICTS)[number])) {
+    throw new ApiError(422, "invalid_service_region", "服务地点必须位于北京", { district: "请选择北京 16 区中的服务区域" });
+  }
   if (input.coachId) {
     const coach = await database.prepare("SELECT id FROM coaches WHERE id = ? AND audit_status = 'approved' AND listing_status = 'online' AND profile_kind = 'real'").bind(input.coachId).first<Row>();
     if (!coach) throw new ApiError(404, "coach_not_found", "未找到该教练");
@@ -90,24 +100,26 @@ export async function createServiceLeadD1(input: {
   `).bind(
     id, input.userId ?? null, input.coachId ?? null, input.leadKind ?? "student_inquiry", input.contactName,
     contactEmailEncrypted, contactPhoneEncrypted, contactWechatEncrypted, input.learnerStage ?? null,
-    input.desiredTime?.trim().slice(0, 160) || null, input.sport, input.district, input.goal,
+    input.desiredTime?.trim().slice(0, 160) || null, input.sport, district, input.goal,
     input.source ?? "web", now, now,
   ).run();
   return { id, status: "new" as const };
 }
 
-export async function listOpsLeadsD1(env: ApiEnv) {
+export async function listOpsLeadsD1(env: ApiEnv, selected?: string | null) {
+  const classification=parseClassification(selected);
   const result = await db(env).prepare(`
-    SELECT l.id, l.contact_name, l.lead_kind, l.learner_stage, l.desired_time,
+    SELECT l.id, ${classificationSql('service_lead','l')} AS classification, l.contact_name, l.lead_kind, l.learner_stage, l.desired_time,
       CASE WHEN l.contact_email_encrypted IS NOT NULL THEN 1 ELSE 0 END AS has_email,
       CASE WHEN l.contact_phone_encrypted IS NOT NULL THEN 1 ELSE 0 END AS has_phone,
       CASE WHEN l.contact_wechat_encrypted IS NOT NULL THEN 1 ELSE 0 END AS has_wechat,
       l.sport, l.district, l.goal, l.source, l.status,
-      l.assigned_to, l.note, l.created_at, l.updated_at, c.name AS coach_name
+      l.assigned_to, l.follow_up_due_at, l.note, l.created_at, l.updated_at, c.name AS coach_name
     FROM service_leads l LEFT JOIN coaches c ON c.id = l.coach_id
+    WHERE ${classificationFilter('service_lead','l')}
     ORDER BY CASE l.status WHEN 'new' THEN 0 WHEN 'contacted' THEN 1 WHEN 'qualified' THEN 2 ELSE 3 END,
       l.created_at DESC LIMIT 200
-  `).all<Row>();
+  `).bind(classification,classification).all<Row>();
   return rows(result).map((row) => ({ ...row, lead_kind: row.lead_kind || "student_inquiry" }));
 }
 
@@ -132,7 +144,7 @@ export async function revealOpsLeadContactD1(id: string, actor: string, requestI
   return { email: email || undefined, phone: phone || undefined, wechat: wechat || undefined };
 }
 
-export async function updateOpsLeadD1(id: string, input: { assignedTo?: string; note?: string; status?: string }, actor: string, env: ApiEnv) {
+export async function updateOpsLeadD1(id: string, input: { assignedTo?: string; followUpDueAt?: number; note?: string; status?: string }, actor: string, env: ApiEnv) {
   const allowed = new Set(["new", "contacted", "qualified", "closed"]);
   if (input.status && !allowed.has(input.status)) throw new ApiError(422, "invalid_lead_status", "线索状态无效");
   const database = db(env);
@@ -142,8 +154,8 @@ export async function updateOpsLeadD1(id: string, input: { assignedTo?: string; 
   await database.batch([
     database.prepare(`
       UPDATE service_leads SET status = coalesce(?, status), assigned_to = coalesce(?, assigned_to),
-        note = coalesce(?, note), updated_at = ? WHERE id = ?
-    `).bind(input.status ?? null, input.assignedTo ?? null, input.note ?? null, now, id),
+        follow_up_due_at = coalesce(?, follow_up_due_at), note = coalesce(?, note), updated_at = ? WHERE id = ?
+    `).bind(input.status ?? null, input.assignedTo ?? null, input.followUpDueAt ?? null, input.note ?? null, now, id),
     database.prepare(`
       INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, created_at)
       VALUES (?, ?, 'lead.update', 'service_lead', ?, ?, ?)
@@ -152,9 +164,24 @@ export async function updateOpsLeadD1(id: string, input: { assignedTo?: string; 
   return { id, status: input.status ?? existing.status, updatedAt: now };
 }
 
-export async function listOpsBookingsD1(env: ApiEnv) {
+export async function exportOpsLeadsMaskedD1(actor: string, requestId: string, env: ApiEnv, selected?:string|null) {
+  const database = db(env);
+  const classification=parseClassification(selected);
+  const result = await database.prepare(`SELECT id, ${classificationSql('service_lead','l')} AS classification, coalesce(lead_kind, 'student_inquiry') AS lead_kind, contact_name,
+    sport, district, goal, status, assigned_to, follow_up_due_at, created_at,
+    CASE WHEN contact_email_encrypted IS NOT NULL THEN 1 ELSE 0 END AS has_email,
+    CASE WHEN contact_phone_encrypted IS NOT NULL THEN 1 ELSE 0 END AS has_phone,
+    CASE WHEN contact_wechat_encrypted IS NOT NULL THEN 1 ELSE 0 END AS has_wechat
+    FROM service_leads l WHERE ${classificationFilter('service_lead','l')} ORDER BY created_at DESC LIMIT 2000`).bind(classification,classification).all<Row>();
+  await database.prepare("INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, request_id, created_at) VALUES (?, ?, 'lead.masked.export', 'service_lead_export', ?, ?, ?, ?)")
+    .bind(randomId("audit"), actor, requestId, JSON.stringify({ classification, count: rows(result).length, containsPlaintextContact: false }), requestId, Date.now()).run();
+  return rows(result);
+}
+
+export async function listOpsBookingsD1(env: ApiEnv, selected?: string | null) {
+  const classification=parseClassification(selected);
   const result = await db(env).prepare(`
-    SELECT b.id, b.status, b.fee_fen, b.payment_status, b.note, b.created_at, b.updated_at,
+    SELECT b.id, ${classificationSql('booking','b')} AS classification, b.status, b.fee_fen, b.payment_status, b.note, b.created_at, b.updated_at,
       l.name AS learner_name, c.name AS coach_name, c.sport, v.name AS venue_name,
       s.starts_at, s.ends_at
     FROM booking_requests b
@@ -162,8 +189,9 @@ export async function listOpsBookingsD1(env: ApiEnv) {
     JOIN coaches c ON c.id = b.coach_id
     JOIN venues v ON v.id = b.venue_id
     JOIN availability_slots s ON s.id = b.slot_id
+    WHERE ${classificationFilter('booking','b')}
     ORDER BY b.created_at DESC LIMIT 200
-  `).all<Row>();
+  `).bind(classification,classification).all<Row>();
   return rows(result);
 }
 
@@ -226,8 +254,8 @@ export async function updateOpsCoachBusinessSettingsD1(
       throw new ApiError(422, "invalid_price", "价格必须使用有效的整数分", { [field]: "请输入0至100000元之间的金额" });
     }
   }
-  const district = input.district?.trim().slice(0, 40);
-  if (input.district != null && !district) throw new ApiError(422, "invalid_district", "请填写服务区域");
+  const district = input.district == null ? undefined : normalizeDistrict(input.district);
+  if (input.district != null && !district) throw new ApiError(422, "invalid_district", "请选择北京 16 区中的服务区域");
   const database = db(env);
   const previous = await database.prepare(`
     SELECT district, price_fen, trial_price_fen, pricing_status, booking_enabled FROM coaches WHERE id = ?
@@ -263,9 +291,9 @@ export async function createOpsCoachVenueD1(
 ) {
   const name = input.name.trim().slice(0, 120);
   const address = input.address.trim().slice(0, 240);
-  const district = input.district.trim().slice(0, 40);
+  const district = normalizeDistrict(input.district);
   const reason = input.reason.trim().slice(0, 300);
-  if (!name || !address || !district || !reason) throw new ApiError(422, "validation_failed", "请完整填写场馆和操作原因");
+  if (!name || !address || !district || !reason) throw new ApiError(422, "validation_failed", "请完整填写北京场馆和操作原因");
   const database = db(env);
   if (!await database.prepare("SELECT id FROM coaches WHERE id = ?").bind(coachId).first<Row>()) throw new ApiError(404, "coach_not_found", "未找到该教练");
   const id = randomId("venue"); const now = Date.now();
@@ -296,9 +324,10 @@ export async function updateOpsCoachVenueD1(
   const next = {
     active: input.active ?? previous.active !== 0,
     address: input.address?.trim().slice(0, 240) || String(previous.address ?? ""),
-    district: input.district?.trim().slice(0, 40) || String(previous.district ?? ""),
+    district: input.district == null ? String(previous.district ?? "") : normalizeDistrict(input.district),
     name: input.name?.trim().slice(0, 120) || String(previous.name ?? ""),
   };
+  if (!BEIJING_DISTRICTS.includes(next.district as (typeof BEIJING_DISTRICTS)[number])) throw new ApiError(422, "invalid_district", "请选择北京 16 区中的场馆区域");
   const now = Date.now();
   await database.batch([
     database.prepare("UPDATE venues SET name = ?, address = ?, district = ?, active = ?, updated_at = ? WHERE id = ? AND coach_id = ?").bind(next.name, next.address, next.district, next.active ? 1 : 0, now, venueId, coachId),
@@ -375,16 +404,18 @@ export async function listOpsCoachStatusEventsD1(id: number, env: ApiEnv) {
   return rows(result);
 }
 
-export async function listOpsUsersD1(env: ApiEnv) {
+export async function listOpsUsersD1(env: ApiEnv, selected?: string | null) {
+  const classification=parseClassification(selected);
   const result = await db(env).prepare(`
-    SELECT u.id, u.email_domain, u.phone_last4, u.status, u.created_at, u.updated_at,
+    SELECT u.id, ${classificationSql('user','u')} AS classification, u.email_domain, u.phone_last4, u.status, u.created_at, u.updated_at,
       p.nickname, p.district, p.bio, p.avatar_object_key, p.completed_at, p.updated_at AS profile_updated_at,
       group_concat(r.role) AS roles,
       (SELECT count(*) FROM booking_requests b WHERE b.user_id = u.id) AS booking_count
     FROM users u LEFT JOIN user_roles r ON r.user_id = u.id AND r.status = 'active'
     LEFT JOIN user_profiles p ON p.user_id = u.id
+    WHERE ${classificationFilter('user','u')}
     GROUP BY u.id ORDER BY u.created_at DESC LIMIT 200
-  `).all<Row>();
+  `).bind(classification,classification).all<Row>();
   return rows(result);
 }
 
@@ -442,7 +473,7 @@ export async function reviewAccountMergeRequestD1(id: string, input: { decision:
   const secondaryUser = await database.prepare("SELECT email_encrypted FROM users WHERE id = ?").bind(secondary).first<Row>();
   if (secondaryUser?.email_encrypted) {
     const email = (await decryptContact(String(secondaryUser.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? "")).toLowerCase();
-    if (email === "xuzerui6@gmail.com") throw new ApiError(403, "protected_operator_account", "最高权限账号不能作为副账号合并");
+    if (isPrimaryOperator(email, env.PRIMARY_OPERATOR_EMAIL)) throw new ApiError(403, "protected_operator_account", "最高权限账号不能作为副账号合并");
   }
   const [primaryProfile, secondaryProfile] = await Promise.all([
     database.prepare("SELECT avatar_object_key FROM user_profiles WHERE user_id = ?").bind(primary).first<Row>(),
@@ -723,7 +754,7 @@ export async function listPublicCoachReviewsD1(coachId: number, options: { curso
       c.sport, coalesce(d.duration_minutes, round((s.ends_at - s.starts_at) / 60000)) AS duration_minutes,
       coalesce(b.completed_at, r.created_at) AS completed_at,
       rr.body AS reply_body, rr.created_at AS reply_created_at
-      FROM coach_reviews r
+      FROM public_eligible_coach_reviews r
       JOIN coaches c ON c.id = r.coach_id
       JOIN booking_requests b ON b.id = r.booking_id
       LEFT JOIN booking_request_details d ON d.booking_id = b.id
@@ -735,7 +766,7 @@ export async function listPublicCoachReviewsD1(coachId: number, options: { curso
       c.sport, coalesce(d.duration_minutes, round((s.ends_at - s.starts_at) / 60000)) AS duration_minutes,
       coalesce(b.completed_at, r.created_at) AS completed_at,
       rr.body AS reply_body, rr.created_at AS reply_created_at
-      FROM coach_reviews r
+      FROM public_eligible_coach_reviews r
       JOIN coaches c ON c.id = r.coach_id
       JOIN booking_requests b ON b.id = r.booking_id
       LEFT JOIN booking_request_details d ON d.booking_id = b.id
@@ -745,7 +776,7 @@ export async function listPublicCoachReviewsD1(coachId: number, options: { curso
       ORDER BY ${order} LIMIT 20`).bind(coachId, cursor);
   const [result, summaryRows] = await Promise.all([
     reviewsStatement.all<Row>(),
-    database.prepare("SELECT rating, tags_json FROM coach_reviews WHERE coach_id = ? AND status = 'approved'").bind(coachId).all<Row>(),
+    database.prepare("SELECT rating, tags_json FROM public_eligible_coach_reviews WHERE coach_id = ?").bind(coachId).all<Row>(),
   ]);
   const all = rows(summaryRows);
   const distribution = { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 };
@@ -782,7 +813,7 @@ export async function listPublicCoachReviewsD1(coachId: number, options: { curso
 
 export async function reactToCoachReviewD1(identity: StudentIdentity, reviewId: string, kind: "helpful" | "report", reason: string, env: ApiEnv) {
   const database = db(env); const now = Date.now();
-  const review = await database.prepare("SELECT id, status FROM coach_reviews WHERE id = ?").bind(reviewId).first<Row>();
+  const review = await database.prepare("SELECT id, status FROM public_eligible_coach_reviews WHERE id = ?").bind(reviewId).first<Row>();
   if (!review || review.status !== "approved") throw new ApiError(404, "review_not_found", "未找到该评价");
   if (kind === "report" && reason.trim().length < 4) throw new ApiError(422, "report_reason_required", "请简要说明举报原因");
   try {
@@ -848,8 +879,9 @@ export async function recordProductEventsD1(events: Array<{ appVersion?: string;
   return { accepted: events.length };
 }
 
-export async function getOpsProductFunnelD1(env: ApiEnv) {
-  const result = await db(env).prepare("SELECT flow, step, outcome, surface, role, count(*) AS count FROM product_events WHERE created_at >= ? GROUP BY flow, step, outcome, surface, role ORDER BY flow, step, outcome").bind(Date.now() - 30 * 24 * 60 * 60 * 1000).all<Row>();
+export async function getOpsProductFunnelD1(env: ApiEnv, selected?: string | null) {
+  const classification=parseClassification(selected);
+  const result = await db(env).prepare("SELECT flow, step, outcome, surface, role, count(*) AS count FROM product_events WHERE created_at >= ? AND (?='all' OR data_classification=?) GROUP BY flow, step, outcome, surface, role ORDER BY flow, step, outcome").bind(Date.now() - 30 * 24 * 60 * 60 * 1000,classification,classification).all<Row>();
   return rows(result);
 }
 
@@ -939,10 +971,12 @@ export async function createCoachRescheduleProposalD1(identity: CoachIdentity, i
       if (!venue) throw new ApiError(422, "venue_not_found", "请选择有效的训练场馆");
     } else {
       if (!input.customDistrict?.trim() || !input.customAddress?.trim()) throw new ApiError(422, "custom_location_required", "请填写新的区域和详细地点");
+      const customDistrict = normalizeDistrict(input.customDistrict);
+      if (!customDistrict) throw new ApiError(422, "invalid_beijing_district", "训练地点仅限北京 16 区");
       venueId = `venue_coordination_${identity.coachId}`;
       await database.prepare(`INSERT OR IGNORE INTO venues (id, coach_id, name, address, city, district, active, created_at, updated_at)
         VALUES (?, ?, '协商训练地点', '仅预约双方可见', '北京', ?, 0, ?, ?)`)
-        .bind(venueId, identity.coachId, input.customDistrict.trim().slice(0, 40), now, now).run();
+        .bind(venueId, identity.coachId, customDistrict, now, now).run();
     }
     slotId = randomId("proposal_slot");
     const endsAt = input.startsAt + Number(booking.duration_minutes) * 60_000;
@@ -957,7 +991,7 @@ export async function createCoachRescheduleProposalD1(identity: CoachIdentity, i
     database.prepare(`INSERT INTO booking_reschedule_proposals (id, booking_id, proposed_slot_id, proposed_by, previous_booking_status, status, note, location_type, custom_district, custom_address, custom_note, created_at, updated_at)
       VALUES (?, ?, ?, 'coach', ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`
     ).bind(id, input.bookingId, slotId, booking.status, input.note.trim().slice(0, 500), locationType,
-      locationType === "custom" ? input.customDistrict?.trim().slice(0, 40) : null,
+      locationType === "custom" ? normalizeDistrict(input.customDistrict || "") : null,
       locationType === "custom" ? input.customAddress?.trim().slice(0, 240) : null,
       locationType === "custom" ? input.customLocationNote?.trim().slice(0, 300) || null : null, now, now),
     database.prepare("INSERT INTO notifications (id, user_id, type, title, body, entity_type, entity_id, target_mode, deep_link, created_at) VALUES (?, ?, 'booking_status', '教练提出改期方案', '请查看新时段并确认或拒绝', 'booking', ?, 'student', 'zhuguang://student/bookings', ?)").bind(randomId("notification"), booking.user_id, input.bookingId, now),

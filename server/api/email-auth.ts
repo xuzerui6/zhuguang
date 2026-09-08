@@ -15,7 +15,7 @@ import {
 } from "./security";
 
 type Row = Record<string, unknown>;
-const PRIMARY_OPERATOR_EMAIL = "xuzerui6@gmail.com";
+import { isPrimaryOperator } from "../../shared/operator-policy";
 const NATIVE_OTP_MIN_VERSION_CODE = { android: 16, ios: 19 } as const;
 const NATIVE_INSTALLATION_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
 const NATIVE_DEVICE_ID_PATTERN = /^device_[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -182,7 +182,7 @@ export async function verifyEmailOtpD1(
       ON CONFLICT(user_id, role) DO UPDATE SET status = 'active', updated_at = excluded.updated_at
     `).bind(userId, now, now));
   }
-  if (email.trim().toLowerCase() === PRIMARY_OPERATOR_EMAIL) {
+  if (isPrimaryOperator(email, env.PRIMARY_OPERATOR_EMAIL)) {
     statements.push(db.prepare(`
       INSERT INTO user_roles (user_id, role, status, granted_at, updated_at)
       VALUES (?, 'operator', 'active', ?, ?)

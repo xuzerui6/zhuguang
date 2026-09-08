@@ -18,6 +18,7 @@ import {
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatBeijingDateTimeLocal } from "../../shared/scheduling";
+import { getBookingPresentation } from "../../shared/booking-presentation";
 import type { BookingStatus, CoachOverview, MobileBooking } from "../mobile/types";
 import { formatBeijingDate, formatFen, platformRequest } from "./platform-client";
 import styles from "./platform-pages.module.css";
@@ -136,6 +137,10 @@ function BookingManager({ bookings, busy, mutate, venues }: { bookings: MobileBo
   async function transition(id: string, status: BookingStatus) {
     await mutate(`/api/v1/coach/bookings/${encodeURIComponent(id)}/status`, { status }, `预约已更新为“${statusCopy[status]}”`);
   }
+  async function requestCompletion(id: string) {
+    if (bookings.find((booking) => booking.id === id)?.fulfillmentVersion !== 2) return transition(id, "completed");
+    await mutate(`/api/v1/coach/bookings/${encodeURIComponent(id)}/completion-request`, { note: "课程已按预约安排完成，请学员确认。" }, "已发送课程完成确认，等待学员回应");
+  }
   async function proposeReschedule() {
     if (!rescheduleBooking || !rescheduleStartsAt) return;
     const startsAt = new Date(`${rescheduleStartsAt}:00+08:00`).getTime();
@@ -145,7 +150,28 @@ function BookingManager({ bookings, busy, mutate, venues }: { bookings: MobileBo
   return <div className={styles.page}>
     <Heading copy="确认、改期、拒绝和完成课程都会写入状态事件，并通知对应学员。" title="预约管理" />
     <section className={styles.panel}><header className={styles.panelHeader}><div className={styles.toolbar}>{([['active', '待处理'], ['all', '全部'], ['done', '已结束']] as const).map(([value, label]) => <button aria-pressed={filter === value} className={filter === value ? styles.primary : styles.secondary} key={value} onClick={() => setFilter(value)} type="button">{label}</button>)}</div></header>
-      {rows.length ? <div className={styles.table}><div className={styles.tableHead}><span>预约</span><span>时间</span><span>费用</span><span>状态</span><span>操作</span></div>{rows.map((booking) => <article className={styles.tableRow} key={booking.id}><span><strong>#{booking.id.slice(-8)}</strong><small>{booking.note || "未填写备注"}</small></span><span><strong>{booking.dateLabel} {booking.date}</strong><small>{booking.time}–{booking.endTime} · {booking.durationMinutes || 60}分钟</small></span><span><strong>{formatFen(booking.feeFen)}</strong><small>{booking.paymentStatus === "offline_paid" ? "线下已收款" : "线下待支付"}</small></span><span><em className={styles.status} data-tone={statusTone(booking.status)}>{statusCopy[booking.status]}</em></span><span className={styles.rowActions}>{booking.status === "pending_coach" ? <><button className={styles.primary} disabled={Boolean(busy)} onClick={() => void transition(booking.id, "confirmed")} type="button">确认</button><button className={styles.secondary} disabled={Boolean(busy)} onClick={() => { setRescheduleBooking(booking); setRescheduleStartsAt(formatBeijingDateTimeLocal(Date.now() + 24 * 60 * 60_000)); }} type="button">提出新方案</button><button className={styles.danger} disabled={Boolean(busy)} onClick={() => void transition(booking.id, "rejected")} type="button">拒绝</button></> : booking.status === "confirmed" ? <><button className={styles.primary} disabled={Boolean(busy)} onClick={() => void transition(booking.id, "completed")} type="button">完成课程</button><button className={styles.secondary} disabled={Boolean(busy)} onClick={() => { setRescheduleBooking(booking); setRescheduleStartsAt(formatBeijingDateTimeLocal(Date.now() + 24 * 60 * 60_000)); }} type="button">提出新方案</button><button className={styles.danger} disabled={Boolean(busy)} onClick={() => void transition(booking.id, "cancelled_by_coach")} type="button">取消</button></> : null}</span></article>)}</div> : <Empty title="当前筛选下没有预约" copy="预约列表只展示真实业务记录，不会补入试点演示数据。" />}
+      {rows.length ? <div className={styles.table}>
+        <div className={styles.tableHead}><span>预约</span><span>时间</span><span>费用</span><span>状态</span><span>操作</span></div>
+        {rows.map((booking) => {
+          const presentation = getBookingPresentation(booking);
+          const propose = () => { setRescheduleBooking(booking); setRescheduleStartsAt(formatBeijingDateTimeLocal(Date.now() + 24 * 60 * 60_000)); };
+          return <article className={styles.tableRow} key={booking.id}>
+            <span><strong>#{booking.id.slice(-8)}</strong><small>{booking.note || "未填写备注"}</small></span>
+            <span><strong>{booking.dateLabel} {booking.date}</strong><small>{booking.time}–{booking.endTime} · {booking.durationMinutes ? `${booking.durationMinutes}分钟` : "时长待核对"}</small></span>
+            <span><strong>{formatFen(booking.feeFen)}</strong>{presentation.paymentLabel ? <small>{presentation.paymentLabel}</small> : null}</span>
+            <span><em className={styles.status} data-tone={statusTone(booking.status)}>{presentation.label}</em></span>
+            <span className={styles.rowActions}>{booking.status === "pending_coach" ? <>
+              <button className={styles.primary} disabled={Boolean(busy)} onClick={() => void transition(booking.id, "confirmed")} type="button">确认</button>
+              <button className={styles.secondary} disabled={Boolean(busy)} onClick={propose} type="button">提出新方案</button>
+              <button className={styles.danger} disabled={Boolean(busy)} onClick={() => void transition(booking.id, "rejected")} type="button">拒绝</button>
+            </> : presentation.canReschedule ? <>
+              <button className={styles.primary} disabled={Boolean(busy)} onClick={() => void requestCompletion(booking.id)} type="button">{booking.fulfillmentVersion === 2 ? "发起完成确认" : "完成课程"}</button>
+              <button className={styles.secondary} disabled={Boolean(busy)} onClick={propose} type="button">提出新方案</button>
+              <button className={styles.danger} disabled={Boolean(busy)} onClick={() => void transition(booking.id, "cancelled_by_coach")} type="button">取消</button>
+            </> : null}</span>
+          </article>;
+        })}
+      </div> : <Empty title="当前筛选下没有预约" copy="预约列表只展示真实业务记录，不会补入试点演示数据。" />}
     </section>
     {rescheduleBooking ? <div className={styles.confirmOverlay} role="presentation" onClick={() => setRescheduleBooking(null)}><section aria-modal="true" onClick={(event) => event.stopPropagation()} role="dialog"><h2>提出新的时间与地点</h2><p>时长和费用保持学员提交时的快照不变。学员接受后，新方案才正式生效。</p><div className={styles.formGrid}><label className={styles.field}><span>新的开始时间（北京时间）</span><input min={formatBeijingDateTimeLocal(Date.now() + 60_000)} onChange={(event) => setRescheduleStartsAt(event.target.value)} type="datetime-local" value={rescheduleStartsAt} /></label><label className={styles.field}><span>地点方式</span><select onChange={(event) => setRescheduleLocationType(event.target.value as "venue" | "custom")} value={rescheduleLocationType}><option value="venue">审核场馆</option><option value="custom">其他地点</option></select></label></div>{rescheduleLocationType === "venue" ? <label className={styles.field}><span>训练场馆</span><select onChange={(event) => setRescheduleVenueId(event.target.value)} value={rescheduleVenueId}>{venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name} · {venue.district}</option>)}</select></label> : <div className={styles.formGrid}><label className={styles.field}><span>区域</span><input onChange={(event) => setRescheduleDistrict(event.target.value)} value={rescheduleDistrict} /></label><label className={styles.field}><span>详细地点</span><input onChange={(event) => setRescheduleAddress(event.target.value)} value={rescheduleAddress} /></label></div>}<label className={styles.field}><span>方案说明</span><textarea maxLength={500} onChange={(event) => setRescheduleNote(event.target.value)} value={rescheduleNote} /></label><div><button className={styles.secondary} onClick={() => setRescheduleBooking(null)} type="button">取消</button><button className={styles.primary} disabled={!rescheduleStartsAt || (rescheduleLocationType === "venue" ? !rescheduleVenueId : !rescheduleDistrict.trim() || !rescheduleAddress.trim()) || Boolean(busy)} onClick={() => void proposeReschedule()} type="button">发送给学员</button></div></section></div> : null}
   </div>;

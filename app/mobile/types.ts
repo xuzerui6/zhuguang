@@ -69,7 +69,7 @@ export type MobileCoach = {
   avatarUrl?: string;
   cardUrl?: string;
   heroUrl?: string;
-  verificationLabel?: "平台试点教练" | "资料已核验" | "资料待补充" | "演示资料";
+  verificationLabel?: "平台试点教练" | "资料已核验" | "公开资料已审核" | "资料待补充" | "演示资料";
   isNew?: boolean;
   bookable?: boolean;
   bookingEnabled?: boolean;
@@ -120,6 +120,7 @@ export type LearnerProfile = {
 };
 
 export type MobileBooking = {
+  fulfillmentVersion?: 1 | 2;
   id: string;
   coachId: number;
   learnerId: string;
@@ -136,7 +137,7 @@ export type MobileBooking = {
   status: BookingStatus;
   submittedAt: string;
   feeFen: number;
-  paymentStatus: "offline_unpaid" | "offline_paid";
+  paymentStatus: "offline_unpaid" | "offline_paid" | "online_paid";
   note: string;
   durationMinutes?: number;
   expiresAt?: number;
@@ -145,6 +146,20 @@ export type MobileBooking = {
   customAddress?: string;
   customLocationNote?: string;
   review: ReviewEligibility;
+  completion?: {
+    id: string;
+    status: "pending_student" | "accepted" | "disputed" | "withdrawn";
+    coachNote?: string;
+    studentNote?: string;
+  };
+};
+
+export type PlatformCapabilities = {
+  beijingCatalogV2: boolean;
+  fulfillmentV2: boolean;
+  onlineTransactions: { enabled: boolean; mode: "test" | "none" };
+  publicTrustMetrics: boolean;
+  supportEvidence: boolean;
 };
 
 export type ReviewEligibility = {

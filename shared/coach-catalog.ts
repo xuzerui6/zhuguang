@@ -101,7 +101,7 @@ export type CoachMedia = {
   image: string;
 };
 
-export type CoachVerificationLabel = "平台试点教练" | "资料已核验" | "资料待补充" | "演示资料";
+export type CoachVerificationLabel = "平台试点教练" | "资料已核验" | "公开资料已审核" | "资料待补充" | "演示资料";
 export type CoachProfileKind = "real" | "demo";
 export type CoachProfileCompleteness = "complete" | "partial" | "demo";
 

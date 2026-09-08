@@ -131,7 +131,7 @@ public class AppUpdaterPlugin extends Plugin {
 
             PackageInfo archive = getContext().getPackageManager().getPackageArchiveInfo(
                 target.getAbsolutePath(),
-                PackageManager.GET_SIGNING_CERTIFICATES | PackageManager.GET_SIGNATURES
+                signingFlags()
             );
             if (archive == null) throw new SecurityException("无法读取 APK 包信息");
             if (!expectedPackage.equals(archive.packageName) || !getContext().getPackageName().equals(archive.packageName)) {
@@ -183,8 +183,13 @@ public class AppUpdaterPlugin extends Plugin {
     private PackageInfo packageInfo(String packageName) throws PackageManager.NameNotFoundException {
         return getContext().getPackageManager().getPackageInfo(
             packageName,
-            PackageManager.GET_SIGNING_CERTIFICATES | PackageManager.GET_SIGNATURES
+            signingFlags()
         );
+    }
+
+    private static int signingFlags() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+            ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
     }
 
     private static long longVersionCode(PackageInfo info) {

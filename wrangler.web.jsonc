@@ -30,6 +30,6 @@
     "PRODUCT_FILM_ENABLED": "false",
     "ZHUGUANG_COACH_EMAILS": "xuzerui6@gmail.com",
     "ZHUGUANG_MOBILE_API_URL": "https://api.beijingzhuguang.top",
-    "ZHUGUANG_OPS_EMAILS": "xuzerui6@gmail.com"
+    "PRIMARY_OPERATOR_EMAIL": "xuzerui6@gmail.com"
   }
 }

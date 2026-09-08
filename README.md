@@ -30,11 +30,15 @@ npm run build
 
 - `ZHUGUANG_MOBILE_API_URL`
 - `ZHUGUANG_COACH_EMAILS`：逗号分隔的已审核教练邮箱
-- `ZHUGUANG_OPS_EMAILS`：逗号分隔的运营邮箱
+- `PRIMARY_OPERATOR_EMAIL`：Web 与 API 统一的唯一运营邮箱；缺失时不授予运营权限
 - `ZHUGUANG_OPERATOR_API_SECRET`：秘密
-- `ZHUGUANG_PILOT_APP_KEY`：秘密
+- `ZHUGUANG_PILOT_APP_KEY`：可轮换渠道标识/试点门槛，不是身份认证凭据。Android 包内的对应渠道键可被提取，不能替代登录令牌、角色和资源所有权校验；网页端通过服务端代理配置。
 - `SITE_OPERATOR_NAME`：经营主体名称，可选
 - `SITE_SUPPORT_EMAIL`、`SITE_SUPPORT_PHONE`：客服联系方式，可选
+- `SITE_COMPLAINT_CONTACT`：投诉渠道，可选；为空时整项隐藏
+- `SITE_ICP_NUMBER`、`SITE_PUBLIC_SECURITY_NUMBER`、`SITE_PUBLIC_SECURITY_URL`：真实备案信息，可选；不得填写占位数据
+
+北京业务扩展、功能开关、迁移与上线阻塞见 `docs/p0-p2-preview-readiness.md`。
 - `SITE_COMPLAINT_CONTACT`：投诉渠道，可选
 - `SITE_ICP_NUMBER`、`SITE_PUBLIC_SECURITY_NUMBER`：备案信息，可选
 

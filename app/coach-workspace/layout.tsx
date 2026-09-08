@@ -12,6 +12,6 @@ export const dynamic = "force-dynamic";
 
 export default async function CoachWorkspaceLayout({ children }: { children: React.ReactNode }) {
   const session = await getWebSession();
-  if (!canAccessArea(session, "coach")) return <AccessDenied area="coach" authenticated={session.isAuthenticated} />;
+  if (!canAccessArea(session, "coach")) return <AccessDenied area="coach" authenticated={session.isAuthenticated} recoverable={session.serviceStatus === "token_invalid"} unavailable={session.serviceStatus === "upstream_unavailable"} />;
   return <WorkspaceShell area="coach" session={session}>{children}</WorkspaceShell>;
 }

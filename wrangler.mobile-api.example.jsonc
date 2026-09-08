@@ -28,8 +28,15 @@
   },
   "vars": {
     "APP_ENV": "production",
+    "BEIJING_CATALOG_V2_ENABLED": "false",
     "CORS_ORIGINS": "https://beijingzhuguang.top,https://www.beijingzhuguang.top",
     "MOBILE_API_ORIGIN": "https://api.beijingzhuguang.top",
-    "SMS_DAILY_BUDGET": "500"
+    "FULFILLMENT_V2_ENABLED": "false",
+    "ONLINE_TRANSACTION_ENABLED": "false",
+    "PAYMENT_PROVIDER": "none",
+    "PRIMARY_OPERATOR_EMAIL": "REPLACE_WITH_PRIMARY_OPERATOR_EMAIL",
+    "PUBLIC_TRUST_METRICS_ENABLED": "false",
+    "SMS_DAILY_BUDGET": "500",
+    "SUPPORT_EVIDENCE_ENABLED": "false"
   }
 }

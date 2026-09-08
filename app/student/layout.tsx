@@ -12,6 +12,6 @@ export const dynamic = "force-dynamic";
 
 export default async function StudentLayout({ children }: { children: React.ReactNode }) {
   const session = await getWebSession();
-  if (!canAccessArea(session, "student")) return <AccessDenied area="student" authenticated={session.isAuthenticated} />;
+  if (!canAccessArea(session, "student")) return <AccessDenied area="student" authenticated={session.isAuthenticated} recoverable={session.serviceStatus === "token_invalid"} unavailable={session.serviceStatus === "upstream_unavailable"} />;
   return <WorkspaceShell area="student" session={session}>{children}</WorkspaceShell>;
 }

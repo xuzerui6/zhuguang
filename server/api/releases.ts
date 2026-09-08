@@ -1,6 +1,7 @@
 import type { AppRelease } from "../../app/mobile/types";
 import { ApiError, type ApiEnv } from "./contracts";
-import { PRIMARY_OPERATOR_EMAIL } from "./repository";
+import { isPrimaryOperator } from "../../shared/operator-policy";
+import { BODY_LIMITS, readBoundedBody } from "./request-body";
 import type { StudentIdentity } from "./repository";
 import { keyedHash, randomId, sha256Hex } from "./security";
 
@@ -22,7 +23,18 @@ function asString(value: unknown) {
 function notes(value: unknown) {
   try {
     const parsed = JSON.parse(asString(value));
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+    const items = Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean)
+      : [];
+    if (items.length !== 1 || !items[0].includes('\",\"')) return items;
+    try {
+      const recovered = JSON.parse(`[${items[0]}]`);
+      return Array.isArray(recovered) && recovered.length > 1 && recovered.every((item) => typeof item === "string")
+        ? recovered.map((item) => item.trim()).filter(Boolean)
+        : items;
+    } catch {
+      return items;
+    }
   } catch {
     return [];
   }
@@ -35,6 +47,22 @@ function bytesToHex(bytes: Uint8Array) {
 export async function stableRolloutBucket(installationId: string) {
   const digest = await sha256Hex(installationId);
   return Number.parseInt(digest.slice(0, 8), 16) % 100;
+}
+
+async function canaryVersion(installationId: string, env: ApiEnv) {
+  if (!env.RELEASE_CANARY_JSON) return null;
+  try {
+    const config = JSON.parse(env.RELEASE_CANARY_JSON) as { versionCode?: number; installationSha256?: string; expiresAt?: number };
+    const now = Date.now();
+    if (!Number.isInteger(config.versionCode) || !config.expiresAt || config.expiresAt <= now
+      || config.expiresAt > now + 24 * 60 * 60_000 || !/^[a-f0-9]{64}$/u.test(config.installationSha256 ?? "")
+      || await sha256Hex(installationId) !== config.installationSha256) return null;
+    const active = await database(env).prepare("SELECT id FROM app_installations WHERE id = ? AND status = 'active' AND platform = 'android' AND last_seen_at >= ?")
+      .bind(installationId, now - 24 * 60 * 60_000).first();
+    return active ? config.versionCode : null;
+  } catch {
+    return null;
+  }
 }
 
 function mapRelease(row: Row): AppRelease {
@@ -86,22 +114,28 @@ export async function uploadReleaseArtifactD1(request: Request, versionCode: num
     throw new ApiError(422, "invalid_release_artifact", "版本号格式不正确");
   }
   const declaredSize = Number(request.headers.get("content-length") ?? 0);
-  if (declaredSize > 100 * 1024 * 1024) throw new ApiError(413, "release_artifact_too_large", "安装包不能超过 100 MB");
+  if (declaredSize > BODY_LIMITS.apk) { await request.body?.cancel(); throw new ApiError(413, "release_artifact_too_large", "安装包不能超过 20 MB"); }
   const contentType = request.headers.get("content-type")?.split(";")[0].trim() ?? "";
   if (!new Set(["application/octet-stream", "application/vnd.android.package-archive"]).has(contentType)) {
     throw new ApiError(415, "invalid_release_artifact_type", "仅允许上传 Android APK");
   }
-  const bytes = await request.arrayBuffer();
-  if (!bytes.byteLength || bytes.byteLength > 100 * 1024 * 1024) {
-    throw new ApiError(bytes.byteLength ? 413 : 422, "invalid_release_artifact", bytes.byteLength ? "安装包不能超过 100 MB" : "安装包不能为空");
+  const bytes = await readBoundedBody(request, BODY_LIMITS.apk);
+  const signature = new Uint8Array(bytes, 0, Math.min(4, bytes.byteLength));
+  if (signature.length < 4 || signature[0] !== 0x50 || signature[1] !== 0x4b || signature[2] !== 0x03 || signature[3] !== 0x04) {
+    throw new ApiError(422, "invalid_release_artifact", "文件不是有效的 Android APK");
   }
   const sha256 = bytesToHex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
-  const objectKey = `android/${versionName}/zhuguang-android-private-${versionName}.apk`;
+  const receiptId = randomId("upload");
+  const objectKey = `android/${versionName}/${receiptId}.apk`;
   await env.RELEASES.put(objectKey, bytes, {
     customMetadata: { packageId: "com.zhuguang.coachos", sha256, versionCode: String(versionCode), versionName },
     httpMetadata: { contentType: "application/vnd.android.package-archive" },
   });
-  return { objectKey, sha256, sizeBytes: bytes.byteLength, versionCode, versionName };
+  try {
+    await database(env).prepare("INSERT INTO release_upload_receipts (id,actor,object_key,sha256,size_bytes,version_code,version_name,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?,?)")
+      .bind(receiptId, request.headers.get("x-operator-actor")!.trim().toLowerCase(), objectKey, sha256, bytes.byteLength, versionCode, versionName, Date.now(), Date.now() + 86_400_000).run();
+  } catch (error) { await env.RELEASES.delete(objectKey); throw error; }
+  return { receiptId, objectKey, sha256, sizeBytes: bytes.byteLength, versionCode, versionName };
 }
 
 export async function latestReleaseD1(installationId: string, currentVersionCode: number, env: ApiEnv) {
@@ -110,10 +144,12 @@ export async function latestReleaseD1(installationId: string, currentVersionCode
     ORDER BY version_code DESC LIMIT 20
   `).all<Row>();
   const bucket = await stableRolloutBucket(installationId);
+  const canary = await canaryVersion(installationId, env);
   const eligible = (rows.results ?? []).find((row) => asNumber(row.version_code) > currentVersionCode
     && (Boolean(row.forced)
       || currentVersionCode < asNumber(row.minimum_supported_version_code)
-      || bucket < asNumber(row.rollout_percentage)));
+      || bucket < asNumber(row.rollout_percentage)
+      || canary === asNumber(row.version_code)));
   if (!eligible) throw new ApiError(404, "release_not_available", "当前已是最新版本");
   return mapRelease(eligible);
 }
@@ -293,9 +329,10 @@ export async function saveNotificationPreferencesD1(
 
 export function assertOperator(request: Request, env: ApiEnv) {
   const actor = request.headers.get("x-operator-actor")?.trim().toLowerCase();
-  if (!env.OPERATOR_API_SECRET || request.headers.get("x-operator-secret") !== env.OPERATOR_API_SECRET || actor !== PRIMARY_OPERATOR_EMAIL) {
-    throw new ApiError(403, "operator_access_denied", "无权执行版本运营操作");
+  if (!env.OPERATOR_API_SECRET || request.headers.get("x-operator-secret") !== env.OPERATOR_API_SECRET) {
+    throw new ApiError(401, "authentication_required", "请使用有效会话登录后继续");
   }
+  if (!isPrimaryOperator(actor, env.PRIMARY_OPERATOR_EMAIL)) throw new ApiError(403, "role_forbidden", "当前账号没有运营权限");
 }
 
 export async function createReleaseD1(input: {

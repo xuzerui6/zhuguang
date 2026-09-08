@@ -18,7 +18,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { AUDIENCE_OPTIONS, BEIJING_DISTRICTS, SPORT_OPTIONS, TRAINING_GOAL_OPTIONS, matchesAudience, matchesTrainingGoal } from "../../shared/coach-catalog";
+import { AUDIENCE_OPTIONS, TRAINING_GOAL_OPTIONS, matchesAudience, matchesTrainingGoal } from "../../shared/coach-catalog";
+import { EMPTY_SERVICE_CATALOG, type ServiceCatalog } from '../../shared/service-catalog';
 import type { MobileCoach } from "../mobile/types";
 import type { CoachProfile } from "../_lib/web-platform";
 import { mapMobileCoachToWeb, publicCoaches as fallbackCoaches } from "../_lib/web-platform";
@@ -27,6 +28,7 @@ import styles from "./coach-directory.module.css";
 
 type DirectoryProps = {
   embedded?: boolean;
+  initialCatalog?: ServiceCatalog;
   initialCoaches?: CoachProfile[];
   initialDistrict?: string;
   initialGoal?: string;
@@ -38,7 +40,7 @@ const ALL_DISTRICTS = "全部区域";
 const ALL_GOALS = "全部目标";
 const ALL_AUDIENCES = "全部对象";
 
-export function CoachDirectory({ embedded = false, initialCoaches = fallbackCoaches, initialDistrict = ALL_DISTRICTS, initialGoal = ALL_GOALS, initialSport = ALL_SPORTS }: DirectoryProps) {
+export function CoachDirectory({ initialCatalog=EMPTY_SERVICE_CATALOG, embedded = false, initialCoaches = fallbackCoaches, initialDistrict = ALL_DISTRICTS, initialGoal = ALL_GOALS, initialSport = ALL_SPORTS }: DirectoryProps) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -46,6 +48,7 @@ export function CoachDirectory({ embedded = false, initialCoaches = fallbackCoac
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [favorites, setFavorites] = useState<number[]>([]);
   const [directoryCoaches, setDirectoryCoaches] = useState(initialCoaches);
+  const [catalog,setCatalog]=useState(initialCatalog);
   const sport = searchParams.get("sport") || initialSport;
   const district = searchParams.get("district") || initialDistrict;
   const goal = searchParams.get("goal") || initialGoal;
@@ -79,6 +82,7 @@ export function CoachDirectory({ embedded = false, initialCoaches = fallbackCoac
     void platformRequest<MobileCoach[]>("/api/v1/coaches")
       .then((items) => { if (active) setDirectoryCoaches(items.map(mapMobileCoachToWeb)); })
       .catch(() => { /* Keep the last server-rendered or offline-safe catalog. */ });
+    void platformRequest<ServiceCatalog>('/api/v1/catalog').then(data=>{if(active) setCatalog(data);}).catch(()=>undefined);
     return () => { active = false; };
   }, []);
 
@@ -133,8 +137,8 @@ export function CoachDirectory({ embedded = false, initialCoaches = fallbackCoac
 
       <div className={`${styles.filters} ${filtersExpanded ? styles.filtersExpanded : ""}`} aria-label="教练筛选条件">
         <button aria-expanded={filtersExpanded} className={styles.filterTitle} onClick={() => setFiltersExpanded((current) => !current)} type="button"><SlidersHorizontal aria-hidden size={18} />筛选 <ChevronDown aria-hidden className={styles.filterToggleIcon} size={15} /></button>
-        <FilterSelect label="运动项目" onChange={(value) => setFilter("sport", value, ALL_SPORTS)} options={[ALL_SPORTS, ...SPORT_OPTIONS]} value={sport} />
-        <FilterSelect label="区域" onChange={(value) => setFilter("district", value, ALL_DISTRICTS)} options={[ALL_DISTRICTS, ...BEIJING_DISTRICTS]} value={district} />
+        <FilterSelect label="运动项目" onChange={(value) => setFilter("sport", value, ALL_SPORTS)} options={[...new Set([ALL_SPORTS, ...catalog.sports.map(item=>item.name),sport])]} value={sport} />
+        <FilterSelect label="区域" onChange={(value) => setFilter("district", value, ALL_DISTRICTS)} options={[...new Set([ALL_DISTRICTS, ...catalog.regions.map(item=>item.name),district])]} value={district} />
         <FilterSelect label="训练目标" onChange={(value) => setFilter("goal", value, ALL_GOALS)} options={[ALL_GOALS, ...goalOptions]} value={goal} />
         <FilterSelect label="服务对象" onChange={(value) => setFilter("audience", value, ALL_AUDIENCES)} options={[ALL_AUDIENCES, ...audienceOptions]} value={audience} />
         <button className={styles.resetButton} onClick={resetFilters} type="button"><RefreshCw aria-hidden size={15} />清空</button>
@@ -148,7 +152,7 @@ export function CoachDirectory({ embedded = false, initialCoaches = fallbackCoac
 
       <div className={styles.directoryBody}>
         <div className={styles.coachList}>
-          {results.map((coach) => <CoachResult active={selected?.id === coach.id} coach={coach} favorite={favorites.includes(coach.id)} key={coach.id} onFavorite={() => toggleFavorite(coach.id)} onSelect={() => updateQuery({ coach: String(coach.id) })} />)}
+          {results.map((coach) => <CoachResult active={selected?.id === coach.id} coach={coach} embedded={embedded} favorite={favorites.includes(coach.id)} key={coach.id} onFavorite={() => toggleFavorite(coach.id)} onSelect={() => updateQuery({ coach: String(coach.id) })} />)}
           {!results.length ? <div className={styles.emptyState}><Search aria-hidden size={28} /><strong>没有符合全部条件的教练</strong><p>减少一个筛选条件，或查看当前全部试点教练。</p><button onClick={resetFilters} type="button">查看全部教练</button></div> : null}
         </div>
         {selected ? <CoachInspector coach={selected} embedded={embedded} key={selected.id} /> : null}
@@ -161,7 +165,7 @@ function FilterSelect({ label, onChange, options, value }: { label: string; onCh
   return <label className={styles.filterControl}><span>{label}</span><select aria-label={label} onChange={(event) => onChange(event.target.value)} value={value}>{options.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown aria-hidden size={16} /></label>;
 }
 
-function CoachResult({ active, coach, favorite, onFavorite, onSelect }: { active: boolean; coach: CoachProfile; favorite: boolean; onFavorite: () => void; onSelect: () => void }) {
+function CoachResult({ active, coach, embedded, favorite, onFavorite, onSelect }: { active: boolean; coach: CoachProfile; embedded: boolean; favorite: boolean; onFavorite: () => void; onSelect: () => void }) {
   return (
     <article className={`${styles.coachResult} ${active ? styles.activeResult : ""}`}>
       <button aria-label={`查看${coach.name}教练`} className={styles.selectCoach} onClick={onSelect} type="button" />
@@ -170,7 +174,7 @@ function CoachResult({ active, coach, favorite, onFavorite, onSelect }: { active
       <div className={styles.resultInfo}>
         <div className={styles.resultName}><h2>{coach.name}</h2><span><BadgeCheck aria-hidden size={15} />{coach.verificationLabel}</span></div>
         <p className={styles.resultTitle}>{coach.title}</p>
-        <p><ShieldCheck aria-hidden size={15} />{coach.profileKind === "demo" ? "演示资料，不代表真实教练" : "未展示未经核验的证书或成绩"}</p>
+        {coach.profileKind === "demo" ? <p><ShieldCheck aria-hidden size={15} />演示资料，不代表真实教练</p> : null}
         <p><MapPin aria-hidden size={15} />{coach.venue} <span>· {coach.district}</span></p>
         <p><UsersRound aria-hidden size={15} />适合 {coach.audience.slice(0, 2).join("、")} · {coach.strengths.slice(0, 2).join("、")}</p>
         <p className={styles.nextSlot}><Clock3 aria-hidden size={15} />{coach.nextSlot}</p>
@@ -180,6 +184,7 @@ function CoachResult({ active, coach, favorite, onFavorite, onSelect }: { active
         <strong>{coach.price === undefined ? "价格待发布" : <>¥{coach.price}<small>/60分钟</small></>}</strong><span>{coach.trialPrice === undefined ? "暂未开放试课" : `首次试课 ¥${coach.trialPrice}/60分钟`}</span>
         <button aria-label={favorite ? `取消收藏${coach.name}` : `收藏${coach.name}`} className={styles.heartButton} onClick={onFavorite} type="button"><Heart aria-hidden fill={favorite ? "currentColor" : "none"} size={19} />{favorite ? "已收藏" : "收藏"}</button>
       </div>
+      <div className={styles.mobileResultActions}><Link href={`/coaches/${coach.id}`}>查看档案</Link>{coach.canConsult ? <Link href={embedded ? `/student/messages?coach=${coach.id}` : `/?coach=${coach.id}#service-inquiry`}>咨询这位教练</Link> : null}</div>
     </article>
   );
 }

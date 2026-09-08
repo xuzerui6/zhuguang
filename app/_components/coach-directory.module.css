@@ -409,6 +409,8 @@
   color: var(--zg-brand);
 }
 
+.mobileResultActions { display: none; }
+
 .inspector {
   align-self: start;
   background: #fff;
@@ -886,8 +888,8 @@
   .coachResult {
     gap: 12px;
     grid-template-columns: 102px 1fr;
-    grid-template-rows: 1fr;
-    min-height: 178px;
+    grid-template-rows: 1fr auto;
+    min-height: 230px;
     padding: 10px;
   }
 
@@ -905,6 +907,28 @@
   .resultInfo {
     padding-bottom: 34px;
   }
+
+  .mobileResultActions {
+    display: grid;
+    gap: 8px;
+    grid-column: 1 / -1;
+    grid-template-columns: 1fr 1fr;
+    position: relative;
+    z-index: 4;
+  }
+
+  .mobileResultActions a {
+    align-items: center;
+    border: 1px solid var(--zg-line-strong);
+    border-radius: 5px;
+    display: flex;
+    font-size: 13px;
+    font-weight: 700;
+    justify-content: center;
+    min-height: 44px;
+  }
+
+  .mobileResultActions a:last-child { background: var(--zg-brand); border-color: var(--zg-brand); color: #fff; }
 
   .resultCommercial .rating,
   .resultCommercial > span:not(.rating),

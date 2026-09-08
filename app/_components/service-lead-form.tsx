@@ -13,6 +13,7 @@ export function ServiceLeadForm({ coach, kind = "student", siteKey }: { coach?: 
   const widgetId = useRef<string | null>(null);
   const [state, setState] = useState<"error" | "idle" | "sending" | "sent">("idle");
   const [message, setMessage] = useState("");
+  const [contactError, setContactError] = useState("");
   const [turnstileToken, setTurnstileToken] = useState("");
 
   const mountTurnstile = useCallback(() => {
@@ -40,9 +41,11 @@ export function ServiceLeadForm({ coach, kind = "student", siteKey }: { coach?: 
     const contactWechat = String(data.get("contactWechat") || "").trim();
     if (!contactPhone && !contactWechat) {
       setState("error");
+      setContactError("请至少填写手机号或微信号");
       setMessage("请至少填写手机号或微信号，方便运营与你确认安排。");
       return;
     }
+    setContactError("");
     setState("sending");
     setMessage("");
 
@@ -88,16 +91,13 @@ export function ServiceLeadForm({ coach, kind = "student", siteKey }: { coach?: 
       </label>
       <label>
         <span>手机号</span>
-        <input autoComplete="tel" inputMode="tel" maxLength={30} name="contactPhone" placeholder="手机号或下方微信至少填一项" type="tel" />
+        <input aria-describedby={contactError ? "service-contact-error" : undefined} aria-invalid={Boolean(contactError)} autoComplete="tel" inputMode="tel" maxLength={30} name="contactPhone" placeholder="手机号或下方微信至少填一项" type="tel" />
       </label>
       <label>
         <span>微信号</span>
-        <input autoCapitalize="none" autoComplete="off" maxLength={64} name="contactWechat" placeholder="用于确认服务安排" />
+        <input aria-describedby={contactError ? "service-contact-error" : undefined} aria-invalid={Boolean(contactError)} autoCapitalize="none" autoComplete="off" maxLength={64} name="contactWechat" placeholder="用于确认服务安排" />
       </label>
-      <label>
-        <span>联系邮箱（选填）</span>
-        <input autoCapitalize="none" autoComplete="email" inputMode="email" maxLength={254} name="contactEmail" placeholder="name@example.com" type="email" />
-      </label>
+      {contactError ? <p className="is-error zg-service-contact-error" id="service-contact-error" role="alert">{contactError}</p> : null}
       <label>
         <span>{kind === "coach" ? "可服务区域" : "训练区域"}</span>
         <select defaultValue="通州区" name="district">
@@ -105,11 +105,6 @@ export function ServiceLeadForm({ coach, kind = "student", siteKey }: { coach?: 
         </select>
       </label>
       {coach ? null : <label><span>运动项目</span><select defaultValue="田径" name="sport">{SPORT_OPTIONS.map((sport) => <option key={sport}>{sport}</option>)}</select></label>}
-      {kind === "student" ? <label><span>年龄段或年级（选填）</span><select defaultValue="" name="learnerStage"><option value="">暂不填写</option>{learnerStages.map((stage) => <option key={stage}>{stage}</option>)}</select></label> : null}
-      <label>
-        <span>{kind === "coach" ? "可服务时间（选填）" : "期望训练时间（选填）"}</span>
-        <input maxLength={160} name="desiredTime" placeholder={kind === "coach" ? "例如：工作日晚间、周末" : "例如：周六上午或工作日晚间"} />
-      </label>
       <label className="is-wide">
         <span>{kind === "coach" ? "经历与合作方向" : "训练需求"}</span>
         <textarea
@@ -120,6 +115,14 @@ export function ServiceLeadForm({ coach, kind = "student", siteKey }: { coach?: 
           rows={3}
         />
       </label>
+      <details className="zg-service-lead-more">
+        <summary>补充更多信息 <span>选填</span></summary>
+        <div>
+          <label><span>联系邮箱</span><input autoCapitalize="none" autoComplete="email" inputMode="email" maxLength={254} name="contactEmail" placeholder="name@example.com" type="email" /></label>
+          {kind === "student" ? <label><span>年龄段或年级</span><select defaultValue="" name="learnerStage"><option value="">暂不填写</option>{learnerStages.map((stage) => <option key={stage}>{stage}</option>)}</select></label> : null}
+          <label><span>{kind === "coach" ? "可服务时间" : "期望训练时间"}</span><input maxLength={160} name="desiredTime" placeholder={kind === "coach" ? "例如：工作日晚间、周末" : "例如：周六上午或工作日晚间"} /></label>
+        </div>
+      </details>
       <p className="zg-service-lead-note">{kind === "coach" ? "提交意向不会自动开通教练账号，所有公开资料仍需人工核验。" : "咨询不收费，也不会自动生成预约；年龄段或年级仅用于匹配训练方案。"}</p>
       {siteKey ? <div ref={widgetHost} className="zg-turnstile-host zg-service-turnstile" /> : <p className="is-error">咨询通道正在完成安全配置，请稍后再试。</p>}
       <button disabled={state === "sending" || !siteKey || !turnstileToken} type="submit">

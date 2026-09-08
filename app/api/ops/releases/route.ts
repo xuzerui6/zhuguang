@@ -1,119 +1,36 @@
-import { NextResponse } from "next/server";
-import { getWebSession } from "../../../_lib/web-session";
+import { GET as platformGet, POST as platformPost, PATCH as platformPatch, PUT as platformPut } from "../../platform/route";
+import { ApiError, failure, readJson } from "../../../../server/api/contracts";
 
-const fallbackApiUrl = "https://api.beijingzhuguang.top";
-
-async function authorize(request: Request, mutation = false) {
-  const session = await getWebSession();
-  if (!session.permissions.includes("ops:manage") || !session.permissions.includes("release:read")) {
-    return NextResponse.json({ error: { code: "forbidden", message: "当前账号没有版本发布权限" } }, { status: session.isAuthenticated ? 403 : 401 });
-  }
-  if (mutation) {
-    const origin = request.headers.get("origin");
-    if (origin && origin !== new URL(request.url).origin) {
-      return NextResponse.json({ error: { code: "invalid_origin", message: "请求来源无效" } }, { status: 403 });
-    }
-  }
-  return null;
-}
-
-function configuration() {
-  const appKey = process.env.ZHUGUANG_PILOT_APP_KEY;
-  const operatorSecret = process.env.ZHUGUANG_OPERATOR_API_SECRET;
-  if (!appKey || !operatorSecret) return null;
-  return {
-    appKey,
-    baseUrl: (process.env.ZHUGUANG_MOBILE_API_URL || fallbackApiUrl).replace(/\/$/u, ""),
-    operatorSecret,
-  };
-}
-
-function upstreamHeaders(contentType?: string) {
-  const config = configuration();
-  if (!config) return null;
-  const headers = new Headers({
-    accept: "application/json",
-    "x-operator-actor": "xuzerui6@gmail.com",
-    "x-operator-secret": config.operatorSecret,
-    "x-request-id": `ops_${crypto.randomUUID()}`,
-    "x-zhuguang-app-key": config.appKey,
-  });
-  if (contentType) headers.set("content-type", contentType);
-  return { config, headers };
-}
-
-async function relay(response: Response) {
-  const body = await response.text();
-  return new NextResponse(body, {
-    headers: {
-      "cache-control": "no-store",
-      "content-type": response.headers.get("content-type") || "application/json; charset=utf-8",
-    },
-    status: response.status,
-  });
-}
-
-function unavailable() {
-  return NextResponse.json({ error: { code: "operator_proxy_unconfigured", message: "发布中心服务端凭据尚未配置" } }, { status: 503 });
+function target(request: Request, path: string, init?: RequestInit) {
+  const url = new URL(request.url);
+  url.pathname = "/api/platform";
+  url.search = "";
+  url.searchParams.set("path", path);
+  return new Request(url, init || request);
 }
 
 export async function GET(request: Request) {
-  const denied = await authorize(request);
-  if (denied) return denied;
-  const upstream = upstreamHeaders();
-  if (!upstream) return unavailable();
-  const response = await fetch(`${upstream.config.baseUrl}/api/v1/operator/releases`, {
-    cache: "no-store",
-    headers: upstream.headers,
-  });
-  return relay(response);
+  return platformGet(target(request, "/api/v1/operator/releases"));
 }
 
 export async function PUT(request: Request) {
-  const denied = await authorize(request, true);
-  if (denied) return denied;
-  const upstream = upstreamHeaders("application/vnd.android.package-archive");
-  if (!upstream) return unavailable();
-  const form = await request.formData();
-  const artifact = form.get("artifact");
-  const versionCode = Number(form.get("versionCode"));
-  const versionName = String(form.get("versionName") || "").trim();
-  if (!(artifact instanceof File) || !artifact.name.toLowerCase().endsWith(".apk") || artifact.size < 1 || artifact.size > 50 * 1024 * 1024) {
-    return NextResponse.json({ error: { code: "invalid_artifact", message: "请选择不超过 50 MB 的 APK 文件" } }, { status: 422 });
+  const code = Number(new URL(request.url).searchParams.get("versionCode"));
+  if (!Number.isInteger(code) || code < 1 || request.headers.get("content-type")?.includes("multipart")) {
+    return failure(new ApiError(422, "binary_upload_required", "请刷新页面并使用安装包上传入口"), crypto.randomUUID());
   }
-  if (!Number.isInteger(versionCode) || versionCode < 1 || !/^\d+\.\d+\.\d+$/u.test(versionName)) {
-    return NextResponse.json({ error: { code: "invalid_version", message: "请检查版本号与 versionCode" } }, { status: 422 });
-  }
-  upstream.headers.set("x-release-version-name", versionName);
-  const response = await fetch(`${upstream.config.baseUrl}/api/v1/operator/releases/${versionCode}/artifact`, {
-    body: await artifact.arrayBuffer(),
-    headers: upstream.headers,
-    method: "PUT",
-  });
-  return relay(response);
+  return platformPut(target(request, `/api/v1/operator/releases/${code}/artifact`));
 }
 
 export async function POST(request: Request) {
-  const denied = await authorize(request, true);
-  if (denied) return denied;
-  const upstream = upstreamHeaders("application/json");
-  if (!upstream) return unavailable();
-  const body = await request.json() as { action?: string; release?: Record<string, unknown>; versionCode?: number };
-  const versionCode = Number(body.versionCode);
-  let path = "/api/v1/operator/releases";
-  let method = "POST";
-  const payload: unknown = body.release;
-  if (body.action && body.action !== "create") {
-    if (!Number.isInteger(versionCode) || versionCode < 1 || !new Set(["notify", "pause", "policy", "publish"]).has(body.action)) {
-      return NextResponse.json({ error: { code: "invalid_action", message: "版本操作无效" } }, { status: 422 });
-    }
-    path = `/api/v1/operator/releases/${versionCode}/${body.action}`;
-    method = body.action === "policy" ? "PATCH" : "POST";
-  }
-  const response = await fetch(`${upstream.config.baseUrl}${path}`, {
-    body: JSON.stringify(payload ?? {}),
-    headers: upstream.headers,
-    method,
-  });
-  return relay(response);
+  try {
+    const body = await readJson<{ action?: string; release?: Record<string, unknown>; versionCode?: number; confirmed?: boolean; reason?: string }>(request);
+    const action = body.action || "create";
+    if (!new Set(["create", "publish", "pause", "notify", "policy"]).has(action)) throw new ApiError(422, "invalid_action", "版本操作无效");
+    if (action !== "create" && (!Number.isInteger(body.versionCode) || Number(body.versionCode) < 1)) throw new ApiError(422, "invalid_version", "版本代码无效");
+    const path = action === "create" ? "/api/v1/operator/releases" : `/api/v1/operator/releases/${body.versionCode}/${action}`;
+    const headers = new Headers(request.headers);
+    headers.delete("content-length"); headers.set("content-type", "application/json");
+    const forwarded = target(request, path, { headers, body: JSON.stringify({ ...body.release, confirmed: body.confirmed ?? body.release?.confirmed, reason: body.reason ?? body.release?.reason }), method: action === "policy" ? "PATCH" : "POST" });
+    return action === "policy" ? platformPatch(forwarded) : platformPost(forwarded);
+  } catch (error) { return failure(error, crypto.randomUUID()); }
 }

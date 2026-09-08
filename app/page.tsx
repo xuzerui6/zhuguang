@@ -18,22 +18,19 @@ import { AppDownloadClient } from "./_components/app-download-client";
 import { ServiceLeadForm } from "./_components/service-lead-form";
 import { CoachSpotlightCarousel } from "./_components/coach-spotlight-carousel";
 import { MotionCoordinator } from "./_components/motion-coordinator";
-import { ProductFilm } from "./_components/product-film";
 import styles from "./_components/public-site.module.css";
-import { productFilm } from "./_lib/product-film";
-import { loadPublicCoaches, minimumPublishedTrialPrice } from "./_lib/web-platform";
+import { loadPublicCoaches, loadPublicServiceCatalog, minimumPublishedTrialPrice } from "./_lib/web-platform";
 import { TRAINING_GOAL_OPTIONS } from "../shared/coach-catalog";
 
 type HomePageProps = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
 
 export default async function HomePage({ searchParams }: HomePageProps) {
-  const catalog = await loadPublicCoaches();
+  const [catalog, serviceCatalog] = await Promise.all([loadPublicCoaches(),loadPublicServiceCatalog()]);
   const params = await searchParams;
   const requestedCoachId = Number(Array.isArray(params?.coach) ? params?.coach[0] : params?.coach);
   const requestedCoach = catalog.find((coach) => coach.id === requestedCoachId && coach.canConsult);
   const featuredCoaches = catalog.filter((item) => item.profileKind === "real").slice(0, 3);
   const minimumTrialPrice = minimumPublishedTrialPrice(catalog);
-  const productFilmEnabled = process.env.PRODUCT_FILM_ENABLED === "true";
   return (
     <>
       <PublicHeader />
@@ -70,7 +67,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </div>
           <form action="/coaches" className={styles.searchPanel}>
             <label><span>城市</span><select defaultValue="北京" name="city" aria-label="选择城市"><option>北京</option></select></label>
-            <label><span>项目</span><select defaultValue="田径" name="sport" aria-label="选择运动项目"><option>田径</option><option>羽毛球</option><option>游泳</option><option>网球</option><option>篮球</option><option>体能</option></select></label>
+            <label><span>项目</span><select defaultValue="" name="sport" aria-label="选择运动项目"><option value="">全部已上线项目</option>{serviceCatalog.sports.map(item=><option key={item.id}>{item.name}</option>)}</select></label>
             <label><span>目标</span><select defaultValue="中考体育" name="goal" aria-label="选择训练目标">{TRAINING_GOAL_OPTIONS.map((goal) => <option key={goal}>{goal}</option>)}</select></label>
             <button type="submit"><Search aria-hidden size={18} />查看匹配结果</button>
           </form>
@@ -107,16 +104,6 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             ))}
           </CoachSpotlightCarousel>
         </section>
-
-        {productFilmEnabled ? (
-          <section className={styles.filmSection} data-motion id="product-film">
-            <div className={styles.filmHeading}>
-              <div><p className="zg-eyebrow">逐光如何工作</p><h2 className="zg-section-title">从选择教练，到看见每一次进步</h2></div>
-              <p>把真实需求、教练档案、服务确认和训练记录连在一起。不是一段广告，而是逐光正在使用的服务方式。</p>
-            </div>
-            <ProductFilm manifest={productFilm} />
-          </section>
-        ) : null}
 
         <section className={styles.processSection} data-motion>
           <div className={styles.processIntro}>

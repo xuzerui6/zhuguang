@@ -8,6 +8,7 @@ import {
   featureFlags,
   getRouteArea,
   minimumPublishedTrialPrice,
+  mapMobileCoachToWeb,
   opsNavigation,
   publicCoaches,
   studentNavigation,
@@ -19,6 +20,71 @@ import { allowedForPlatformSession } from "../app/_lib/platform-proxy-policy";
 import { describeBookingOptionsFailure, PlatformRequestError } from "../app/_components/platform-client";
 import { resolveCloudflareAccessToken, verifyCloudflareAccessToken } from "../app/_lib/cloudflare-access";
 import { BEIJING_DISTRICTS, coachCatalog, SPORT_OPTIONS } from "../shared/coach-catalog";
+import { renewWebSession, forwardRenewedCookies, WEB_COOKIE_OPTIONS } from "../app/_lib/web-auth-refresh";
+import { getBookingPresentation } from "../shared/booking-presentation";
+import { completionIdempotencyKey } from "../shared/completion-idempotency";
+import type { MobileBooking, MobileCoach } from "../app/mobile/types";
+
+test("coach titles and reviewed credentials map consistently without promoting proof labels", () => {
+  const mobile = { audience: [], goals: [], strengths: [], title: "田径专项训练教练", level: "退役运动员", proof: ["运动经历已核验"], credentials: undefined, experienceYears: 2 } as unknown as MobileCoach;
+  assert.deepEqual(mapMobileCoachToWeb(mobile).credentials, []);
+  assert.equal(mapMobileCoachToWeb(mobile).title, mobile.title);
+  assert.equal(mapMobileCoachToWeb(mobile).experience, 2);
+  assert.deepEqual(mapMobileCoachToWeb({ ...mobile, credentials: ["已提供的教练证书"] }).credentials, ["已提供的教练证书"]);
+});
+
+test("P1 SSR and API renewal preserve device and use a deterministic trusted receipt key", async () => {
+  const calls: Headers[] = [];
+  const env = { ZHUGUANG_MOBILE_API_URL: "https://isolated.invalid", ZHUGUANG_PILOT_APP_KEY: "test-channel", ZHUGUANG_OPERATOR_API_SECRET: "test-proxy-secret" };
+  const input = new Request("https://web.invalid/student", { headers: { cookie: "zg_web_access=expired; zg_web_refresh=old; zg_web_device=web-test; unrelated=keep" } });
+  const fetcher: typeof fetch = async (url, init) => {
+    const headers = new Headers(init?.headers);
+    assert.equal(headers.get("x-device-id"), "web-test");
+    if (String(url).endsWith("/me")) return new Response(null, { status: 401 });
+    calls.push(headers);
+    return Response.json({ data: { accessToken: "new-access", refreshToken: "new-refresh" } });
+  };
+  let normalCalls = 0;
+  const normal = await renewWebSession(input, env, async () => { normalCalls++; return new Response(null, { status: 200 }); });
+  assert.equal(normalCalls, 0);
+  assert.equal(normal.changes.length, 0);
+  const results = await Promise.all([renewWebSession(input, env, fetcher, true), renewWebSession(input, env, fetcher, true)]);
+  assert.equal(results[0].authenticated, true);
+  assert.ok(calls[0].get("idempotency-key") === calls[1].get("idempotency-key"));
+  assert.equal(calls[0].get("idempotency-key")?.length, 64);
+  const forwarded = forwardRenewedCookies(input, results[0].changes).get("cookie") || "";
+  assert.ok(forwarded.includes("zg_web_access=new-access") && !forwarded.includes("expired"));
+  assert.ok(forwarded.includes("unrelated=keep"));
+  assert.deepEqual(WEB_COOKIE_OPTIONS, { httpOnly: true, path: "/", sameSite: "strict", secure: true });
+  const denied = await renewWebSession(input, env, async () => new Response(null, { status: 401 }), true);
+  assert.equal(denied.authenticated, false);
+  assert.equal(denied.changes.filter((item) => item.maxAge === 0).length, 4);
+  const outage = await renewWebSession(input, env, async () => new Response(null, { status: 503 }), true);
+  assert.equal(outage.unavailable, true);
+  assert.equal(outage.changes.length, 0);
+});
+
+test("P1 booking presentation handles every terminal state and completion/payment combination", () => {
+  const statuses = ["pending_coach", "confirmed", "reschedule_requested", "completed", "cancelled_by_student", "cancelled_by_coach", "rejected", "expired"] as const;
+  for (const status of statuses) for (const paymentStatus of ["offline_unpaid", "offline_paid", "online_paid"] as const) {
+    const presentation = getBookingPresentation({ status, paymentStatus, submittedAt: "已提交", completion: { status: "pending_student" } } as MobileBooking);
+    assert.equal(presentation.submittedAt, null);
+    assert.equal(presentation.canComplete, status === "confirmed");
+    if (presentation.ended) {
+      assert.equal(presentation.canCancel || presentation.canReschedule || presentation.canComplete || presentation.canPay, false);
+      assert.doesNotMatch(presentation.label, /待|等待/u);
+    }
+    if (["rejected", "expired", "cancelled_by_student", "cancelled_by_coach"].includes(status) && paymentStatus === "offline_unpaid") assert.equal(presentation.paymentLabel, null);
+  }
+});
+
+test("P1 completion keys survive retries and do not expose dispute text", async () => {
+  const key = await completionIdempotencyKey("completion-1", "accepted");
+  assert.equal(key, await completionIdempotencyKey("completion-1", "accepted"));
+  const dispute = await completionIdempotencyKey("completion-1", "disputed", "履约异议");
+  assert.notEqual(key, dispute);
+  assert.doesNotMatch(dispute, /履约异议/u);
+});
 
 const root = new URL("../", import.meta.url);
 
@@ -43,7 +109,10 @@ test("homepage trial price only uses publicly bookable coaches with published po
 
 test("the runtime proxy applies browser security headers", () => {
   const headers = applyWebSecurityHeaders(new Headers());
-  assert.match(headers.get("content-security-policy") || "", /frame-ancestors 'self'/u);
+  const contentSecurityPolicy = headers.get("content-security-policy") || "";
+  assert.match(contentSecurityPolicy, /frame-ancestors 'self'/u);
+  assert.match(contentSecurityPolicy, /script-src[^;]+https:\/\/static\.cloudflareinsights\.com/u);
+  assert.match(contentSecurityPolicy, /connect-src[^;]+https:\/\/cloudflareinsights\.com/u);
   assert.equal(headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
   assert.equal(headers.get("x-content-type-options"), "nosniff");
 });
@@ -134,11 +203,13 @@ test("web logout clears the session before navigating away", async () => {
   const route = await readFile("app/api/auth/email/logout/route.ts", "utf8");
   assert.equal(source.includes('action="/api/auth/email/logout"'), false);
   assert.equal(source.includes('fetch("/api/auth/email/logout", { method: "POST" })'), true);
-  assert.equal(source.includes('window.location.assign("/login")'), true);
+  assert.equal(source.includes('router.replace("/login")'), true);
   assert.equal(route.includes('"CF_Authorization"'), true);
 });
 
 test("anonymous visitors have no workspace permissions", () => {
+  const withoutConfig=createWebSession({id:'owner',email:'xuzerui6@gmail.com',displayName:'owner',fullName:null});
+  assert.equal(withoutConfig.permissions.includes('ops:manage'),false);
   const session = createWebSession(null);
   assert.equal(session.isAuthenticated, false);
   assert.deepEqual(session.availableAreas, []);
@@ -192,7 +263,7 @@ test("coach access uses the server allowlist and operations is locked to the pri
     id: "account-2",
   }, {
     coachEmails: "coach@example.com, XUZERUI6@gmail.com",
-    opsEmails: "xuzerui6@gmail.com",
+    primaryOperatorEmail: "xuzerui6@gmail.com",
   });
 
   assert.equal(session.authorizationSource, "allowlist");
@@ -207,17 +278,21 @@ test("coach access uses the server allowlist and operations is locked to the pri
     email: "other@example.com",
     fullName: "其他账号",
     id: "account-3",
-  }, { opsEmails: "other@example.com" });
+  }, { primaryOperatorEmail: "xuzerui6@gmail.com" });
   assert.equal(canAccessArea(accidentalOperator, "ops"), false);
   assert.deepEqual(accidentalOperator.availableAreas, ["student"]);
 });
 
 test("operations release proxy performs server-side permission and origin checks", async () => {
   const route = await readFile(new URL("app/api/ops/releases/route.ts", root), "utf8");
-  assert.match(route, /getWebSession/);
-  assert.match(route, /ops:manage/);
-  assert.match(route, /release:read/);
-  assert.match(route, /request\.headers\.get\("origin"\)/);
+  const proxy = await readFile(new URL("app/api/platform/route.ts", root), "utf8");
+  assert.match(route, /platformGet/);
+  assert.match(route, /platformPost/);
+  assert.match(proxy, /getWebSession/);
+  assert.match(proxy, /allowedForPlatformSession/);
+  assert.match(proxy, /request\.headers\.get\("origin"\)/);
+  assert.equal(allowedForPlatformSession("/api/v1/operator/releases", "POST", ["student:read"]), false);
+  assert.equal(allowedForPlatformSession("/api/v1/operator/releases", "POST", ["ops:manage", "release:read"]), true);
 });
 
 test("R2 update controls are enabled and coach data remains internally consistent", () => {

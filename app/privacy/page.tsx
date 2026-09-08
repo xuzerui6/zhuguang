@@ -2,6 +2,7 @@ import { LockKeyhole, ShieldCheck } from "lucide-react";
 import type { Metadata } from "next";
 import { PublicFooter } from "../_components/public-footer";
 import { PublicHeader } from "../_components/public-header";
+import { PrivacyRequestForm } from "../_components/privacy-request-form";
 import styles from "../_components/public-pages.module.css";
 
 export const metadata: Metadata = {
@@ -39,7 +40,11 @@ export default function PrivacyPage() {
           <div><p>05 / 保存与权利</p><h2>可查询、更正、撤回授权或申请注销</h2></div>
           <div className={styles.guaranteeCopy}><p>昵称、头像、地区和签名在账号有效期间保存，用于账号识别和服务沟通；站内沟通记录通常保留 90 天用于履约和争议处理，依法或因未结工单需要延长的除外。咨询线索在完成跟进、关闭需求或不再需要后按运营规则清理或去标识化。</p><p>你可以在“我的—账号与隐私”随时更正或移除头像等资料。账号注销后头像对象会删除，账号展示信息会清除；依法需保留的历史履约数据会去标识化并按争议处理规则保存。</p></div>
         </section>
-        <section className={styles.pageCta}><LockKeyhole aria-hidden size={28} /><div><h2>需要处理个人信息问题？</h2><p>登录后从账号设置提交隐私工单，运营处理过程会保留状态记录。</p></div><ShieldCheck aria-hidden size={24} /></section>
+        <section className={styles.guaranteeBand} id="privacy-request">
+          <div><p>06 / 权利请求</p><h2>未登录也可以提交隐私问题</h2><ShieldCheck aria-hidden size={24} /></div>
+          <div><p>用于查询、更正、删除或投诉个人信息处理问题。运营查看联系方式时会再次鉴权并写入审计记录。</p><PrivacyRequestForm siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} /></div>
+        </section>
+        <section className={styles.pageCta}><LockKeyhole aria-hidden size={28} /><div><h2>已有逐光账号？</h2><p>也可以登录后从账号设置提交隐私工单，并持续查看处理状态。</p></div><ShieldCheck aria-hidden size={24} /></section>
       </main>
       <PublicFooter />
     </>

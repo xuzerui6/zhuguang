@@ -1,0 +1,11 @@
+.dialog { background: #fff; border: 1px solid #d7e1dc; border-radius: 8px; color: #16251e; margin: auto; max-height: calc(100dvh - 32px); max-width: calc(100vw - 32px); overflow: auto; padding: 24px; width: 480px; }
+.dialog::backdrop { background: #10201866; }
+.dialog h2 { font-size: 20px; margin: 0 0 12px; }
+.dialog p { font-size: 14px; line-height: 1.6; margin: 0 0 20px; overflow-wrap: anywhere; }
+.dialog label { display: block; font-size: 14px; margin-bottom: 8px; }
+.dialog textarea { border: 1px solid #b9c9c1; border-radius: 4px; font: inherit; min-height: 96px; padding: 12px; resize: vertical; width: 100%; box-sizing: border-box; }
+.dialog footer { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
+.dialog button { background: #f4f7f5; border: 1px solid #cad7d0; border-radius: 4px; color: inherit; font: inherit; min-height: 44px; min-width: 88px; padding: 10px 16px; }
+.dialog button[type=submit] { background: #296b50; color: white; }
+.dialog :focus-visible { outline: 2px solid #14795a; outline-offset: 3px; }
+.dialog [role=alert] { color: #af3425; margin-top: 8px; }

@@ -291,9 +291,34 @@
   align-items: end;
   display: grid;
   gap: 60px;
-  grid-template-columns: 1fr minmax(280px, 450px);
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 450px);
   margin-bottom: 36px;
 }
+
+.homeCityStatus {
+  color: var(--zg-muted);
+  font-size: 13px;
+  line-height: 1.6;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.homeCityStatus button { background: transparent; border: 0; color: var(--zg-brand); font: inherit; min-height: 44px; padding: 0 8px; text-decoration: underline; }
+.homeCityFade { animation: zg-home-city-fade 200ms ease both; }
+.homeCoachFade { animation: zg-home-coach-fade 220ms ease both; }
+.homeCoachFade .spotlightCardFooter { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.homeCoachFade .spotlightCardActions { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; }
+.homeCoachFade .spotlightCardActions a { white-space: nowrap; }
+.homeSupplyEmpty { padding-block: 32px; color: var(--zg-muted); }
+.homeSupplyEmpty strong { color: var(--zg-ink); }
+.homeSupplyEmpty a { align-items: center; display: inline-flex; min-height: 44px; color: var(--zg-brand); }
+.coachSpotlightGrid.coachSpotlightSingle { grid-template-columns: minmax(0, 1fr); }
+.coachSpotlightSingle .spotlightCard { display: grid; grid-template-columns: minmax(230px, .7fr) minmax(0, 1.3fr); }
+.coachSpotlightSingle .spotlightCardMedia { aspect-ratio: 4 / 5; max-height: 520px; }
+.coachSpotlightSingle .spotlightCardBody { padding: 32px; }
+@keyframes zg-home-city-fade { from { opacity: .45; } to { opacity: 1; } }
+@keyframes zg-home-coach-fade { from { opacity: .45; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
 .spotlightHeading > p {
   color: var(--zg-muted);
@@ -1287,6 +1312,7 @@
 }
 
 @media (max-width: 820px) {
+  .spotlightHeading { align-items: start; gap: 14px; grid-template-columns: minmax(0, 1fr); }
   .header {
     height: 64px;
   }
@@ -1417,15 +1443,15 @@
   }
 
   .footerMain {
-    grid-template-columns: 1.5fr 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-
-  .footerMain > div:last-child {
-    display: none;
-  }
+  .footerBrand { grid-column: 1 / -1; }
 }
 
 @media (max-width: 620px) {
+  .coachSpotlightGrid.coachSpotlightSingle { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: minmax(0, 1fr); }
+  .coachSpotlightSingle .spotlightCard { display: flex; }
+  .coachSpotlightSingle .spotlightCardBody { padding: 24px; }
   .downloadCompact { display: block; min-height: 0; padding-top: 54px; }
   .downloadCompactCopy { padding-bottom: 46px; }
   .downloadCompact h2 { font-size: 32px; }
@@ -1497,7 +1523,7 @@
   .searchPanel button { grid-column: 1 / -1; min-height: 48px; }
 
   .discoveryBand { gap: 16px; padding-block: 18px 22px; }
-  .discoveryBand > div { display: none; }
+  .discoveryBand > div:first-child { display: none; }
 
   .searchPanel select {
     min-height: 44px;
@@ -1689,6 +1715,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .homeCityFade, .homeCoachFade { animation: zg-home-city-fade 80ms linear both; transform: none; }
   .heroMedia img,
   .heroCopy > * {
     animation: none;

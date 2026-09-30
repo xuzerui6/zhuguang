@@ -1,4 +1,6 @@
 import { canTransitionBooking } from "../../app/mobile/domain";
+import { LEGAL_DOCUMENTS } from '../../shared/legal-documents';
+import { readOperatorApplicationMediaD1 } from "./multicity";
 import type { BookingStatus, LearnerProfile } from "../../app/mobile/types";
 import {
   AUDIENCE_OPTIONS,
@@ -88,6 +90,21 @@ import { dispatchPushDeliveriesD1, sendOperatorTestPushD1 } from "./push";
 import { executeReleaseOperation, type ReleaseCommand } from "./release-operations";
 import { assertPilotApp, normalizePhone, randomId, verifyTurnstile } from "./security";
 import { requestEmailOtpD1, verifyEmailOtpD1 } from "./email-auth";
+import { exchangeWechatCodeD1, requestWechatLinkEmailD1, verifyWechatLinkEmailD1 } from "./wechat-auth";
+import {
+  getCoachApplicationD1,
+  getServicePreferenceD1,
+  listMulticityCatalogD1,
+  listMyCoachApplicationsD1,
+  listOperatorCoachApplicationsD1,
+  reviewCoachApplicationD1,
+  saveCoachApplicationDraftD1,
+  saveServicePreferenceD1,
+  submitCoachApplicationD1,
+  uploadCoachApplicationMediaD1,
+  withdrawCoachApplicationD1,
+  type CoachApplicationInput,
+} from "./multicity";
 import {
   classifyMetricEntityD1,
   confirmTestPaymentD1,
@@ -99,7 +116,6 @@ import {
   getPublicTrustMetricsD1,
   listOperatorCatalogD1,
   listOperatorTransactionsD1,
-  listPublicCatalogD1,
   respondCompletionRequestD1,
   updateOperatorCatalogItemD1,
   uploadSupportEvidenceD1,
@@ -116,6 +132,7 @@ import {
   exportOpsLeadsMaskedD1,
   batchUpdateOpsCoachListingD1,
   getOpsOverviewD1,
+  getOpsSystemHealthD1,
   getOpsProductFunnelD1,
   getOpsCoachBusinessSettingsD1,
   listCoachProfileChangesD1,
@@ -179,7 +196,7 @@ export async function handleApiRequest(request: Request, env: ApiEnv, ctx: ApiEx
     const publicCoachMedia = /^\/api\/v1\/media\/coaches\/\d+\/(avatar|card|hero)$/u.test(url.pathname);
     const publicAccountAvatar = /^\/api\/v1\/account-avatar\/[^/]+$/u.test(url.pathname);
     const publicCoachReviews = request.method === "GET" && /^\/api\/v1\/coaches\/\d+\/reviews$/u.test(url.pathname);
-    const publicRelease = url.pathname === "/api/v1/public/app/releases/latest"
+    const publicRelease = (request.method === 'GET' && url.pathname === '/api/v1/public/legal-documents') || url.pathname === "/api/v1/public/app/releases/latest"
       || /^\/api\/v1\/public\/app\/releases\/\d+\/download-ticket$/u.test(url.pathname);
     if (url.pathname !== "/api/v1/health" && url.pathname !== "/api/v1/app/releases/download" && !publicCoachMedia && !publicAccountAvatar && !publicCoachReviews && !publicRelease) assertPilotApp(request, env);
     const response = await route(request, url, env, ctx, requestId);
@@ -207,6 +224,17 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   const local = !env.DB && env.APP_ENV !== "production";
   const deviceId = request.headers.get("x-device-id")?.slice(0, 160) || "unknown-device";
 
+  if (request.method === 'GET' && path === '/api/v1/public/legal-documents') {
+    if (!env.DB) return success(LEGAL_DOCUMENTS, requestId);
+    const published = await env.DB.prepare(`SELECT d.slug, d.title, v.id, v.body, v.published_at
+      FROM content_documents d JOIN content_versions v ON v.id = d.active_version_id AND v.document_id = d.id
+      WHERE d.slug IN ('privacy', 'terms') AND d.status = 'published' AND d.audience = 'public' AND v.published_at IS NOT NULL`).all<{ slug: string; title: string; id: string; body: string; published_at: number }>();
+    return success(LEGAL_DOCUMENTS.map(baseline => {
+      const current = published.results?.find(item => item.slug === baseline.slug);
+      return current ? { slug: baseline.slug, title: current.title, body: current.body, version: current.id, updatedAt: current.published_at } : baseline;
+    }), requestId);
+  }
+
   if (request.method === "GET" && path === "/api/v1/health") {
     return success({
       database: Boolean(env.DB),
@@ -222,7 +250,7 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   }
 
   if (request.method === "GET" && path === "/api/v1/catalog") {
-    return success(await listPublicCatalogD1(env), requestId);
+    return success(await listMulticityCatalogD1(url.searchParams.get("city"), env), requestId);
   }
 
   if (request.method === "GET" && path === "/api/v1/public/trust-metrics") {
@@ -352,6 +380,11 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     return success(await getOpsOverviewD1(env, url.searchParams.get('classification')), requestId);
   }
 
+  if (request.method === "GET" && path === "/api/v1/operator/system-health") {
+    assertOperator(request, env);
+    return success(await getOpsSystemHealthD1(env), requestId);
+  }
+
   if (request.method === "GET" && path === "/api/v1/operator/catalog") {
     assertOperator(request, env);
     return success(await listOperatorCatalogD1(env), requestId);
@@ -376,11 +409,12 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
 
   if (request.method === "POST" && path === "/api/v1/operator/trust-metrics/classifications") {
     assertOperator(request, env);
-    const body = await readJson<{ classification?: unknown; entityId?: unknown; entityType?: unknown; reason?: unknown }>(request);
+    const body = await readJson<{ classification?: unknown; entityId?: unknown; entityType?: unknown; reason?: unknown; expectedEventId?: unknown }>(request);
+    const expectedEventId = body.expectedEventId === undefined ? undefined : body.expectedEventId === null ? null : requireString(body.expectedEventId, 'expectedEventId', 180);
     return success(await classifyMetricEntityD1(
       requireString(body.entityType, "entityType", 30), requireString(body.entityId, "entityId", 180),
       requireString(body.classification, "classification", 30), requireString(body.reason, "reason", 500),
-      operatorActor(request), requestId, env,
+      operatorActor(request), requestId, env, expectedEventId,
     ), requestId, undefined, 201);
   }
 
@@ -407,12 +441,12 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
 
   if (request.method === "GET" && path === "/api/v1/operator/leads") {
     assertOperator(request, env);
-    return success(await listOpsLeadsD1(env, url.searchParams.get('classification')), requestId);
+    return success(await listOpsLeadsD1(env, url.searchParams.get('classification'), url.searchParams.get('view')), requestId);
   }
 
   if (request.method === "GET" && path === "/api/v1/operator/leads/export") {
     assertOperator(request, env);
-    return success(await exportOpsLeadsMaskedD1(operatorActor(request), requestId, env, url.searchParams.get('classification')), requestId);
+    return success(await exportOpsLeadsMaskedD1(operatorActor(request), requestId, env, url.searchParams.get('classification'), url.searchParams.get('view')), requestId);
   }
 
   const operatorLeadContactMatch = path.match(/^\/api\/v1\/operator\/service-leads\/([^/]+)\/contact-reveal$/u);
@@ -438,6 +472,29 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   if (request.method === "GET" && path === "/api/v1/operator/bookings") {
     assertOperator(request, env);
     return success(await listOpsBookingsD1(env, url.searchParams.get('classification')), requestId);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/operator/coach-applications") {
+    assertOperator(request, env);
+    return success(await listOperatorCoachApplicationsD1(url.searchParams.get("status"), env), requestId);
+  }
+
+  const operatorCoachApplicationMatch = path.match(/^\/api\/v1\/operator\/coach-applications\/([^/]+)$/u);
+  const operatorApplicationMediaMatch=path.match(/^\/api\/v1\/operator\/coach-applications\/([^/]+)\/media\/(avatar|hero|credential)$/u);
+  if(request.method==="GET"&&operatorApplicationMediaMatch){assertOperator(request,env);const index=Number(url.searchParams.get("index")||0);if(!Number.isInteger(index)||index<0||index>11)throw new ApiError(422,"invalid_media_index","资料序号无效");return readOperatorApplicationMediaD1(decodeURIComponent(operatorApplicationMediaMatch[1]),operatorApplicationMediaMatch[2] as "avatar"|"hero"|"credential",index,operatorActor(request),requestId,env);}
+  if (request.method === "PATCH" && operatorCoachApplicationMatch) {
+    assertOperator(request, env);
+    const body = await readJson<{ decision?: unknown; note?: unknown }>(request);
+    const decision = requireString(body.decision, "decision", 20);
+    if (decision !== "approved" && decision !== "rejected") throw new ApiError(422, "invalid_review_decision", "请选择通过或拒绝");
+    return success(await reviewCoachApplicationD1(
+      decodeURIComponent(operatorCoachApplicationMatch[1]),
+      decision,
+      requireString(body.note, "note", 500),
+      operatorActor(request),
+      requestId,
+      env,
+    ), requestId);
   }
 
   if (request.method === "GET" && path === "/api/v1/operator/coaches") {
@@ -505,8 +562,9 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   const operatorCoachVenuesMatch = path.match(/^\/api\/v1\/operator\/coaches\/(\d+)\/venues$/u);
   if (request.method === "POST" && operatorCoachVenuesMatch) {
     assertOperator(request, env);
-    const body = await readJson<{ address?: unknown; district?: unknown; name?: unknown; reason?: unknown }>(request);
+    const body = await readJson<{ address?: unknown; cityId?: unknown; district?: unknown; name?: unknown; reason?: unknown }>(request);
     return success(await createOpsCoachVenueD1(Number(operatorCoachVenuesMatch[1]), {
+      cityId: typeof body.cityId === "string" ? body.cityId : undefined,
       address: requireString(body.address, "address", 240),
       district: requireString(body.district, "district", 40),
       name: requireString(body.name, "name", 120),
@@ -719,12 +777,13 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   }
 
   if (request.method === "POST" && (path === "/api/v1/service-leads" || path === "/api/v1/partnership-leads" || path === "/api/v1/privacy-requests")) {
-    const body = await readJson<{ coachId?: unknown; contactEmail?: unknown; contactName?: unknown; contactPhone?: unknown; contactWechat?: unknown; desiredTime?: unknown; district?: unknown; goal?: unknown; learnerStage?: unknown; request?: unknown; sport?: unknown; turnstileToken?: unknown }>(request);
+    const body = await readJson<{ coachId?: unknown; serviceCityId?: unknown; contactEmail?: unknown; contactName?: unknown; contactPhone?: unknown; contactWechat?: unknown; desiredTime?: unknown; district?: unknown; goal?: unknown; learnerStage?: unknown; request?: unknown; sport?: unknown; turnstileToken?: unknown }>(request);
     if (local) return success({ id: randomId("lead"), status: "new" }, requestId, undefined, 201);
     await verifyTurnstile(request, body.turnstileToken, env);
     const identity = local ? null : await authenticateStudent(request, env, false);
     return success(await createServiceLeadD1({
       coachId: body.coachId == null ? undefined : positiveInteger(body.coachId, "coachId"),
+      serviceCityId: typeof body.serviceCityId === "string" ? body.serviceCityId : undefined,
       contactEmail: typeof body.contactEmail === "string" ? body.contactEmail.slice(0, 254) : undefined,
       contactName: requireString(body.contactName, "contactName", 40),
       contactPhone: typeof body.contactPhone === "string" ? body.contactPhone.slice(0, 30) : undefined,
@@ -734,7 +793,13 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
       goal: path === "/api/v1/privacy-requests" ? requireString(body.request, "request", 1000) : requireString(body.goal, "goal", 160),
       leadKind: path === "/api/v1/privacy-requests" ? "privacy_request" : path === "/api/v1/partnership-leads" ? "coach_partnership" : "student_inquiry",
       learnerStage: typeof body.learnerStage === "string" ? body.learnerStage : undefined,
-      source: request.headers.get("x-app-platform") === "android" ? "android" : "web",
+      source: request.headers.get("x-app-platform") === "weapp"
+        ? "weapp"
+        : request.headers.get("x-app-platform") === "android"
+          ? "android"
+          : request.headers.get("x-app-platform") === "ios"
+            ? "ios"
+            : "web",
       sport: path === "/api/v1/privacy-requests" ? "隐私请求" : requireString(body.sport, "sport", 40),
       userId: identity?.userId,
     }, env), requestId, undefined, 201);
@@ -785,6 +850,29 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     const body = await readJson<{ phone?: unknown }>(request);
     const phone = normalizePhone(body.phone);
     return success(local ? requestLocalOtp(phone) : await requestOtpD1(request, phone, env), requestId, undefined, 201);
+  }
+
+  if (request.method === "POST" && path === "/api/v1/auth/wechat/exchange") {
+    if (local) throw new ApiError(503, "wechat_not_configured", "本地预览未配置微信登录");
+    const body = await readJson<{ code?: unknown }>(request);
+    return success(await exchangeWechatCodeD1(request, { code: body.code }, env), requestId);
+  }
+
+  if (request.method === "POST" && path === "/api/v1/auth/wechat/link/email/send") {
+    if (local) throw new ApiError(503, "wechat_not_configured", "本地预览未配置微信登录");
+    const body = await readJson<{ email?: unknown; linkToken?: unknown }>(request);
+    return success(await requestWechatLinkEmailD1(request, { email: body.email, linkToken: body.linkToken }, env), requestId, undefined, 201);
+  }
+
+  if (request.method === "POST" && path === "/api/v1/auth/wechat/link/email/verify") {
+    if (local) throw new ApiError(503, "wechat_not_configured", "本地预览未配置微信登录");
+    const body = await readJson<{ challengeId?: unknown; code?: unknown; favoriteCoachIds?: unknown; linkToken?: unknown }>(request);
+    return success(await verifyWechatLinkEmailD1(request, {
+      challengeId: body.challengeId,
+      code: body.code,
+      favoriteCoachIds: body.favoriteCoachIds,
+      linkToken: body.linkToken,
+    }, env), requestId);
   }
 
   if (request.method === "POST" && path === "/api/v1/auth/email/request") {
@@ -860,6 +948,61 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     return success(await getMobileIdentityD1(identity!, env), requestId);
   }
 
+  if (request.method === "GET" && path === "/api/v1/me/service-city") {
+    if (local) return success({ cityId: "beijing", source: "manual" }, requestId);
+    return success(await getServicePreferenceD1((await authenticateStudent(request, env))!, env), requestId);
+  }
+
+  if (request.method === "PATCH" && path === "/api/v1/me/service-city") {
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不写入城市偏好");
+    const body = await readJson<{ cityId?: unknown; source?: unknown }>(request);
+    return success(await saveServicePreferenceD1(
+      (await authenticateStudent(request, env))!,
+      requireString(body.cityId, "cityId", 30),
+      requireString(body.source, "source", 20),
+      env,
+    ), requestId);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/coach-applications/mine") {
+    if (local) return success([], requestId);
+    return success(await listMyCoachApplicationsD1((await authenticateStudent(request, env))!, env), requestId);
+  }
+
+  if ((request.method === "POST" || request.method === "PATCH") && path === "/api/v1/coach-applications") {
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不写入教练申请");
+    const body = await readJson<CoachApplicationInput>(request);
+    return success(await saveCoachApplicationDraftD1((await authenticateStudent(request, env))!, body, env), requestId, undefined, request.method === "POST" ? 201 : 200);
+  }
+
+  const coachApplicationMatch = path.match(/^\/api\/v1\/coach-applications\/([^/]+)$/u);
+  if (request.method === "GET" && coachApplicationMatch) {
+    if (local) throw new ApiError(404, "coach_application_not_found", "未找到该教练申请");
+    return success(await getCoachApplicationD1((await authenticateStudent(request, env))!, decodeURIComponent(coachApplicationMatch[1]), env), requestId);
+  }
+
+  const coachApplicationMediaMatch = path.match(/^\/api\/v1\/coach-applications\/([^/]+)\/media\/(avatar|hero|credential)$/u);
+  if (request.method === "PUT" && coachApplicationMediaMatch) {
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不上传申请资料");
+    return success(await uploadCoachApplicationMediaD1(
+      (await authenticateStudent(request, env))!,
+      decodeURIComponent(coachApplicationMediaMatch[1]),
+      coachApplicationMediaMatch[2] as "avatar" | "hero" | "credential",
+      request,
+      env,
+    ), requestId);
+  }
+
+  const coachApplicationActionMatch = path.match(/^\/api\/v1\/coach-applications\/([^/]+)\/(submit|withdraw)$/u);
+  if (request.method === "POST" && coachApplicationActionMatch) {
+    if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不修改教练申请");
+    const identity = (await authenticateStudent(request, env))!;
+    const applicationId = decodeURIComponent(coachApplicationActionMatch[1]);
+    return success(coachApplicationActionMatch[2] === "submit"
+      ? await submitCoachApplicationD1(identity, applicationId, env)
+      : await withdrawCoachApplicationD1(identity, applicationId, env), requestId);
+  }
+
 
   if (request.method === "GET" && path === "/api/v1/me/profile") {
     if (local) throw new ApiError(501, "local_profile_unavailable", "本地预览未连接账号资料服务");
@@ -869,7 +1012,7 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   if (request.method === "PATCH" && path === "/api/v1/me/profile") {
     if (local) throw new ApiError(501, "local_write_not_supported", "本地预览不写入账号资料");
     const identity = (await authenticateStudent(request, env))!;
-    const body = await readJson<{ bio?: unknown; district?: unknown; nickname?: unknown }>(request);
+    const body = await readJson<{ bio?: unknown; district?: unknown; nickname?: unknown; serviceArea?: unknown; serviceCityId?: unknown }>(request);
     return success(await updateAccountProfileD1(identity, body, request, env), requestId);
   }
 
@@ -919,7 +1062,8 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   const bookingOptionsMatch = path.match(/^\/api\/v1\/coaches\/(\d+)\/booking-options$/u);
   if (request.method === "GET" && bookingOptionsMatch) {
     if (local) throw new ApiError(501, "local_booking_options_unavailable", "本地预览暂不提供真实预约配置");
-    return success(await getCoachBookingOptionsD1(Number(bookingOptionsMatch[1]), env), requestId);
+    const student = await authenticateStudent(request, env, false);
+    return success(await getCoachBookingOptionsD1(Number(bookingOptionsMatch[1]), env, url.searchParams.get("city") ?? "beijing", student?.userId), requestId);
   }
 
   if (request.method === "GET" && path === "/api/v1/bookings") {
@@ -930,7 +1074,7 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
   }
 
   if (request.method === "POST" && path === "/api/v1/bookings") {
-    const body = await readJson<{ coachId?: unknown; customAddress?: unknown; customDistrict?: unknown; customLocationNote?: unknown; durationMinutes?: unknown; learnerId?: unknown; locationType?: unknown; note?: unknown; slotId?: unknown; startsAt?: unknown; venueId?: unknown }>(request);
+    const body = await readJson<{ coachId?: unknown; customAddress?: unknown; customDistrict?: unknown; customLocationNote?: unknown; durationMinutes?: unknown; learnerId?: unknown; locationType?: unknown; note?: unknown; serviceCityId?: unknown; slotId?: unknown; startsAt?: unknown; venueId?: unknown }>(request);
     const idempotencyKey = request.headers.get("idempotency-key")?.slice(0, 160) || requestId;
     const coachId = positiveInteger(body.coachId, "coachId");
     const learnerId = requireString(body.learnerId, "learnerId", 160);
@@ -952,6 +1096,7 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
         learnerId,
         locationType,
         note,
+        serviceCityId: typeof body.serviceCityId === "string" ? body.serviceCityId : undefined,
         startsAt: timestamp(body.startsAt, "startsAt"),
         venueId: typeof body.venueId === "string" ? body.venueId : undefined,
       }, idempotencyKey, env);
@@ -1157,6 +1302,26 @@ async function route(request: Request, url: URL, env: ApiEnv, ctx: ApiExecutionC
     return success(await upsertLearnerD1((await authenticateStudent(request, env))!, input, env), requestId, undefined, request.method === "POST" ? 201 : 200);
   }
 
+  const learnerProfileMatch = path.match(/^\/api\/v1\/learner-profiles\/([^/]+)$/u);
+  if (learnerProfileMatch && (request.method === "GET" || request.method === "PATCH")) {
+    const profileId = decodeURIComponent(learnerProfileMatch[1]);
+    if (local) {
+      authenticateLocal(request);
+      const profile = localBootstrap(request).learnerProfiles.find((item) => item.id === profileId);
+      if (!profile) throw new ApiError(404, "learner_profile_not_found", "未找到该学员档案");
+      if (request.method === "GET") return success(profile, requestId);
+      const input = validateLearner({ ...profile, ...(await readJson<Partial<LearnerProfile>>(request)), id: profileId });
+      return success(input, requestId);
+    }
+    const identity = (await authenticateStudent(request, env))!;
+    const profiles = (await bootstrapD1(request, env)).learnerProfiles;
+    const existing = profiles.find((item) => item.id === profileId);
+    if (!existing) throw new ApiError(404, "learner_profile_not_found", "未找到该学员档案");
+    if (request.method === "GET") return success(existing, requestId);
+    const input = validateLearner({ ...existing, ...(await readJson<Partial<LearnerProfile>>(request)), id: profileId });
+    return success(await upsertLearnerD1(identity, input, env), requestId);
+  }
+
   if (request.method === "GET" && path === "/api/v1/coach/overview") {
     const data = local ? localCoachOverview() : await coachOverviewD1(await authenticateCoach(request, env), env);
     return success(data, requestId);
@@ -1358,6 +1523,8 @@ function normalizeCoachSearchParams(input: URLSearchParams) {
   const district = normalizeDistrict(input.get("district") ?? "");
   const goal = normalizeTrainingGoal(input.get("goal") ?? "");
   const audience = normalizeAudience(input.get("audience") ?? "");
+  const city = input.get("city");
+  if (city === "beijing" || city === "changchun") filters.set("city", city);
   if (sport) filters.set("sport", sport);
   if (district) filters.set("district", district);
   if (goal) filters.set("goal", goal);

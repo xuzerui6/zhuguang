@@ -1,8 +1,9 @@
 "use client";
 
 import { BadgeCheck, Bell, BriefcaseBusiness, ChevronRight, ShieldCheck, UserRound, X } from "lucide-react";
+import { AnimatePresence, m, useReducedMotion } from "motion/react";
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MobileStudentApp from "./app";
 import { mobileApi, usesBundledDemoData } from "./api-client";
 import { CoachApp } from "./coach/coach-app";
@@ -12,6 +13,7 @@ import {
   getMobilePlatform,
   hasPrivacyConsent,
   getOrCreateDeviceId,
+  impact,
   listenForAppResume,
   listenForAppUrl,
   readAccountMode,
@@ -31,11 +33,13 @@ import type {
   AppRelease,
   CoachAccountSummary,
   CoachTab,
+  CoachOverview,
   MobileIdentity,
   MobileSession,
   MobileStudentAppProps,
   MobileTab,
 } from "./types";
+import { MOTION_DURATION_MS, nextMotion, type NavigationMotionState } from "../../shared/motion";
 import { previewRelease, UpdateCenter } from "./update/update-center";
 import { getUpdateDecision, parsePrivateQaNotification, parseZhuguangDeepLink, resolveAccountMode } from "./unified-domain";
 
@@ -69,6 +73,11 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   const [coachTab, setCoachTab] = useState<CoachTab>("workspace");
   const [identity, setIdentity] = useState<MobileIdentity>({ availableModes: ["student"], contactMasked: "", phoneMasked: "" });
   const [roleSheet, setRoleSheet] = useState(false);
+  const [roleCandidate, setRoleCandidate] = useState<AccountMode>("student");
+  const [roleSwitchBusy, setRoleSwitchBusy] = useState(false);
+  const [roleSwitchError, setRoleSwitchError] = useState("");
+  const [roleMotion, setRoleMotion] = useState<NavigationMotionState>({ direction: "none", intent: "role", sequence: 0 });
+  const [prefetchedCoachOverview, setPrefetchedCoachOverview] = useState<CoachOverview | undefined>();
   const [surface, setSurface] = useState<Surface>("app");
   const [forcedRelease, setForcedRelease] = useState<AppRelease | null>(null);
   const [optionalRelease, setOptionalRelease] = useState<AppRelease | null>(null);
@@ -76,6 +85,8 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   const [notificationPrompt, setNotificationPrompt] = useState(false);
   const [accountProfileOpen, setAccountProfileOpen] = useState(false);
   const [routeRevision, setRouteRevision] = useState(0);
+  const scrollPositions = useRef<Record<AccountMode, number>>({ coach: 0, student: 0 });
+  const reducedMotion = useReducedMotion();
 
   const hasCoachMode = identity.availableModes.includes("coach") && identity.coach?.auditStatus === "approved";
 
@@ -116,6 +127,10 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
       void writeLastCoachTab(target.coachTab);
     }
     if (target.mode) {
+      if (target.mode !== mode) {
+        scrollPositions.current[mode] = window.scrollY;
+        setRoleMotion((current) => nextMotion(current, "role", "none"));
+      }
       setMode(target.mode);
       void writeAccountMode(target.mode);
     }
@@ -123,7 +138,7 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
       setRouteRevision((revision) => revision + 1);
     }
     setSurface("app");
-  }, [demoMode, hasCoachMode]);
+  }, [demoMode, hasCoachMode, mode]);
 
   const consumePendingPushLink = useCallback(() => {
     void pushBridge.consumePendingDeepLink().then(({ deepLink }) => {
@@ -226,32 +241,64 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
   }, [applyDeepLink, checkForUpdates, consumePendingPushLink, initializePush, privacyAccepted]);
 
   useEffect(() => {
+    if (!routeRevision) return;
     const frame = window.requestAnimationFrame(() => window.scrollTo({ behavior: "auto", left: 0, top: 0 }));
     return () => window.cancelAnimationFrame(frame);
-  }, [mode, routeRevision]);
+  }, [routeRevision]);
 
-  const switchMode = useCallback((nextMode: AccountMode) => {
-    if (nextMode === "coach" && !hasCoachMode) return;
-    setMode(nextMode);
-    setRoleSheet(false);
-    setSurface("app");
-    void writeAccountMode(nextMode);
-    if (nextMode === "coach") {
-      if (!nativePushSupported) return;
-      void pushBridge.getPermissionStatus().then(({ granted }) => {
-        if (!granted) setNotificationPrompt(true);
-      });
+  const openRoleSheet = useCallback(() => {
+    setRoleCandidate(mode);
+    setRoleSwitchError("");
+    setRoleSheet(true);
+  }, [mode]);
+
+  const switchMode = useCallback(async (nextMode: AccountMode) => {
+    if (roleSwitchBusy || nextMode === mode) {
+      if (nextMode === mode) setRoleSheet(false);
+      return;
     }
-  }, [hasCoachMode, nativePushSupported]);
+    if (nextMode === "coach" && !hasCoachMode) {
+      setRoleSwitchError("该账号当前没有可用的教练工作台");
+      return;
+    }
+    setRoleSwitchBusy(true);
+    setRoleSwitchError("");
+    try {
+      if (nextMode === "coach" && !demoMode) {
+        setPrefetchedCoachOverview(await timeout(mobileApi.coachOverview(), 10_000));
+      }
+      scrollPositions.current[mode] = window.scrollY;
+      setRoleSheet(false);
+      await new Promise((resolve) => window.setTimeout(resolve, reducedMotion ? 80 : MOTION_DURATION_MS.content));
+      setRoleMotion((current) => nextMotion(current, "role", "none"));
+      setMode(nextMode);
+      setSurface("app");
+      await writeAccountMode(nextMode);
+      window.requestAnimationFrame(() => window.scrollTo({ behavior: "auto", left: 0, top: scrollPositions.current[nextMode] }));
+      setDeepLinkNotice(nextMode === "coach" ? "已进入教练工作台" : "已切换为学员身份");
+      window.setTimeout(() => setDeepLinkNotice(""), 1800);
+      if (nextMode === "coach") window.setTimeout(() => setPrefetchedCoachOverview(undefined), MOTION_DURATION_MS.role + 500);
+      void impact("light");
+      if (nextMode === "coach" && nativePushSupported) {
+        void pushBridge.getPermissionStatus().then(({ granted }) => {
+          if (!granted) setNotificationPrompt(true);
+        });
+      }
+    } catch (error) {
+      setRoleSwitchError(error instanceof Error ? error.message : "目标身份数据加载失败，请重试");
+    } finally {
+      setRoleSwitchBusy(false);
+    }
+  }, [demoMode, hasCoachMode, mode, nativePushSupported, reducedMotion, roleSwitchBusy]);
 
   const handleSessionChange = useCallback((session: MobileSession | null) => {
     const nextIdentity: MobileIdentity = demoMode
       ? { availableModes: ["student", "coach"], coach: demoCoach, contactMasked: session?.contactMasked ?? "local@example.com", phoneMasked: session?.phoneMasked ?? "138 **** 2026" }
       : { availableModes: session?.availableModes ?? ["student"], coach: session?.coach, contactMasked: session?.contactMasked ?? session?.phoneMasked ?? "", phoneMasked: session?.phoneMasked ?? "", profile: session?.profile };
     setIdentity(nextIdentity);
-    if (!nextIdentity.availableModes.includes("coach")) switchMode("student");
+    if (!nextIdentity.availableModes.includes("coach") && mode === "coach") void switchMode("student");
     if (session && privacyAccepted) void initializePush();
-  }, [demoMode, initializePush, privacyAccepted, switchMode]);
+  }, [demoMode, initializePush, mode, privacyAccepted, switchMode]);
 
   const applyAccountProfile = useCallback(async (profile: AccountProfile) => {
     setIdentity((current) => ({ ...current, profile }));
@@ -292,29 +339,49 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
 
   return (
     <>
-      {mode === "student" ? (
-        <MobileStudentApp
-          {...props}
-          coachSummary={identity.coach}
-          initialTab={studentTab}
-          key={`student-${routeRevision}`}
-          onOpenCoachMode={() => setRoleSheet(true)}
-          onOpenUpdates={() => setSurface("updates")}
-          onSessionChange={handleSessionChange}
-          onTabChange={(tab) => { setStudentTab(tab); void writeLastStudentTab(tab); }}
-        />
-      ) : identity.coach ? (
-        <CoachApp
-          accountProfile={identity.profile}
-          initialTab={coachTab}
-          key={`coach-${routeRevision}`}
-          onEditAccountProfile={() => setAccountProfileOpen(true)}
-          onOpenUpdates={() => setSurface("updates")}
-          onSwitchStudent={() => setRoleSheet(true)}
-          onTabChange={(tab) => { setCoachTab(tab); void writeLastCoachTab(tab); }}
-          summary={identity.coach}
-        />
-      ) : null}
+      <div className="zg-role-stage" data-role-sequence={roleMotion.sequence}>
+        <m.div
+          animate={mode === "student" ? { opacity: 1, y: 0, visibility: "visible" } : { opacity: 0, y: reducedMotion ? 0 : 4, transitionEnd: { visibility: "hidden" } }}
+          aria-hidden={mode !== "student"}
+          className="zg-role-scene"
+          initial={false}
+          inert={mode !== "student"}
+          style={{ pointerEvents: mode === "student" ? "auto" : "none", zIndex: mode === "student" ? 2 : 1 }}
+          transition={{ duration: (reducedMotion ? 80 : MOTION_DURATION_MS.role) / 1000, ease: [0.2, 0.8, 0.2, 1] }}
+        >
+          <MobileStudentApp
+            {...props}
+            coachSummary={identity.coach}
+            initialTab={studentTab}
+            key={`student-${routeRevision}`}
+            onOpenCoachMode={openRoleSheet}
+            onOpenUpdates={() => setSurface("updates")}
+            onSessionChange={handleSessionChange}
+            onTabChange={(tab) => { setStudentTab(tab); void writeLastStudentTab(tab); }}
+          />
+        </m.div>
+        {identity.coach ? <m.div
+          animate={mode === "coach" ? { opacity: 1, y: 0, visibility: "visible" } : { opacity: 0, y: reducedMotion ? 0 : 4, transitionEnd: { visibility: "hidden" } }}
+          aria-hidden={mode !== "coach"}
+          className="zg-role-scene"
+          initial={false}
+          inert={mode !== "coach"}
+          style={{ pointerEvents: mode === "coach" ? "auto" : "none", zIndex: mode === "coach" ? 2 : 1 }}
+          transition={{ duration: (reducedMotion ? 80 : MOTION_DURATION_MS.role) / 1000, ease: [0.2, 0.8, 0.2, 1] }}
+        >
+          <CoachApp
+            accountProfile={identity.profile}
+            initialOverview={prefetchedCoachOverview}
+            initialTab={coachTab}
+            key={`coach-${routeRevision}`}
+            onEditAccountProfile={() => setAccountProfileOpen(true)}
+            onOpenUpdates={() => setSurface("updates")}
+            onSwitchStudent={openRoleSheet}
+            onTabChange={(tab) => { setCoachTab(tab); void writeLastCoachTab(tab); }}
+            summary={identity.coach}
+          />
+        </m.div> : null}
+      </div>
 
       {optionalRelease ? (
         <button className="zg-update-banner" onClick={() => setSurface("updates")} type="button">
@@ -322,21 +389,24 @@ export default function UnifiedMobileApp(props: MobileStudentAppProps) {
         </button>
       ) : null}
 
+      <AnimatePresence initial={false}>
       {roleSheet ? (
-        <div className="zg-sheet-backdrop zg-role-sheet-backdrop" role="presentation" onClick={() => setRoleSheet(false)}>
-          <section aria-labelledby="zg-role-title" aria-modal="true" className="zg-role-sheet" onClick={(event) => event.stopPropagation()} role="dialog">
+        <m.div animate={{ opacity: 1 }} className="zg-sheet-backdrop zg-role-sheet-backdrop" exit={{ opacity: 0 }} initial={{ opacity: 0 }} key="role-sheet" role="presentation" onClick={() => { if (!roleSwitchBusy) setRoleSheet(false); }} transition={{ duration: (reducedMotion ? 80 : MOTION_DURATION_MS.content) / 1000 }}>
+          <m.section animate={{ opacity: 1, y: 0 }} aria-labelledby="zg-role-title" aria-modal="true" className="zg-role-sheet" exit={{ opacity: 0, y: reducedMotion ? 0 : 20 }} initial={{ opacity: 0, y: reducedMotion ? 0 : 20 }} onClick={(event) => event.stopPropagation()} role="dialog" transition={{ duration: (reducedMotion ? 80 : MOTION_DURATION_MS.content) / 1000, ease: [0.2, 0.8, 0.2, 1] }}>
             <i className="zg-sheet-handle" />
-            <header><h2 id="zg-role-title">切换身份</h2><button aria-label="关闭" onClick={() => setRoleSheet(false)} type="button"><X aria-hidden /></button></header>
-            <button className={mode === "student" ? "is-selected" : ""} onClick={() => switchMode("student")} type="button">
-              <span className="zg-role-icon"><UserRound aria-hidden /></span><span><strong>学员身份</strong><small>找教练、预约与训练记录</small></span>{mode === "student" ? <BadgeCheck aria-hidden /> : <ChevronRight aria-hidden />}
+            <header><h2 id="zg-role-title">切换身份</h2><button aria-label="关闭" disabled={roleSwitchBusy} onClick={() => setRoleSheet(false)} type="button"><X aria-hidden /></button></header>
+            <button className={roleCandidate === "student" ? "is-selected" : ""} disabled={roleSwitchBusy} onClick={() => { setRoleCandidate("student"); setRoleSwitchError(""); }} type="button">
+              <span className="zg-role-icon"><UserRound aria-hidden /></span><span><strong>学员身份</strong><small>找教练、预约与训练记录</small></span>{roleCandidate === "student" ? <BadgeCheck aria-hidden /> : <ChevronRight aria-hidden />}
             </button>
-            {identity.coach ? <button className={mode === "coach" ? "is-selected" : ""} onClick={() => switchMode("coach")} type="button">
-              <span className="zg-role-avatar">{identity.coach.name.slice(0, 1)}</span><span><strong>教练身份</strong><small>{identity.coach.name} · {identity.coach.sport}</small></span>{mode === "coach" ? <BadgeCheck aria-hidden /> : <ChevronRight aria-hidden />}
+            {identity.coach ? <button className={roleCandidate === "coach" ? "is-selected" : ""} disabled={roleSwitchBusy} onClick={() => { setRoleCandidate("coach"); setRoleSwitchError(""); }} type="button">
+              <span className="zg-role-avatar">{identity.coach.name.slice(0, 1)}</span><span><strong>教练身份</strong><small>{identity.coach.name} · {identity.coach.sport}</small></span>{roleCandidate === "coach" ? <BadgeCheck aria-hidden /> : <ChevronRight aria-hidden />}
             </button> : null}
-            <button className="zg-role-confirm" onClick={() => switchMode(mode === "student" && hasCoachMode ? "coach" : "student")} type="button"><BriefcaseBusiness aria-hidden size={19} />{mode === "student" && hasCoachMode ? "进入教练工作台" : "切换为学员身份"}</button>
-          </section>
-        </div>
+            {roleSwitchError ? <p className="zg-role-switch-error" role="alert">{roleSwitchError}</p> : null}
+            <button className="zg-role-confirm" disabled={roleSwitchBusy || roleCandidate === mode} onClick={() => void switchMode(roleCandidate)} type="button"><BriefcaseBusiness aria-hidden size={19} />{roleSwitchBusy ? "正在准备工作区" : roleCandidate === mode ? "当前身份" : roleCandidate === "coach" ? "进入教练工作台" : "切换为学员身份"}</button>
+          </m.section>
+        </m.div>
       ) : null}
+      </AnimatePresence>
       {accountProfileOpen ? <AccountProfileSheet
         onClose={() => setAccountProfileOpen(false)}
         onDeleteAvatar={async () => { await applyAccountProfile(await mobileApi.deleteAvatar()); }}

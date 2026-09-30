@@ -9,7 +9,7 @@
 
     <!-- JPush declares optional device-identification permissions. The core
          notification flow does not need them, so keep the merged APK minimal. -->
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" tools:node="remove" />

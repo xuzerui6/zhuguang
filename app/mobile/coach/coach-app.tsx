@@ -22,14 +22,18 @@ import {
   X,
 } from "lucide-react";
 import Image from "next/image";
+import { AnimatePresence, LayoutGroup, m, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOperationPrompt } from "../../_components/operation-context";
+import { MotionStage } from "../../_components/motion-provider";
 import { mobileApi, usesBundledDemoData } from "../api-client";
 import { createDemoBooking, createDemoConversations, demoCoaches } from "../demo-data";
 import { impact, listenForAppResume } from "../device";
 import { PullToRefresh } from "../pull-to-refresh";
 import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal } from "../../../shared/scheduling";
 import { getBookingPresentation } from "../../../shared/booking-presentation";
+import { cityName, SERVICE_AREAS } from '../../../shared/service-cities';
+import { COACH_TAB_ORDER, MOTION_DURATION_MS, nextMotion, tabDirection, type NavigationMotionState } from "../../../shared/motion";
 import type {
   AccountProfile,
   BookingStatus,
@@ -43,6 +47,7 @@ import type {
 
 type CoachAppProps = {
   accountProfile?: AccountProfile;
+  initialOverview?: CoachOverview;
   initialTab: CoachTab;
   onEditAccountProfile: () => void;
   onOpenUpdates: () => void;
@@ -125,11 +130,13 @@ function BookingRow({
   );
 }
 
-export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onOpenUpdates, onSwitchStudent, onTabChange, summary }: CoachAppProps) {
+export function CoachApp({ accountProfile, initialOverview, initialTab, onEditAccountProfile, onOpenUpdates, onSwitchStudent, onTabChange, summary }: CoachAppProps) {
   const requestOperation = useOperationPrompt();
   const demoMode = useMemo(() => usesBundledDemoData(), []);
   const [tab, setTab] = useState<CoachTab>(initialTab);
-  const [overview, setOverview] = useState<CoachOverview>(() => createDemoCoachOverview(summary));
+  const [navigationMotion, setNavigationMotion] = useState<NavigationMotionState>({ direction: "none", intent: "tab", sequence: 0 });
+  const [storedOverview, setOverview] = useState<CoachOverview>(() => initialOverview ?? createDemoCoachOverview(summary));
+  const overview = initialOverview ?? storedOverview;
   const [conversations, setConversations] = useState<MobileConversation[]>(() => demoMode ? createDemoConversations() : []);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [messageDraft, setMessageDraft] = useState("");
@@ -139,9 +146,15 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
   const [proposalBooking, setProposalBooking] = useState<MobileBooking | null>(null);
   const [proposalStartsAt, setProposalStartsAt] = useState("");
   const [proposalVenueId, setProposalVenueId] = useState("");
+  const [locationType, setLocationType] = useState<'venue' | 'custom'>('custom');
+  const [customDistrict, setCustomDistrict] = useState('');
+  const [customAddress, setCustomAddress] = useState('');
+  const [proposalBusy, setProposalBusy] = useState(false);
+  const proposalLock = useRef(false);
   const [proposalNote, setProposalNote] = useState("");
   const [reviews, setReviews] = useState<CoachReviewRow[]>([]);
   const refreshInFlight = useRef<Promise<PullRefreshResult> | null>(null);
+  const reducedMotion = useReducedMotion();
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -198,6 +211,7 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
   }, [refresh, tab]);
 
   const openConversation = useCallback(async (conversationId: string) => {
+    setNavigationMotion((current) => nextMotion(current, "push", "forward"));
     setSelectedConversationId(conversationId);
     if (demoMode) {
       setConversations((items) => items.map((item) => item.id === conversationId ? { ...item, unreadCount: 0 } : item));
@@ -240,6 +254,8 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
   }, [demoMode, showToast]);
 
   const navigate = (next: CoachTab) => {
+    if (next === tab && !selectedConversationId) return;
+    setNavigationMotion((current) => nextMotion(current, "tab", tabDirection(COACH_TAB_ORDER, tab, next)));
     setSelectedConversationId(null);
     setTab(next);
     onTabChange(next);
@@ -256,7 +272,8 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
     if (action === "proposal") {
       setProposalBooking(booking);
       setProposalStartsAt(formatBeijingDateTimeLocal(Date.now() + 24 * 60 * 60_000));
-      setProposalVenueId(overview.venues[0]?.id || "");
+      setProposalVenueId(''); setLocationType('custom'); setProposalNote('');
+      setCustomDistrict(booking.customDistrict || ''); setCustomAddress(booking.customAddress || '');
       return;
     }
     setBusyBookingId(booking.id);
@@ -289,17 +306,22 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
     } finally {
       setBusyBookingId(null);
     }
-  }, [demoMode, overview.venues, refresh, showToast]);
+  }, [demoMode, refresh, showToast]);
 
   const submitProposal = useCallback(async () => {
-    if (!proposalBooking || !proposalVenueId) return;
+    if (!proposalBooking || proposalLock.current) return;
+    const city = proposalBooking.serviceCityId;
+    if (!city) { showToast('预约城市信息暂不可用，请刷新后重试'); return; }
     const startsAt = parseBeijingDateTimeLocal(proposalStartsAt);
-    if (!Number.isFinite(startsAt)) { showToast("请选择有效的北京时间"); return; }
+    if (!Number.isFinite(startsAt) || startsAt < Date.now() + 2 * 3_600_000 || startsAt > Date.now() + 60 * 86_400_000) { showToast("请选择未来2小时至60天内的北京时间"); return; }
+    if (locationType === 'venue' ? !overview.venues.some(venue => venue.id === proposalVenueId && venue.city === cityName(city)) : !SERVICE_AREAS[city].includes(customDistrict) || customAddress.trim().length < 4) { showToast('请选择本次预约城市的场馆，或填写区域和详细地点'); return; }
+    proposalLock.current = true; setProposalBusy(true);
     try {
-      if (!demoMode) await mobileApi.coachProposeReschedule({ bookingId: proposalBooking.id, note: proposalNote, startsAt, venueId: proposalVenueId });
+      if (!demoMode) await mobileApi.coachProposeReschedule({ bookingId: proposalBooking.id, note: proposalNote, startsAt, locationType, venueId: locationType === 'venue' ? proposalVenueId : undefined, customDistrict: locationType === 'custom' ? customDistrict : undefined, customAddress: locationType === 'custom' ? customAddress.trim() : undefined });
       setProposalBooking(null); setProposalNote(""); await refresh(); showToast("新方案已发送，等待学员确认");
     } catch (error) { showToast(error instanceof Error ? error.message : "方案发送失败"); }
-  }, [demoMode, proposalBooking, proposalNote, proposalStartsAt, proposalVenueId, refresh, showToast]);
+    finally { proposalLock.current = false; setProposalBusy(false); }
+  }, [demoMode, proposalBooking, proposalNote, proposalStartsAt, proposalVenueId, locationType, customDistrict, customAddress, overview.venues, refresh, showToast]);
 
   const setAvailability = useCallback(async (online: boolean) => {
     try {
@@ -311,13 +333,15 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
     }
   }, [demoMode, showToast]);
 
-  const pending = overview.bookings.filter((booking) => booking.status === "pending_coach" || booking.status === "reschedule_requested");
-  const active = overview.bookings.filter((booking) => booking.status === "confirmed");
+  const operationalBookings = overview.bookings.filter((booking) => booking.metricEligible !== false);
+  const pending = operationalBookings.filter((booking) => booking.status === "pending_coach" || booking.status === "reschedule_requested");
+  const active = operationalBookings.filter((booking) => booking.status === "confirmed");
   const ended = overview.bookings.filter((booking) => ["cancelled_by_coach", "cancelled_by_student", "completed", "expired", "rejected"].includes(booking.status));
   const completedCount = overview.bookings.filter((booking) => booking.status === "completed").length;
   const filteredBookings = appointmentFilter === "pending" ? pending : appointmentFilter === "active" ? active : ended;
   const unread = conversations.reduce((sum, item) => sum + item.unreadCount, 0);
   const selectedConversation = conversations.find((item) => item.id === selectedConversationId) ?? null;
+  const sceneKey = selectedConversation ? `coach-conversation-${selectedConversation.id}` : `coach-${tab}-${navigationMotion.sequence}`;
 
   return (
     <main className="zg-mobile-app zg-coach-app">
@@ -327,6 +351,7 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
         <button aria-label="通知" type="button"><Bell aria-hidden size={21} />{pending.length ? <em>{pending.length}</em> : null}</button>
       </header>
 
+      <MotionStage className="zg-mobile-scene" direction={navigationMotion.direction} intent={navigationMotion.intent} sceneKey={sceneKey} stageClassName="zg-mobile-scene-stage">
       {tab === "workspace" ? (
         <div className="zg-coach-page">
           <section className="zg-coach-identity">
@@ -386,7 +411,7 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
 
       {tab === "messages" ? (
         <div className="zg-coach-page zg-coach-messages">
-          <div className="zg-coach-page-title"><div><small>教练模式</small><h1>{selectedConversation ? selectedConversation.title : "消息"}</h1></div>{selectedConversation ? <button aria-label="返回消息列表" onClick={() => setSelectedConversationId(null)} type="button"><RotateCcw aria-hidden /></button> : null}</div>
+          <div className="zg-coach-page-title"><div><small>教练模式</small><h1>{selectedConversation ? selectedConversation.title : "消息"}</h1></div>{selectedConversation ? <button aria-label="返回消息列表" onClick={() => { setNavigationMotion((current) => nextMotion(current, "pop", "backward")); setSelectedConversationId(null); }} type="button"><RotateCcw aria-hidden /></button> : null}</div>
           {!selectedConversation ? conversations.map((conversation) => (
             <button className="zg-coach-conversation" key={conversation.id} onClick={() => void openConversation(conversation.id)} type="button">
               <span>{conversation.title.slice(0, 1)}</span><div><strong>{conversation.title}</strong><p>{conversation.subtitle}</p></div><small>{conversation.updatedAt}</small>{conversation.unreadCount ? <em>{conversation.unreadCount}</em> : null}<ChevronRight aria-hidden size={17} />
@@ -411,7 +436,7 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
       {tab === "profile" ? (
         <div className="zg-coach-page">
           <div className="zg-coach-page-title"><div><small>教练模式</small><h1>我的工作台</h1></div><button aria-label="编辑账号资料" onClick={onEditAccountProfile} type="button"><Settings aria-hidden /></button></div>
-          <button className="zg-coach-account-card" onClick={onEditAccountProfile} type="button"><span>{accountProfile?.avatarUrl ? <Image alt="账号头像" height={52} src={accountProfile.avatarUrl} unoptimized width={52} /> : (accountProfile?.nickname || "逐").slice(0,1)}</span><div><small>当前登录账号</small><strong>{accountProfile?.nickname || "昵称待完善"}</strong><p>{accountProfile?.district || "北京"} · 账号资料与公开教练档案相互独立</p></div><ChevronRight aria-hidden size={18} /></button>
+          <button className="zg-coach-account-card" onClick={onEditAccountProfile} type="button"><span>{accountProfile?.avatarUrl ? <Image alt="账号头像" height={52} src={accountProfile.avatarUrl} unoptimized width={52} /> : (accountProfile?.nickname || "逐").slice(0,1)}</span><div><small>当前登录账号</small><strong>{accountProfile?.nickname || "昵称待完善"}</strong><p>{cityName(accountProfile?.serviceCityId || "beijing")}{accountProfile?.serviceArea || accountProfile?.district ? ` · ${accountProfile?.serviceArea || accountProfile?.district}` : ""} · 账号资料与公开教练档案相互独立</p></div><ChevronRight aria-hidden size={18} /></button>
           <section className="zg-coach-profile-card"><span>{summary.name.slice(0, 1)}</span><div><h2>{summary.name}教练</h2><p><BadgeCheck aria-hidden size={15} />人工审核已通过</p><small>{overview.coach.title || overview.coach.sport}</small></div></section>
           <section className="zg-coach-profile-menu">
             <button onClick={() => navigate("schedule")} type="button"><CalendarDays aria-hidden /><span><strong>接单状态与日程</strong><small>控制上线状态并查看确认课程</small></span><ChevronRight aria-hidden /></button>
@@ -422,15 +447,16 @@ export function CoachApp({ accountProfile, initialTab, onEditAccountProfile, onO
           <button className="zg-switch-student-button" onClick={onSwitchStudent} type="button"><UserRound aria-hidden size={19} />切换为学员身份</button>
         </div>
       ) : null}
+      </MotionStage>
 
-      <nav className="zg-coach-bottom-nav" aria-label="教练端主导航">
+      <LayoutGroup id="coach-bottom-navigation"><nav className="zg-coach-bottom-nav" aria-label="教练端主导航">
         {tabItems.map((item) => {
           const Icon = item.icon;
           const count = item.tab === "appointments" ? pending.length : item.tab === "messages" ? unread : 0;
-          return <button aria-current={tab === item.tab ? "page" : undefined} className={tab === item.tab ? "is-active" : ""} key={item.tab} onClick={() => navigate(item.tab)} type="button"><span><Icon aria-hidden size={22} />{count ? <em>{count}</em> : null}</span><small>{item.label}</small></button>;
+          return <button aria-current={tab === item.tab ? "page" : undefined} className={tab === item.tab ? "is-active" : ""} key={item.tab} onClick={() => navigate(item.tab)} type="button">{tab === item.tab ? <m.i className="zg-bottom-nav-indicator" layoutId="coach-active-tab" transition={{ duration: MOTION_DURATION_MS.tab / 1000, ease: [0.2, 0.8, 0.2, 1] }} /> : null}<span><Icon aria-hidden size={22} />{count ? <em>{count}</em> : null}</span><small>{item.label}</small></button>;
         })}
-      </nav>
-      {proposalBooking ? <div className="zg-sheet-backdrop zg-coach-slot-backdrop" role="presentation" onClick={() => setProposalBooking(null)}><form aria-labelledby="zg-proposal-title" aria-modal="true" className="zg-coach-slot-sheet" onClick={(event) => event.stopPropagation()} onSubmit={(event) => { event.preventDefault(); void submitProposal(); }} role="dialog"><i className="zg-sheet-handle" /><header><div><small>保持{proposalBooking.durationMinutes || 60}分钟与原价格</small><h2 id="zg-proposal-title">提出新的训练方案</h2></div><button aria-label="关闭" onClick={() => setProposalBooking(null)} type="button"><X aria-hidden /></button></header><label><span>开始时间（北京时间）</span><input onChange={(event) => setProposalStartsAt(event.target.value)} required type="datetime-local" value={proposalStartsAt} /></label><label><span>训练场馆</span><select onChange={(event) => setProposalVenueId(event.target.value)} value={proposalVenueId}>{overview.venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name} · {venue.district}</option>)}</select></label><label><span>方案说明</span><textarea maxLength={500} onChange={(event) => setProposalNote(event.target.value)} placeholder="说明调整原因，学员确认后生效" value={proposalNote} /></label><button className="zg-coach-slot-submit" disabled={!proposalVenueId} type="submit">发送给学员确认</button></form></div> : null}
+      </nav></LayoutGroup>
+      <AnimatePresence initial={false}>{proposalBooking ? <m.div animate={{ opacity: 1 }} className="zg-sheet-backdrop zg-coach-slot-backdrop" exit={{ opacity: 0 }} initial={{ opacity: 0 }} key="coach-proposal" role="presentation" onClick={() => setProposalBooking(null)} transition={{ duration: (reducedMotion ? 80 : MOTION_DURATION_MS.content) / 1000 }}><m.form animate={{ opacity: 1, y: 0 }} aria-labelledby="zg-proposal-title" aria-modal="true" className="zg-coach-slot-sheet" exit={{ opacity: 0, y: reducedMotion ? 0 : 20 }} initial={{ opacity: 0, y: reducedMotion ? 0 : 20 }} onClick={(event) => event.stopPropagation()} onSubmit={(event) => { event.preventDefault(); void submitProposal(); }} role="dialog" transition={{ duration: (reducedMotion ? 80 : MOTION_DURATION_MS.content) / 1000, ease: [0.2, 0.8, 0.2, 1] }}><i className="zg-sheet-handle" /><header><div><small>保持{proposalBooking.durationMinutes || 60}分钟与原价格</small><h2 id="zg-proposal-title">提出新的训练方案</h2></div><button aria-label="关闭" onClick={() => setProposalBooking(null)} type="button"><X aria-hidden /></button></header><label><span>开始时间（北京时间）</span><input onChange={(event) => setProposalStartsAt(event.target.value)} required type="datetime-local" value={proposalStartsAt} /></label><fieldset><legend>训练地点{proposalBooking.serviceCityId ? ` · ${cityName(proposalBooking.serviceCityId)}` : ''}</legend><label><input checked={locationType === 'custom'} onChange={() => setLocationType('custom')} type="radio" name="proposal-location" />协商地点</label><label><input checked={locationType === 'venue'} onChange={() => setLocationType('venue')} type="radio" name="proposal-location" />已审核场馆</label></fieldset>{locationType === 'venue' ? <label><span>训练场馆</span><select required onChange={event => setProposalVenueId(event.target.value)} value={proposalVenueId}><option value="">请选择</option>{overview.venues.filter(venue => proposalBooking.serviceCityId && venue.city === cityName(proposalBooking.serviceCityId)).map(venue => <option key={venue.id} value={venue.id}>{venue.name} · {venue.district}</option>)}</select></label> : <><label><span>区域</span><select required value={customDistrict} onChange={event => setCustomDistrict(event.target.value)}><option value="">请选择</option>{(proposalBooking.serviceCityId ? SERVICE_AREAS[proposalBooking.serviceCityId] : []).map(area => <option key={area} value={area}>{area}</option>)}</select></label><label><span>详细地点</span><input required maxLength={300} value={customAddress} onChange={event => setCustomAddress(event.target.value)} /></label></>}<label><span>方案说明</span><textarea maxLength={500} onChange={(event) => setProposalNote(event.target.value)} placeholder="说明调整原因，学员确认后生效" value={proposalNote} /></label><button className="zg-coach-slot-submit" disabled={proposalBusy} type="submit">{proposalBusy ? "发送中" : "发送给学员确认"}</button></m.form></m.div> : null}</AnimatePresence>
       {toast ? <div className="zg-toast" role="status"><Check aria-hidden size={17} />{toast}</div> : null}
     </main>
   );

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createRefreshLoop, mobileTimeout, readMobilePayload, retryDelay, fetchMobilePayload } from "../app/mobile/network-policy";
 import { consumesTrial } from "../shared/booking-rules";
+import { consumesTrial as miniappConsumesTrial } from "../miniapp/src/shared";
 import { HomeView } from '../app/mobile/views/home-view';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -9,8 +10,14 @@ test('home keeps unsupported sports empty and uses only published catalog entrie
   assert.match(html,/暂无匹配的已上线教练/); assert.doesNotMatch(html,/zg-featured-coach|>羽毛球</);
 });
 test("trial eligibility uses only effective history across clients", () => {
-  for (const status of ['pending_coach','reschedule_requested','confirmed','completed']) assert.equal(consumesTrial(status),true,status);
-  for (const status of ['expired','rejected','cancelled_by_student','cancelled_by_coach','unknown']) assert.equal(consumesTrial(status),false,status);
+  for (const status of ['pending_coach','reschedule_requested','confirmed','completed']) {
+    assert.equal(consumesTrial(status),true,status);
+    assert.equal(miniappConsumesTrial(status),true,`miniapp ${status}`);
+  }
+  for (const status of ['expired','rejected','cancelled_by_student','cancelled_by_coach','unknown']) {
+    assert.equal(consumesTrial(status),false,status);
+    assert.equal(miniappConsumesTrial(status),false,`miniapp ${status}`);
+  }
 });
 
 test("mobile weak-network retries are coalesced and recover to normal polling", async () => {
@@ -35,6 +42,15 @@ test("mobile deadline includes stalled response bodies and caller cancellation",
   await assert.rejects(fetchMobilePayload('https://test/bootstrap', { signal: controller.signal }, 100, stalled), { name: 'AbortError' });
 });
 import test from "node:test";
+import { detectServiceCity, isServiceArea } from "../shared/service-cities";
+
+test("service city detection remains approximate and only accepts configured areas", () => {
+  assert.equal(detectServiceCity({ latitude: 39.9042, longitude: 116.4074 }), "beijing");
+  assert.equal(detectServiceCity({ latitude: 43.8171, longitude: 125.3235 }), "changchun");
+  assert.equal(detectServiceCity({ latitude: 31.2304, longitude: 121.4737 }), null);
+  assert.equal(isServiceArea("changchun", "朝阳区"), true);
+  assert.equal(isServiceArea("changchun", "通州区"), false);
+});
 import { readFile } from "node:fs/promises";
 import { demoCoaches } from "../app/mobile/demo-data";
 import { createDemoCoachOverview } from "../app/mobile/coach/coach-app";
@@ -57,6 +73,22 @@ import {
 import { stableRolloutBucket } from "../server/api/releases";
 import { pushLockScreenBody } from "../server/api/push";
 import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal, validateScheduleDraft } from "../shared/scheduling";
+import { MINIAPP_COACH_TAB_ORDER, STUDENT_TAB_ORDER, nextMotion, tabDirection, webRouteMotion } from "../shared/motion";
+
+test("navigation motion preserves tab order and distinguishes browser back direction", () => {
+  assert.equal(tabDirection(STUDENT_TAB_ORDER, "home", "messages"), "forward");
+  assert.equal(tabDirection(STUDENT_TAB_ORDER, "profile", "bookings"), "backward");
+  assert.equal(tabDirection(MINIAPP_COACH_TAB_ORDER, "workspace", "requests"), "forward");
+  assert.deepEqual(nextMotion({ direction: "none", intent: "tab", sequence: 4 }, "pop", "backward"), {
+    direction: "backward",
+    intent: "pop",
+    sequence: 5,
+  });
+  assert.deepEqual(webRouteMotion("/student", "/student/bookings"), { direction: "forward", intent: "tab" });
+  assert.deepEqual(webRouteMotion("/student/coaches", "/student/coaches/5"), { direction: "forward", intent: "push" });
+  assert.deepEqual(webRouteMotion("/student/coaches/5", "/student/coaches"), { direction: "backward", intent: "pop" });
+  assert.deepEqual(webRouteMotion("/student", "/coach-workspace"), { direction: "none", intent: "role" });
+});
 import { matchesAudience, matchesTrainingGoal } from "../shared/coach-catalog";
 
 test("P1 ended bookings never render pending confirmation or invented contact promises", async () => {

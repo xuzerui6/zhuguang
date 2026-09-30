@@ -1,7 +1,7 @@
 import { ApiError, type ApiEnv } from "./contracts";
 import { isPrimaryOperator } from '../../shared/operator-policy';
-import { classificationCounts, classificationFilter, classificationSql, parseClassification } from './data-classification';
-import { BEIJING_DISTRICTS, normalizeDistrict } from "../../shared/coach-catalog";
+import { classificationCounts, classificationFilter, classificationSql, parseClassification, leadQueueSelection } from './data-classification';
+import { cityName, isServiceCity, isServiceArea } from "../../shared/service-cities";
 import type { CoachIdentity, StudentIdentity } from "./repository";
 import { decryptContact, encryptContact, normalizeEmail, normalizePhone, randomId } from "./security";
 import { REVIEW_TAGS, type PublicCoachReview, type PublicCoachReviews, type ReviewTag } from "../../shared/reviews";
@@ -17,6 +17,15 @@ function rows(result: D1Result<Row>) {
   return result.results ?? [];
 }
 
+function stringValue(value: unknown) {
+  return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function numberValue(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function reviewTags(value: unknown): ReviewTag[] {
   try {
     const parsed = JSON.parse(String(value || "[]"));
@@ -29,13 +38,32 @@ function reviewTags(value: unknown): ReviewTag[] {
 export async function getOpsOverviewD1(env: ApiEnv, selected?: string | null) {
   const database = db(env);
   const classification = parseClassification(selected);
-  const [leads, bookings, coaches, users, deliveries] = await Promise.all([
+  const [leads, bookings, coaches, users, deliveries, publicSupplyRows] = await Promise.all([
     database.prepare(`SELECT l.status,count(*) AS count FROM service_leads l WHERE ${classificationFilter('service_lead','l')} GROUP BY l.status`).bind(classification,classification).all<Row>(),
     database.prepare(`SELECT b.status,count(*) AS count FROM booking_requests b WHERE ${classificationFilter('booking','b')} GROUP BY b.status`).bind(classification,classification).all<Row>(),
-    database.prepare(`SELECT c.listing_status AS status,count(*) AS count FROM coaches c WHERE c.audit_status='approved' AND c.profile_kind='real' AND c.city='北京' AND ${classificationFilter('coach','c')} GROUP BY c.listing_status`).bind(classification,classification).all<Row>(),
+    database.prepare(`SELECT c.listing_status AS status,count(*) AS count FROM coaches c WHERE c.audit_status='approved' AND c.profile_kind='real' AND c.city IN ('北京','长春') AND ${classificationFilter('coach','c')} GROUP BY c.listing_status`).bind(classification,classification).all<Row>(),
     database.prepare(`SELECT u.status,count(*) AS count FROM users u WHERE ${classificationFilter('user','u')} GROUP BY u.status`).bind(classification,classification).all<Row>(),
     database.prepare("SELECT status, count(*) AS count FROM push_deliveries GROUP BY status").all<Row>(),
+    database.prepare(`WITH public_supply AS (
+      SELECT sa.city_id AS service_city_id, c.id AS coach_id
+      FROM coaches c
+      JOIN coach_service_areas csa ON csa.coach_id=c.id
+      JOIN service_areas sa ON sa.id=csa.area_id AND sa.status='published'
+      WHERE c.profile_kind='real' AND c.audit_status='approved' AND c.listing_status='online' AND c.booking_enabled=1
+      UNION
+      SELECT CASE c.city WHEN '长春' THEN 'changchun' ELSE 'beijing' END AS service_city_id, c.id AS coach_id
+      FROM coaches c
+      WHERE c.profile_kind='real' AND c.audit_status='approved' AND c.listing_status='online' AND c.booking_enabled=1
+        AND c.city IN ('北京','长春')
+    )
+    SELECT service_city_id AS city_id, count(DISTINCT coach_id) AS count FROM public_supply GROUP BY service_city_id
+    UNION ALL
+    SELECT '__total__' AS city_id, count(DISTINCT coach_id) AS count FROM public_supply
+    ORDER BY city_id`).all<Row>(),
   ]);
+  const supplyRows = rows(publicSupplyRows);
+  const byCity = supplyRows.filter((row) => stringValue(row.city_id) !== "__total__").map((row) => ({ cityId: stringValue(row.city_id), count: numberValue(row.count) }));
+  const publicSupplyTotal = numberValue(supplyRows.find((row) => stringValue(row.city_id) === "__total__")?.count);
   return {
     classification,
     classifications: await classificationCounts(env),
@@ -43,12 +71,48 @@ export async function getOpsOverviewD1(env: ApiEnv, selected?: string | null) {
     coaches: rows(coaches),
     leads: rows(leads),
     pushDeliveries: rows(deliveries),
+    publicSupply: { byCity, total: publicSupplyTotal },
     users: rows(users),
+  };
+}
+
+export async function getOpsSystemHealthD1(env: ApiEnv) {
+  const database = db(env);
+  const [databaseCheck, emailFailures, pushFailures, pendingLeads, pendingBookings, pendingApplications] = await Promise.all([
+    database.prepare("SELECT 1 AS ready").first<Row>(),
+    database.prepare("SELECT count(*) AS count FROM email_deliveries WHERE status='failed'").first<Row>(),
+    database.prepare("SELECT count(*) AS count FROM push_deliveries WHERE status='failed'").first<Row>(),
+    database.prepare("SELECT count(*) AS count FROM service_leads WHERE status='new'").first<Row>(),
+    database.prepare("SELECT count(*) AS count FROM booking_requests WHERE status IN ('pending_coach','reschedule_requested')").first<Row>(),
+    database.prepare("SELECT count(*) AS count FROM coach_applications WHERE status='pending'").first<Row>(),
+  ]);
+  return {
+    generatedAt: Date.now(),
+    queues: {
+      coachApplications: numberValue(pendingApplications?.count),
+      serviceLeads: numberValue(pendingLeads?.count),
+      bookingRequests: numberValue(pendingBookings?.count),
+    },
+    services: {
+      database: { ready: numberValue(databaseCheck?.ready) === 1 },
+      media: { ready: Boolean(env.MEDIA) },
+      releases: { ready: Boolean(env.RELEASES) },
+      email: {
+        configured: Boolean(env.TENCENTCLOUD_SECRET_ID && env.TENCENTCLOUD_SECRET_KEY && env.TENCENT_SES_FROM_EMAIL),
+        failedDeliveries: numberValue(emailFailures?.count),
+      },
+      push: {
+        configured: Boolean(env.JPUSH_APP_KEY && env.JPUSH_MASTER_SECRET),
+        failedDeliveries: numberValue(pushFailures?.count),
+      },
+      wechat: { configured: Boolean(env.WECHAT_MINIAPP_APP_ID && env.WECHAT_MINIAPP_APP_SECRET) },
+    },
   };
 }
 
 export async function createServiceLeadD1(input: {
   coachId?: number;
+  serviceCityId?: string;
   contactEmail?: string;
   contactName: string;
   contactPhone?: string;
@@ -84,42 +148,47 @@ export async function createServiceLeadD1(input: {
     contactPhone ? encryptContact(contactPhone, encryptionKey) : Promise.resolve(null),
     contactWechat ? encryptContact(contactWechat, encryptionKey) : Promise.resolve(null),
   ]);
-  const district = input.leadKind === "privacy_request" ? "北京" : normalizeDistrict(input.district);
-  if (input.leadKind !== "privacy_request" && !BEIJING_DISTRICTS.includes(district as (typeof BEIJING_DISTRICTS)[number])) {
-    throw new ApiError(422, "invalid_service_region", "服务地点必须位于北京", { district: "请选择北京 16 区中的服务区域" });
+  const cityId=input.serviceCityId||"beijing";
+  if(!isServiceCity(cityId))throw new ApiError(422,"unsupported_service_city","当前仅支持北京和长春");
+  const district = input.leadKind === "privacy_request" ? cityName(cityId) : input.district.trim();
+  if (input.leadKind !== "privacy_request" && !isServiceArea(cityId,district)) {
+    throw new ApiError(422, "invalid_service_region", `服务地点必须位于${cityName(cityId)}已开放区域`, { district: "请选择当前城市的服务区域" });
   }
   if (input.coachId) {
     const coach = await database.prepare("SELECT id FROM coaches WHERE id = ? AND audit_status = 'approved' AND listing_status = 'online' AND profile_kind = 'real'").bind(input.coachId).first<Row>();
     if (!coach) throw new ApiError(404, "coach_not_found", "未找到该教练");
+    if (!await database.prepare(`SELECT c.id FROM coaches c WHERE c.id=? AND (c.city=? OR EXISTS (SELECT 1 FROM coach_service_areas ca JOIN service_areas a ON a.id=ca.area_id WHERE ca.coach_id=c.id AND a.city_id=?))`).bind(input.coachId,cityName(cityId),cityId).first<Row>()) throw new ApiError(422,"coach_city_unavailable","该教练暂未在所选城市提供服务");
   }
   await database.prepare(`
     INSERT INTO service_leads
       (id, user_id, coach_id, lead_kind, contact_name, contact_email_encrypted, contact_phone_encrypted,
-       contact_wechat_encrypted, learner_stage, desired_time, sport, district, goal, source, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)
+       contact_wechat_encrypted, learner_stage, desired_time, sport, district, goal, source, status, created_at, updated_at, service_city_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)
   `).bind(
     id, input.userId ?? null, input.coachId ?? null, input.leadKind ?? "student_inquiry", input.contactName,
     contactEmailEncrypted, contactPhoneEncrypted, contactWechatEncrypted, input.learnerStage ?? null,
     input.desiredTime?.trim().slice(0, 160) || null, input.sport, district, input.goal,
-    input.source ?? "web", now, now,
+    input.source ?? "web", now, now,cityId,
   ).run();
   return { id, status: "new" as const };
 }
 
-export async function listOpsLeadsD1(env: ApiEnv, selected?: string | null) {
-  const classification=parseClassification(selected);
+export async function listOpsLeadsD1(env: ApiEnv, selected?: string | null, view?: string | null) {
+  const selection=leadQueueSelection(selected, view);
   const result = await db(env).prepare(`
-    SELECT l.id, ${classificationSql('service_lead','l')} AS classification, l.contact_name, l.lead_kind, l.learner_stage, l.desired_time,
+    SELECT l.id, ${classificationSql('service_lead','l')} AS classification,
+      (SELECT last_event_id FROM entity_metric_classifications WHERE entity_type='service_lead' AND entity_id=l.id) AS classification_event_id,
+      l.contact_name, l.lead_kind, l.learner_stage, l.desired_time, l.service_city_id,
       CASE WHEN l.contact_email_encrypted IS NOT NULL THEN 1 ELSE 0 END AS has_email,
       CASE WHEN l.contact_phone_encrypted IS NOT NULL THEN 1 ELSE 0 END AS has_phone,
       CASE WHEN l.contact_wechat_encrypted IS NOT NULL THEN 1 ELSE 0 END AS has_wechat,
       l.sport, l.district, l.goal, l.source, l.status,
       l.assigned_to, l.follow_up_due_at, l.note, l.created_at, l.updated_at, c.name AS coach_name
     FROM service_leads l LEFT JOIN coaches c ON c.id = l.coach_id
-    WHERE ${classificationFilter('service_lead','l')}
+    WHERE ${selection.sql}
     ORDER BY CASE l.status WHEN 'new' THEN 0 WHEN 'contacted' THEN 1 WHEN 'qualified' THEN 2 ELSE 3 END,
       l.created_at DESC LIMIT 200
-  `).bind(classification,classification).all<Row>();
+  `).bind(...selection.bindings).all<Row>();
   return rows(result).map((row) => ({ ...row, lead_kind: row.lead_kind || "student_inquiry" }));
 }
 
@@ -164,17 +233,17 @@ export async function updateOpsLeadD1(id: string, input: { assignedTo?: string; 
   return { id, status: input.status ?? existing.status, updatedAt: now };
 }
 
-export async function exportOpsLeadsMaskedD1(actor: string, requestId: string, env: ApiEnv, selected?:string|null) {
+export async function exportOpsLeadsMaskedD1(actor: string, requestId: string, env: ApiEnv, selected?:string|null, view?:string|null) {
   const database = db(env);
-  const classification=parseClassification(selected);
+  const selection=leadQueueSelection(selected, view);
   const result = await database.prepare(`SELECT id, ${classificationSql('service_lead','l')} AS classification, coalesce(lead_kind, 'student_inquiry') AS lead_kind, contact_name,
     sport, district, goal, status, assigned_to, follow_up_due_at, created_at,
     CASE WHEN contact_email_encrypted IS NOT NULL THEN 1 ELSE 0 END AS has_email,
     CASE WHEN contact_phone_encrypted IS NOT NULL THEN 1 ELSE 0 END AS has_phone,
     CASE WHEN contact_wechat_encrypted IS NOT NULL THEN 1 ELSE 0 END AS has_wechat
-    FROM service_leads l WHERE ${classificationFilter('service_lead','l')} ORDER BY created_at DESC LIMIT 2000`).bind(classification,classification).all<Row>();
+    FROM service_leads l WHERE ${selection.sql} ORDER BY created_at DESC LIMIT 2000`).bind(...selection.bindings).all<Row>();
   await database.prepare("INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, request_id, created_at) VALUES (?, ?, 'lead.masked.export', 'service_lead_export', ?, ?, ?, ?)")
-    .bind(randomId("audit"), actor, requestId, JSON.stringify({ classification, count: rows(result).length, containsPlaintextContact: false }), requestId, Date.now()).run();
+    .bind(randomId("audit"), actor, requestId, JSON.stringify({ classification: selection.classification, view, count: rows(result).length, containsPlaintextContact: false }), requestId, Date.now()).run();
   return rows(result);
 }
 
@@ -211,17 +280,18 @@ export async function listOpsCoachesD1(env: ApiEnv) {
 export async function getOpsCoachBusinessSettingsD1(id: number, env: ApiEnv) {
   const database = db(env);
   const coach = await database.prepare(`
-    SELECT id, district, price_fen, trial_price_fen, pricing_status, booking_enabled
+    SELECT id, city, district, price_fen, trial_price_fen, pricing_status, booking_enabled
     FROM coaches WHERE id = ?
   `).bind(id).first<Row>();
   if (!coach) throw new ApiError(404, "coach_not_found", "未找到该教练");
   const venueRows = await database.prepare(`
-    SELECT id, coach_id, name, address, district, active, created_at, updated_at
+    SELECT id, coach_id, name, address, city, district, active, created_at, updated_at
     FROM venues WHERE coach_id = ? ORDER BY active DESC, created_at ASC
   `).bind(id).all<Row>();
   return {
     bookingEnabled: coach.booking_enabled !== 0,
     coachId: id,
+    city: String(coach.city ?? "北京"),
     district: String(coach.district ?? ""),
     priceFen: Number(coach.price_fen ?? 0),
     pricingStatus: coach.pricing_status === "unavailable" ? "unavailable" : "published",
@@ -230,6 +300,7 @@ export async function getOpsCoachBusinessSettingsD1(id: number, env: ApiEnv) {
       active: venue.active !== 0,
       address: String(venue.address ?? ""),
       coachId: Number(venue.coach_id),
+      city: String(venue.city ?? "北京"),
       district: String(venue.district ?? ""),
       id: String(venue.id),
       name: String(venue.name ?? ""),
@@ -254,13 +325,14 @@ export async function updateOpsCoachBusinessSettingsD1(
       throw new ApiError(422, "invalid_price", "价格必须使用有效的整数分", { [field]: "请输入0至100000元之间的金额" });
     }
   }
-  const district = input.district == null ? undefined : normalizeDistrict(input.district);
-  if (input.district != null && !district) throw new ApiError(422, "invalid_district", "请选择北京 16 区中的服务区域");
+  const district = input.district?.trim();
   const database = db(env);
   const previous = await database.prepare(`
-    SELECT district, price_fen, trial_price_fen, pricing_status, booking_enabled FROM coaches WHERE id = ?
+    SELECT city, district, price_fen, trial_price_fen, pricing_status, booking_enabled FROM coaches WHERE id = ?
   `).bind(id).first<Row>();
   if (!previous) throw new ApiError(404, "coach_not_found", "未找到该教练");
+  const primaryCity=previous.city==="长春"?"changchun":"beijing";
+  if(district!=null&&!isServiceArea(primaryCity,district))throw new ApiError(422,"invalid_district","请选择教练主服务城市内的区域");
   const next = {
     bookingEnabled: input.bookingEnabled ?? previous.booking_enabled !== 0,
     district: district ?? String(previous.district ?? ""),
@@ -269,11 +341,16 @@ export async function updateOpsCoachBusinessSettingsD1(
     trialPriceFen: input.trialPriceFen ?? Number(previous.trial_price_fen ?? 0),
   };
   const now = Date.now();
+  const area=district==null?null:await database.prepare("SELECT id FROM service_areas WHERE city_id=? AND name=? AND status='published'").bind(primaryCity,district).first<Row>();
   await database.batch([
     database.prepare(`
       UPDATE coaches SET district = ?, price_fen = ?, trial_price_fen = ?, pricing_status = ?, booking_enabled = ?, updated_at = ?
       WHERE id = ?
     `).bind(next.district, next.priceFen, next.trialPriceFen, next.pricingStatus, next.bookingEnabled ? 1 : 0, now, id),
+    ...area?[
+      database.prepare("UPDATE coach_service_areas SET is_primary=0 WHERE coach_id=?").bind(id),
+      database.prepare("INSERT INTO coach_service_areas(coach_id,area_id,is_primary,created_at) VALUES(?,?,1,?) ON CONFLICT(coach_id,area_id) DO UPDATE SET is_primary=1").bind(id,area.id,now),
+    ]:[],
     database.prepare(`
       INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, created_at)
       VALUES (?, ?, 'coach.business.update', 'coach', ?, ?, ?)
@@ -284,24 +361,27 @@ export async function updateOpsCoachBusinessSettingsD1(
 
 export async function createOpsCoachVenueD1(
   coachId: number,
-  input: { address: string; district: string; name: string; reason: string },
+  input: { address: string; district: string; name: string; reason: string; cityId?: string },
   actor: string,
   requestId: string,
   env: ApiEnv,
 ) {
   const name = input.name.trim().slice(0, 120);
   const address = input.address.trim().slice(0, 240);
-  const district = normalizeDistrict(input.district);
+  const cityId=input.cityId||"beijing";
+  if(!isServiceCity(cityId))throw new ApiError(422,"unsupported_service_city","当前仅支持北京和长春");
+  const district = input.district.trim();
   const reason = input.reason.trim().slice(0, 300);
-  if (!name || !address || !district || !reason) throw new ApiError(422, "validation_failed", "请完整填写北京场馆和操作原因");
+  if (!name || !address || !isServiceArea(cityId,district) || !reason) throw new ApiError(422, "validation_failed", "请完整填写当前城市场馆和操作原因");
   const database = db(env);
   if (!await database.prepare("SELECT id FROM coaches WHERE id = ?").bind(coachId).first<Row>()) throw new ApiError(404, "coach_not_found", "未找到该教练");
+  if (!await database.prepare(`SELECT c.id FROM coaches c WHERE c.id=? AND (c.city=? OR EXISTS (SELECT 1 FROM coach_service_areas ca JOIN service_areas a ON a.id=ca.area_id WHERE ca.coach_id=c.id AND a.city_id=?))`).bind(coachId,cityName(cityId),cityId).first<Row>()) throw new ApiError(422,"coach_city_unavailable","请先核验并配置该教练的城市服务范围");
   const id = randomId("venue"); const now = Date.now();
   await database.batch([
-    database.prepare(`INSERT INTO venues (id, coach_id, name, address, city, district, active, created_at, updated_at) VALUES (?, ?, ?, ?, '北京', ?, 1, ?, ?)`).bind(id, coachId, name, address, district, now, now),
+    database.prepare(`INSERT INTO venues (id, coach_id, name, address, city, district, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`).bind(id, coachId, name, address, cityName(cityId),district, now, now),
     database.prepare(`INSERT INTO ops_audit_logs (id, actor, action, entity_type, entity_id, detail_json, created_at) VALUES (?, ?, 'coach.venue.create', 'venue', ?, ?, ?)`).bind(randomId("audit"), actor, id, JSON.stringify({ address, coachId, district, name, reason, requestId }), now),
   ]);
-  return { active: true, address, coachId, district, id, name };
+  return { active: true, address, coachId, city:cityName(cityId),district, id, name };
 }
 
 export async function updateOpsCoachVenueD1(
@@ -324,10 +404,11 @@ export async function updateOpsCoachVenueD1(
   const next = {
     active: input.active ?? previous.active !== 0,
     address: input.address?.trim().slice(0, 240) || String(previous.address ?? ""),
-    district: input.district == null ? String(previous.district ?? "") : normalizeDistrict(input.district),
+    district: input.district == null ? String(previous.district ?? "") : input.district.trim(),
     name: input.name?.trim().slice(0, 120) || String(previous.name ?? ""),
   };
-  if (!BEIJING_DISTRICTS.includes(next.district as (typeof BEIJING_DISTRICTS)[number])) throw new ApiError(422, "invalid_district", "请选择北京 16 区中的场馆区域");
+  const cityId=previous.city==="长春"?"changchun":"beijing";
+  if (!isServiceArea(cityId,next.district)) throw new ApiError(422, "invalid_district", "请选择场馆所在城市的服务区域");
   const now = Date.now();
   await database.batch([
     database.prepare("UPDATE venues SET name = ?, address = ?, district = ?, active = ?, updated_at = ? WHERE id = ? AND coach_id = ?").bind(next.name, next.address, next.district, next.active ? 1 : 0, now, venueId, coachId),
@@ -671,23 +752,28 @@ export async function reviewCoachProfileChangeD1(id: string, decision: "approved
   }
   const field = String(request.field);
   const coachId = Number(request.coach_id);
+  const coach=await database.prepare("SELECT city FROM coaches WHERE id=?").bind(coachId).first<Row>();
+  if(!coach)throw new ApiError(404,"coach_not_found","未找到教练资料");
+  const primaryCity=coach.city==="长春"?"changchun":"beijing";
   const next = JSON.parse(String(request.proposed_value_json));
   const statements = [];
   const scalarColumns: Record<string, string> = { bio: "bio", district: "district", motto: "motto", title: "title" };
   const jsonColumns: Record<string, string> = { audience: "audience_json", goals: "goals_json", honors: "honors_json", strengths: "strengths_json" };
+  if(field==="district"&&!isServiceArea(primaryCity,String(next)))throw new ApiError(422,"invalid_district","服务区域必须位于教练主服务城市内");
   if (scalarColumns[field]) statements.push(database.prepare(`UPDATE coaches SET ${scalarColumns[field]} = ?, updated_at = ? WHERE id = ?`).bind(String(next).slice(0, 2000), now, coachId));
   else if (jsonColumns[field]) statements.push(database.prepare(`UPDATE coaches SET ${jsonColumns[field]} = ?, updated_at = ? WHERE id = ?`).bind(JSON.stringify(Array.isArray(next) ? next.slice(0, 20) : []), now, coachId));
   else if (field === "price" || field === "trialPrice") statements.push(database.prepare(`UPDATE coaches SET ${field === "price" ? "price_fen" : "trial_price_fen"} = ?, updated_at = ? WHERE id = ?`).bind(Math.max(0, Math.round(Number(next) * 100)), now, coachId));
   else if (field === "venue") {
     const venue = typeof next === "object" && next ? next as Record<string, unknown> : { name: String(next) };
-    const existingVenue = await database.prepare("SELECT id FROM venues WHERE coach_id = ? AND active = 1 ORDER BY created_at LIMIT 1").bind(coachId).first<Row>();
+    const existingVenue = await database.prepare("SELECT id FROM venues WHERE coach_id = ? AND city=? AND active = 1 ORDER BY created_at LIMIT 1").bind(coachId,cityName(primaryCity)).first<Row>();
     const name = String(venue.name ?? "").trim().slice(0, 120);
     const address = String(venue.address ?? "").trim().slice(0, 240);
     const district = String(venue.district ?? "").trim().slice(0, 40);
     if (!name || !address || !district) throw new ApiError(422, "invalid_venue", "场馆名称、地址和区域不能为空");
+    if(!isServiceArea(primaryCity,district))throw new ApiError(422,"invalid_district","请选择教练主服务城市内的场馆区域");
     statements.push(existingVenue
       ? database.prepare("UPDATE venues SET name = ?, address = ?, district = ?, updated_at = ? WHERE id = ?").bind(name, address, district, now, existingVenue.id)
-      : database.prepare("INSERT INTO venues (id, coach_id, name, address, city, district, active, created_at, updated_at) VALUES (?, ?, ?, ?, '北京', ?, 1, ?, ?)").bind(randomId("venue"), coachId, name, address, district, now, now));
+      : database.prepare("INSERT INTO venues (id, coach_id, name, address, city, district, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)").bind(randomId("venue"), coachId, name, address,cityName(primaryCity), district, now, now));
   } else throw new ApiError(422, "invalid_profile_field", "该资料字段不支持审核应用");
   statements.push(
     database.prepare("UPDATE credential_change_requests SET status = 'approved', review_note = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'").bind(note.trim(), actor, now, now, id),
@@ -912,6 +998,12 @@ export async function createSupportTicketD1(identity: { userId: string }, input:
   const allowed = new Set(["service", "booking", "payment", "safety", "privacy", "other"]);
   if (!allowed.has(input.category)) throw new ApiError(422, "invalid_ticket_category", "工单分类无效");
   const database = db(env); const id = randomId("ticket"); const now = Date.now();
+  if (input.bookingId) {
+    const owned = await database.prepare(role === 'coach'
+      ? 'SELECT b.id FROM booking_requests b JOIN coaches c ON c.id = b.coach_id WHERE b.id = ? AND c.user_id = ?'
+      : 'SELECT id FROM booking_requests WHERE id = ? AND user_id = ?').bind(input.bookingId, identity.userId).first<Row>();
+    if (!owned) throw new ApiError(404, 'booking_not_found', '预约不存在或不属于当前账号');
+  }
   await database.batch([
     database.prepare("INSERT INTO support_tickets (id, booking_id, created_by_user_id, created_by_role, category, priority, subject, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)").bind(id, input.bookingId ?? null, identity.userId, role, input.category, input.category === "safety" ? "urgent" : "normal", input.subject.trim().slice(0, 120), now, now),
     database.prepare("INSERT INTO support_ticket_messages (id, ticket_id, sender_type, sender_id, body, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind(randomId("ticket_message"), id, role, identity.userId, input.body.trim().slice(0, 3000), now),
@@ -949,12 +1041,13 @@ export async function listOpsAuditLogsD1(env: ApiEnv) {
 
 export async function createCoachRescheduleProposalD1(identity: CoachIdentity, input: { bookingId: string; customAddress?: string; customDistrict?: string; customLocationNote?: string; locationType?: "venue" | "custom"; note: string; slotId?: string; startsAt?: number; venueId?: string }, env: ApiEnv) {
   const database = db(env); const now = Date.now();
-  const booking = await database.prepare(`SELECT b.id, b.user_id, b.slot_id, b.status, b.venue_id, s.starts_at, s.ends_at,
+  const booking = await database.prepare(`SELECT b.id, b.user_id, b.slot_id, b.status, b.venue_id, s.starts_at, s.ends_at, v.city AS service_city,
     coalesce(d.duration_minutes, round((s.ends_at - s.starts_at) / 60000)) AS duration_minutes
-    FROM booking_requests b JOIN availability_slots s ON s.id = b.slot_id
+    FROM booking_requests b JOIN availability_slots s ON s.id = b.slot_id JOIN venues v ON v.id=b.venue_id
     LEFT JOIN booking_request_details d ON d.booking_id = b.id WHERE b.id = ? AND b.coach_id = ?`
   ).bind(input.bookingId, identity.coachId).first<Row>();
   if (!booking || (booking.status !== "pending_coach" && booking.status !== "confirmed")) throw new ApiError(409, "booking_not_reschedulable", "该预约当前不能发起改期");
+  const serviceCity=booking.service_city==="长春"?"changchun":"beijing";
   const pending = await database.prepare("SELECT id FROM booking_reschedule_proposals WHERE booking_id = ? AND status = 'pending'").bind(input.bookingId).first<Row>();
   if (pending) throw new ApiError(409, "reschedule_already_pending", "该预约已有待确认的改期方案");
   let slotId = input.slotId || "";
@@ -967,16 +1060,16 @@ export async function createCoachRescheduleProposalD1(identity: CoachIdentity, i
   } else {
     if (!input.startsAt || input.startsAt <= now) throw new ApiError(422, "invalid_proposal_time", "请选择未来的训练时间");
     if (locationType === "venue") {
-      const venue = await database.prepare("SELECT id FROM venues WHERE id = ? AND coach_id = ? AND active = 1").bind(venueId, identity.coachId).first<Row>();
+      const venue = await database.prepare("SELECT id FROM venues WHERE id = ? AND coach_id = ? AND city=? AND active = 1").bind(venueId, identity.coachId,cityName(serviceCity)).first<Row>();
       if (!venue) throw new ApiError(422, "venue_not_found", "请选择有效的训练场馆");
     } else {
       if (!input.customDistrict?.trim() || !input.customAddress?.trim()) throw new ApiError(422, "custom_location_required", "请填写新的区域和详细地点");
-      const customDistrict = normalizeDistrict(input.customDistrict);
-      if (!customDistrict) throw new ApiError(422, "invalid_beijing_district", "训练地点仅限北京 16 区");
-      venueId = `venue_coordination_${identity.coachId}`;
+      const customDistrict = input.customDistrict.trim();
+      if (!isServiceArea(serviceCity,customDistrict)) throw new ApiError(422, "invalid_service_region", "训练地点必须位于预约服务城市的已开放区域");
+      venueId = `venue_coordination_${identity.coachId}_${serviceCity}`;
       await database.prepare(`INSERT OR IGNORE INTO venues (id, coach_id, name, address, city, district, active, created_at, updated_at)
-        VALUES (?, ?, '协商训练地点', '仅预约双方可见', '北京', ?, 0, ?, ?)`)
-        .bind(venueId, identity.coachId, customDistrict, now, now).run();
+        VALUES (?, ?, '协商训练地点', '仅预约双方可见', ?, ?, 0, ?, ?)`)
+        .bind(venueId, identity.coachId, cityName(serviceCity),customDistrict, now, now).run();
     }
     slotId = randomId("proposal_slot");
     const endsAt = input.startsAt + Number(booking.duration_minutes) * 60_000;
@@ -991,7 +1084,7 @@ export async function createCoachRescheduleProposalD1(identity: CoachIdentity, i
     database.prepare(`INSERT INTO booking_reschedule_proposals (id, booking_id, proposed_slot_id, proposed_by, previous_booking_status, status, note, location_type, custom_district, custom_address, custom_note, created_at, updated_at)
       VALUES (?, ?, ?, 'coach', ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`
     ).bind(id, input.bookingId, slotId, booking.status, input.note.trim().slice(0, 500), locationType,
-      locationType === "custom" ? normalizeDistrict(input.customDistrict || "") : null,
+      locationType === "custom" ? input.customDistrict?.trim() : null,
       locationType === "custom" ? input.customAddress?.trim().slice(0, 240) : null,
       locationType === "custom" ? input.customLocationNote?.trim().slice(0, 300) || null : null, now, now),
     database.prepare("INSERT INTO notifications (id, user_id, type, title, body, entity_type, entity_id, target_mode, deep_link, created_at) VALUES (?, ?, 'booking_status', '教练提出改期方案', '请查看新时段并确认或拒绝', 'booking', ?, 'student', 'zhuguang://student/bookings', ?)").bind(randomId("notification"), booking.user_id, input.bookingId, now),
@@ -1003,7 +1096,7 @@ export async function createCoachRescheduleProposalD1(identity: CoachIdentity, i
 export async function listStudentRescheduleProposalsD1(identity: StudentIdentity, env: ApiEnv) {
   const result = await db(env).prepare(`
     SELECT p.id, p.booking_id, p.proposed_slot_id, p.status, p.note, p.created_at,
-      s.starts_at, s.ends_at, v.name AS venue_name, v.address AS venue_address,
+      s.starts_at, s.ends_at, v.name AS venue_name, v.address AS venue_address, v.city AS service_city,
       p.location_type, p.custom_district, p.custom_address, p.custom_note
     FROM booking_reschedule_proposals p
     JOIN booking_requests b ON b.id = p.booking_id
@@ -1011,7 +1104,7 @@ export async function listStudentRescheduleProposalsD1(identity: StudentIdentity
     JOIN venues v ON v.id = s.venue_id
     WHERE b.user_id = ? ORDER BY p.created_at DESC LIMIT 100
   `).bind(identity.userId).all<Row>();
-  return rows(result);
+  return rows(result).map(row => ({ ...row, startsAt: Number(row.starts_at), endsAt: Number(row.ends_at), serviceCityId: row.service_city === '北京' ? 'beijing' : row.service_city === '长春' ? 'changchun' : undefined }));
 }
 
 export async function respondStudentRescheduleProposalD1(identity: StudentIdentity, id: string, decision: "accepted" | "rejected", env: ApiEnv) {

@@ -44,7 +44,7 @@ export default function ServiceGuaranteePage() {
           <div><p>03 / 反馈与处理</p><h2>问题进入记录，不靠口头承诺消失</h2></div>
           <div className={styles.guaranteeCopy}>
             <p>学员和教练可在消息与订单中提交情况说明。运营人员按预约事件、沟通记录和双方材料核实处理。</p>
-            <p>北京试点服务期间，服务异常由运营团队人工跟进，涉及安全风险时立即暂停相关教练的新增预约。</p>
+            <p>北京与吉林长春服务期间，服务异常由运营团队人工跟进，涉及安全风险时立即暂停相关教练的新增预约。</p>
           </div>
         </section>
         <section className={styles.guaranteeBand} id="verification">

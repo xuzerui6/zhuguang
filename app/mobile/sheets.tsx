@@ -1,12 +1,15 @@
 "use client";
 
-import { Check, ChevronRight, Headphones, LockKeyhole, Mail, MessageCircle, ShieldCheck, Smartphone, Star, Trash2 } from "lucide-react";
+import { Check, ChevronRight, Headphones, LocateFixed, LockKeyhole, Mail, MessageCircle, Plus, ShieldCheck, Smartphone, Star, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { removeTurnstileWidget } from "../_lib/turnstile";
-import { AUDIENCE_OPTIONS, BEIJING_DISTRICTS, TRAINING_GOAL_OPTIONS } from "../../shared/coach-catalog";
+import { AUDIENCE_OPTIONS, TRAINING_GOAL_OPTIONS } from "../../shared/coach-catalog";
 import type { ServiceCatalog } from '../../shared/service-catalog';
+import { SERVICE_AREAS, SERVICE_CITIES, SUPPORTED_SPORTS, type ServiceCityId } from "../../shared/service-cities";
 import { REVIEW_TAGS } from "../../shared/reviews";
+import { mobileApi } from './api-client';
+import type { LegalDocument } from '../../shared/legal-documents';
 import { CoachAvatar, EmptyState, Sheet } from "./components";
 import type { AccountProfile, LearnerProfile, MatchPreferences, MobileBooking, MobileCoach, MobileNotification, MobileSession } from "./types";
 
@@ -50,12 +53,13 @@ async function mobileAvatarWebp(file: File) {
 export function AccountProfileSheet({ onClose, onDeleteAvatar, onSave, onUploadAvatar, profile }: {
   onClose: () => void;
   onDeleteAvatar: () => Promise<void>;
-  onSave: (input: { bio: string; district: string; nickname: string }) => Promise<void>;
+  onSave: (input: { bio: string; nickname: string; serviceArea: string; serviceCityId: ServiceCityId }) => Promise<void>;
   onUploadAvatar: (blob: Blob) => Promise<void>;
   profile?: AccountProfile;
 }) {
   const [nickname, setNickname] = useState(profile?.nickname || "");
-  const [district, setDistrict] = useState(profile?.district || "");
+  const [serviceCityId, setServiceCityId] = useState<ServiceCityId>(profile?.serviceCityId || "beijing");
+  const [serviceArea, setServiceArea] = useState(profile?.serviceArea || profile?.district || "");
   const [bio, setBio] = useState(profile?.bio || "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -67,12 +71,13 @@ export function AccountProfileSheet({ onClose, onDeleteAvatar, onSave, onUploadA
   return <Sheet onClose={onClose} title="编辑账号资料"><div className="zg-account-profile-sheet">
     <div className="zg-account-avatar-editor"><span>{profile?.avatarUrl ? <Image alt="账号头像" height={72} src={profile.avatarUrl} unoptimized width={72} /> : (nickname || "逐").slice(0,1)}</span><div><strong>账号头像</strong><small>仅在账号与服务关系中展示</small><label>选择图片<input accept="image/jpeg,image/png,image/webp" disabled={busy} hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void run(async () => onUploadAvatar(await mobileAvatarWebp(file))); }} type="file" /></label>{profile?.avatarUrl ? <button disabled={busy} onClick={() => void run(onDeleteAvatar)} type="button">移除</button> : null}</div></div>
     <label><span>昵称</span><input maxLength={20} minLength={2} onChange={(event) => setNickname(event.target.value)} placeholder="2 至 20 个字" value={nickname} /></label>
-    <label><span>北京所在区</span><select onChange={(event) => setDistrict(event.target.value)} value={district}><option value="">暂不填写</option>{BEIJING_DISTRICTS.map((item) => <option key={item}>{item}</option>)}</select></label>
+    <label><span>服务城市</span><select onChange={(event) => { setServiceCityId(event.target.value as ServiceCityId); setServiceArea(""); }} value={serviceCityId}>{SERVICE_CITIES.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <label><span>所在区域</span><select onChange={(event) => setServiceArea(event.target.value)} value={serviceArea}><option value="">暂不填写</option>{SERVICE_AREAS[serviceCityId].map((item) => <option key={item}>{item}</option>)}</select></label>
     <label><span>个性签名</span><textarea maxLength={80} onChange={(event) => setBio(event.target.value)} placeholder="最多 80 个字" value={bio} /></label>
     <div className="zg-account-contact"><span><strong>邮箱</strong><small>{profile?.contact.emailMasked || "未绑定"}</small></span><span><strong>手机号</strong><small>{profile?.contact.phoneMasked || "未绑定"}</small></span></div>
     <div className="zg-account-contact-form"><select disabled={Boolean(challengeId)} onChange={(event) => setContactKind(event.target.value as "email" | "phone")} value={contactKind}><option value="email">邮箱</option><option value="phone">手机号</option></select>{challengeId ? <input autoComplete="one-time-code" inputMode="numeric" maxLength={6} onChange={(event) => setContactCode(event.target.value.replace(/\D/gu, "").slice(0,6))} placeholder="6 位验证码" value={contactCode} /> : <input inputMode={contactKind === "email" ? "email" : "tel"} onChange={(event) => setContactValue(event.target.value)} placeholder={contactKind === "email" ? "新邮箱地址" : "新手机号"} value={contactValue} />}<button disabled={busy || (challengeId ? contactCode.length !== 6 : !contactValue.trim())} onClick={() => void run(async () => { const { mobileApi } = await import("./api-client"); if (!challengeId) { const result = await mobileApi.requestContactChallenge(contactKind, contactValue); setChallengeId(result.challengeId); return; } const result = await mobileApi.verifyContactChallenge(challengeId, contactCode); if (result.mergeRequired) throw new Error("该联系方式已属于其他账号，已创建人工合并工单"); setChallengeId(""); setContactCode(""); setContactValue(""); })} type="button">{challengeId ? "确认绑定" : "发送验证码"}</button></div>
     {error ? <p className="zg-auth-error" role="alert">{error}</p> : null}
-    <button className="zg-sheet-primary" disabled={busy || nickname.trim().length < 2} onClick={() => void run(async () => { await onSave({ bio, district, nickname }); onClose(); })} type="button">{busy ? "保存中..." : "保存资料"}</button>
+    <button className="zg-sheet-primary" disabled={busy || nickname.trim().length < 2} onClick={() => void run(async () => { await onSave({ bio, nickname, serviceArea, serviceCityId }); onClose(); })} type="button">{busy ? "保存中..." : "保存资料"}</button>
   </div></Sheet>;
 }
 
@@ -94,7 +99,7 @@ export function FilterSheet({
     <Sheet onClose={onClose} title="筛选合适的教练">
       <div className="zg-filter-sheet">
         <FilterGroup label="运动项目" options={["全部项目", ...catalog.sports.map(item=>item.name)]} selected={value.sport} onSelect={(item) => update("sport", item)} />
-        <FilterGroup label="北京区域" options={["全北京", ...catalog.regions.map(item=>item.name)]} selected={value.district} onSelect={(item) => update("district", item)} />
+        <FilterGroup label={`${catalog.city}区域`} options={[`全${catalog.city}`, ...catalog.regions.map(item=>item.name)]} selected={value.district} onSelect={(item) => update("district", item)} />
         <FilterGroup label="训练目标" options={["全部目标", ...TRAINING_GOAL_OPTIONS]} selected={value.goal} onSelect={(item) => update("goal", item)} />
         <FilterGroup label="服务对象" options={["全部人群", ...AUDIENCE_OPTIONS]} selected={value.audience} onSelect={(item) => update("audience", item)} />
         <FilterGroup label="希望时段" options={["不限", "工作日", "周末", "晚间"]} selected={value.desiredTime} onSelect={(item) => update("desiredTime", item as MatchPreferences["desiredTime"])} />
@@ -128,14 +133,21 @@ function FilterGroup({
   );
 }
 
-export function CitySheet({ catalog, district, onClose, onDistrict }: { catalog:ServiceCatalog; district: string; onClose: () => void; onDistrict: (district: string) => void }) {
+export function CitySheet({ catalog, cityId, district, onClose, onCity, onDistrict, onLocate }: { catalog:ServiceCatalog; cityId:ServiceCityId; district: string; onClose: () => void; onCity: (city:ServiceCityId) => Promise<void>; onDistrict: (district: string) => void; onLocate: () => Promise<void> }) {
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState("");
+  const run=async(action:()=>Promise<void>)=>{ if(busy)return; setBusy(true);setError("");try{await action();onClose();}catch(reason){setError(reason instanceof Error?reason.message:"城市切换失败");}finally{setBusy(false);} };
   return (
-    <Sheet onClose={onClose} title="选择北京服务区域">
+    <Sheet onClose={onClose} title="选择服务城市">
       <div className="zg-city-sheet">
-        <p>目前仅在北京经营，服务区域随真实已上线教练更新。</p>
-        {["全北京", ...catalog.regions.map(item=>item.name)].map((item) => (
+        <p>支持北京、吉林长春。定位只判断城市，不保存坐标。</p>
+        <button disabled={busy} onClick={()=>void run(onLocate)} type="button"><LocateFixed aria-hidden size={20}/><span><strong>{busy?"正在切换城市":"定位城市"}</strong><small>仅在点击后使用一次模糊位置</small></span></button>
+        {SERVICE_CITIES.map(city=><button disabled={busy} className={cityId===city.id?"is-active":""} key={city.id} onClick={()=>void run(()=>onCity(city.id))} type="button"><span><strong>{city.name}</strong><small>{city.province}</small></span>{cityId===city.id?<Check aria-hidden size={18}/>:<ChevronRight aria-hidden size={17}/>}</button>)}
+        {error?<p className="zg-auth-error" role="alert">{error}</p>:null}
+        <p>{catalog.city}服务区域</p>
+        {[`全${catalog.city}`, ...catalog.regions.map(item=>item.name)].map((item) => (
           <button className={district === item ? "is-active" : ""} key={item} onClick={() => { onDistrict(item); onClose(); }} type="button">
-            <span><strong>{item}</strong><small>{item === "全北京" ? "查看全部已核验教练" : "优先展示可就近训练的教练"}</small></span>
+            <span><strong>{item}</strong><small>{item.startsWith("全") ? "查看当前城市已核验教练" : "优先展示可就近训练的教练"}</small></span>
             {district === item ? <Check aria-hidden size={18} /> : <ChevronRight aria-hidden size={17} />}
           </button>
         ))}
@@ -297,22 +309,35 @@ export function FavoritesSheet({ coaches, onClose, onOpen }: { coaches: MobileCo
   );
 }
 
-export function LearnerSheet({ learner, onClose, onSave }: { learner: LearnerProfile; onClose: () => void; onSave: (learner: LearnerProfile) => void }) {
+export function LearnerSheet({ learner, learners, onClose, onSave, onSelect }: { learner: LearnerProfile; learners:LearnerProfile[]; onClose: () => void; onSave: (learner: LearnerProfile) => Promise<LearnerProfile>; onSelect:(learner:LearnerProfile)=>void }) {
   const [draft, setDraft] = useState(learner);
+  const [mode,setMode]=useState<"list"|"detail"|"edit">(learners.length?"list":"edit");
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState("");
   const update = <K extends keyof LearnerProfile>(key: K, value: LearnerProfile[K]) => setDraft((current) => ({ ...current, [key]: value }));
+  const save=async()=>{if(busy)return;setBusy(true);setError("");try{const saved=await onSave(draft);setDraft(saved);setMode("detail");}catch(reason){setError(reason instanceof Error?reason.message:"档案保存失败，请重试");}finally{setBusy(false);}};
+  const create=()=>{setDraft({...learner,id:"",name:"",age:0,goal:"",relation:"self",gender:"unspecified"});setError("");setMode("edit");};
   return (
-    <Sheet onClose={onClose} title="学员训练档案">
+    <Sheet onClose={onClose} title={mode==="list"?"学员档案":mode==="detail"?"档案详情":draft.id?"编辑学员档案":"新增学员档案"}>
       <div className="zg-learner-sheet">
+        {mode==="list"?<><div className="zg-favorites-sheet">{learners.map(item=><button key={item.id} onClick={()=>{setDraft(item);setMode("detail");}} type="button"><span><strong>{item.name}</strong><small>{item.relation==="child"?"子女":"本人"} · {item.sport} · {item.goal}</small></span><ChevronRight aria-hidden size={18}/></button>)}</div><button className="zg-sheet-primary" onClick={create} type="button"><Plus aria-hidden size={18}/>新增学员档案</button></>:<>
+        {learners.length?<button className="zg-text-action" onClick={()=>setMode("list")} type="button">返回档案列表</button>:null}
         <header><span>{draft.name.slice(-1) || "学"}</span><div><h3>{draft.name || "我的学员"}</h3><p>{draft.age ? `${draft.age} 岁 · ` : ""}{draft.sport} {draft.level}</p></div></header>
+        {mode==="detail"?<><p>训练目标：{draft.goal}</p><p>{draft.relation==="child"?"子女档案":"本人档案"} · {draft.gender==="male"?"男":draft.gender==="female"?"女":"未填写性别"}</p><button className="zg-sheet-primary" onClick={()=>{onSelect(draft);onClose();}} type="button">选择此学员</button><button className="zg-sheet-primary is-secondary" onClick={()=>setMode("edit")} type="button">编辑档案</button></>:<>
         <div className="zg-learner-form">
           <label><span>姓名或称呼</span><input maxLength={20} onChange={(event) => update("name", event.target.value)} value={draft.name} /></label>
+          <label><span>档案关系</span><select onChange={event=>update("relation",event.target.value as LearnerProfile["relation"])} value={draft.relation}><option value="self">本人</option><option value="child">子女</option></select></label>
+          <label><span>性别（可选）</span><select onChange={event=>update("gender",event.target.value as LearnerProfile["gender"])} value={draft.gender}><option value="unspecified">不填写</option><option value="male">男</option><option value="female">女</option></select></label>
           <label><span>年龄</span><input max={100} min={0} onChange={(event) => update("age", Number(event.target.value))} type="number" value={draft.age || ""} /></label>
-          <label><span>运动项目</span><select onChange={(event) => update("sport", event.target.value)} value={draft.sport}><option>田径</option><option>羽毛球</option><option>游泳</option><option>网球</option><option>篮球</option></select></label>
+          <label><span>运动项目</span><select onChange={(event) => update("sport", event.target.value)} value={draft.sport}>{SUPPORTED_SPORTS.map(sport=><option key={sport}>{sport}</option>)}</select></label>
           <label><span>当前水平</span><select onChange={(event) => update("level", event.target.value)} value={draft.level}><option>待完善</option><option>零基础</option><option>入门</option><option>进阶</option><option>竞赛</option></select></label>
           <label className="is-wide"><span>训练目标</span><input maxLength={80} onChange={(event) => update("goal", event.target.value)} value={draft.goal} /></label>
         </div>
         <p>档案仅用于匹配教练与制定训练计划，不向无关人员公开。</p>
-        <button className="zg-sheet-primary" disabled={!draft.name.trim() || !draft.goal.trim()} onClick={() => { onSave(draft); onClose(); }} type="button">保存档案</button>
+        {error?<p className="zg-auth-error" role="alert">{error}</p>:null}
+        <button className="zg-sheet-primary" disabled={busy || !draft.name.trim() || !draft.goal.trim()} onClick={()=>void save()} type="button">{busy?"正在保存":"保存档案"}</button>
+        </>}
+        </>}
       </div>
     </Sheet>
   );
@@ -321,17 +346,26 @@ export function LearnerSheet({ learner, onClose, onSave }: { learner: LearnerPro
 export function AccountSheet({ onClose, onDelete, onLogout, session }: { onClose: () => void; onDelete: () => void; onLogout: () => void; session: MobileSession | null }) {
   const [policy, setPolicy] = useState<"privacy" | "terms" | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [documents, setDocuments] = useState<LegalDocument[]>([]);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    if (!policy) return;
+    let active = true;
+    void mobileApi.legalDocuments().then(data => { if (active) { setDocuments(data); setError(''); } }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : '协议读取失败，请重试'); });
+    return () => { active = false; };
+  }, [policy, retry]);
   return (
     <Sheet onClose={onClose} title="账号与隐私">
       <div className="zg-account-sheet">
         <section><strong>登录状态</strong><p>{session ? `${session.contactMasked || session.phoneMasked} 已验证` : "当前为匿名浏览，提交预约时再验证邮箱。"}</p></section>
         <section><strong>隐私与数据</strong><p>可查看并管理个人资料授权、训练档案、消息记录与账号注销。</p></section>
         <button onClick={() => setPolicy(policy === "privacy" ? null : "privacy")} type="button">隐私政策<ChevronRight size={17} /></button>
-        {policy === "privacy" ? <p>逐光仅处理账号昵称、私有头像、北京所在区、邮箱、学员档案与消息记录；头像仅在账号和已建立的服务关系中展示，注销后删除，消息最多保留 90 天用于服务保障。</p> : null}
+        {policy === "privacy" ? <div>{documents.find(item => item.slug === "privacy")?.body.split(/\n\s*\n/u).map((text, index) => <p key={index}>{text}</p>) || <p>正在读取隐私政策</p>}</div> : null}
         <button onClick={() => setPolicy(policy === "terms" ? null : "terms")} type="button">用户协议<ChevronRight size={17} /></button>
-        {policy === "terms" ? <p>预约需经教练确认后生效，首版费用在线下支付；取消、改期与争议处理以预约页面展示的服务规则为准。</p> : null}
+        {policy === "terms" ? <div>{documents.find(item => item.slug === "terms")?.body.split(/\n\s*\n/u).map((text, index) => <p key={index}>{text}</p>) || <p>正在读取服务协议</p>}</div> : null}{policy && error ? <p role="alert">{error}<button type="button" onClick={() => setRetry(value => value + 1)}>重试</button></p> : null}
         {session && !confirmingDelete ? <button onClick={() => setConfirmingDelete(true)} type="button">申请注销账号<ChevronRight size={17} /></button> : null}
-        {confirmingDelete ? <section><strong>确认注销账号？</strong><p>邮箱与学员资料会去标识化，履约争议所需记录最多保留 90 天。</p><button className="is-danger" onClick={onDelete} type="button">确认注销</button><button onClick={() => setConfirmingDelete(false)} type="button">暂不注销</button></section> : null}
+        {confirmingDelete ? <section><strong>确认注销账号？</strong><p>邮箱与学员资料会去标识化，履约争议所需记录按实际需要保留。</p><button className="is-danger" onClick={onDelete} type="button">确认注销</button><button onClick={() => setConfirmingDelete(false)} type="button">暂不注销</button></section> : null}
         {session ? <button className="is-danger" onClick={onLogout} type="button">退出登录</button> : null}
       </div>
     </Sheet>
@@ -362,7 +396,7 @@ export function SupportSheet({
               <li><strong>教练履历核验</strong><small>试点教练需通过人工审核后展示。</small></li>
               <li><strong>预约过程留痕</strong><small>确认、改期、取消和完成均记录状态变化。</small></li>
               <li><strong>先确认后生效</strong><small>教练确认后预约生效，首版在线下支付。</small></li>
-              <li><strong>争议协助</strong><small>消息与履约记录最多保留 90 天用于服务处理。</small></li>
+              <li><strong>争议协助</strong><small>消息与履约记录按实际服务及争议处理需要保存。</small></li>
             </ul>
             <button className="zg-sheet-primary" onClick={onClose} type="button">我知道了</button>
           </>

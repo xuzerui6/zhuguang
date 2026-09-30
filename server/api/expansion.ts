@@ -3,6 +3,7 @@ import { BODY_LIMITS, readBoundedBody } from "./request-body";
 import { ApiError, type ApiEnv } from "./contracts";
 import type { CoachIdentity, StudentIdentity } from "./repository";
 import { randomId, sha256Hex } from "./security";
+import { listMulticityCatalogD1 } from "./multicity";
 
 type Row = Record<string, unknown>;
 type CompletionDecision = "accepted" | "disputed";
@@ -47,20 +48,9 @@ export function getPlatformCapabilities(env: ApiEnv) {
   };
 }
 
-export async function listPublicCatalogD1(env: ApiEnv) {
-  if (!truthy(env.BEIJING_CATALOG_V2_ENABLED)) return { city: "北京", regions: [], sports: [] };
-  const database = db(env);
-  const [regions, sports] = await Promise.all([
-    database.prepare(`SELECT DISTINCT r.id, r.district AS name, r.sort_order FROM service_regions r
-      JOIN coach_service_regions cr ON cr.region_id = r.id JOIN coaches c ON c.id = cr.coach_id
-      WHERE r.status = 'published' AND c.profile_kind = 'real' AND c.audit_status = 'approved'
-        AND c.listing_status = 'online' AND c.city='北京' AND r.city='北京' ORDER BY r.sort_order, r.district`).all<Row>(),
-    database.prepare(`SELECT DISTINCT s.id, s.name, s.sort_order FROM service_sports s
-      JOIN coach_sports cs ON cs.sport_id = s.id JOIN coaches c ON c.id = cs.coach_id
-      WHERE s.status = 'published' AND c.profile_kind = 'real' AND c.audit_status = 'approved'
-        AND c.listing_status = 'online' AND c.city='北京' ORDER BY s.sort_order, s.name`).all<Row>(),
-  ]);
-  return { city: "北京", regions: rows(regions), sports: rows(sports) };
+export async function listPublicCatalogD1(env: ApiEnv, cityId?: string | null) {
+  if (!truthy(env.BEIJING_CATALOG_V2_ENABLED)) return { city: "北京", cityId: "beijing", cities: [], regions: [], sports: [] };
+  return listMulticityCatalogD1(cityId ?? null, env);
 }
 
 export async function listOperatorCatalogD1(env: ApiEnv) {

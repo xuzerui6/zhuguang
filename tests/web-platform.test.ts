@@ -252,7 +252,11 @@ test("booking options failures distinguish session errors from an offline coach"
     copy: "暂停接单",
     title: "教练暂未接单",
   });
-  assert.equal(describeBookingOptionsFailure(new Error("网络异常")).action, "retry");
+  assert.deepEqual(describeBookingOptionsFailure(new Error("Cannot read properties of undefined")), {
+    action: "retry",
+    copy: "预约配置加载失败，请检查网络后重试。",
+    title: "预约配置暂时无法加载",
+  });
 });
 
 test("coach access uses the server allowlist and operations is locked to the primary email", () => {

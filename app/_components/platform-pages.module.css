@@ -109,6 +109,35 @@
   overflow: hidden;
 }
 
+.profileTabs {
+  align-items: center;
+  background: #eef3f0;
+  border: 1px solid #d9e2dd;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 4px;
+}
+
+.profileTabs button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #526159;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  min-height: 44px;
+  padding: 0 16px;
+  transition: background-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
+}
+
+.profileTabs button:hover { background: rgba(255, 255, 255, .6); }
+.profileTabs button:focus-visible { outline: 3px solid rgba(8, 122, 80, .24); outline-offset: 2px; }
+.profileTabs .activeProfileTab { background: #fff; box-shadow: 0 1px 4px rgba(14, 36, 26, .1); color: #075f40; }
+.profileSingleColumn { display: grid; gap: 18px; }
+
 .panelHeader {
   align-items: center;
   border-bottom: 1px solid #e8ece9;
@@ -128,6 +157,10 @@
   flex-wrap: wrap;
   gap: 10px;
 }
+.classificationFilter { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
+.verificationSummary { display: flex; flex-wrap: wrap; align-items: start; gap: 12px; }
+.verificationSummary summary { min-height: 44px; padding: 10px 12px; cursor: pointer; }
+.verificationSummary details { flex: 1; min-width: 240px; }
 
 .toolbar input,
 .toolbar select,
@@ -314,7 +347,14 @@
 
 .form { display: grid; gap: 18px; padding: 20px; }
 .formGrid { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.field { display: grid; gap: 7px; }
+.field { display: grid; gap: 7px; min-width: 0; }
+.formGrid > * { min-width: 0; }
+.field input, .field select, .field textarea { box-sizing: border-box; min-width: 0; width: 100%; max-width: 100%; }
+.releaseUpload { container-type: inline-size; scroll-margin-top: 90px; }
+.releaseUpload h2 { overflow-wrap: anywhere; }
+@container (max-width: 440px) {
+  .formGrid { grid-template-columns: minmax(0, 1fr); }
+}
 .field > span { color: #526159; font-size: 13px; font-weight: 650; }
 .field textarea { min-height: 110px; resize: vertical; }
 .fieldError { color: #b83f2a; font-size: 12px; }
@@ -455,6 +495,8 @@
 }
 
 @media (max-width: 640px) {
+  .profileTabs { overflow-x: auto; }
+  .profileTabs button { font-size: 13px; padding-inline: 8px; white-space: nowrap; }
   .avatarEditor { grid-template-columns: 72px 1fr; }
   .accountAvatar { font-size: 24px; height: 72px; width: 72px; }
   .contactSummary { grid-template-columns: 1fr; }
@@ -485,3 +527,11 @@
   .primary, .secondary, .danger, .iconButton { transition: none; }
   .loading svg { animation: none; }
 }
+.applicationDialog { width: min(720px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow: auto; padding: 24px; border: 1px solid #d6e0dc; border-radius: 8px; color: #13241d; }
+.applicationDialog::backdrop { background: rgb(6 19 15 / 40%); }
+.applicationDialog .rowActions button, .applicationDialog .rowActions a { min-height: 44px; }
+.applicationDialog .form { gap: 16px; padding: 20px 0 0; }
+.applicationDialog .form p { margin: 0; line-height: 1.6; }
+.applicationDialog .panelHeader { padding: 0 0 16px; gap: 12px; }
+.filters { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
+.formError { color: #aa352c; font-size: 14px; }

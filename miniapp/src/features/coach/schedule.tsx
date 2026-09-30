@@ -1,0 +1,7 @@
+import { Switch, Text, View } from "@tarojs/components";
+import type { CoachOverview } from "../../types";
+
+export function CoachSchedule({ overview, onToggle }: { overview: CoachOverview; onToggle: (enabled: boolean) => void }) {
+  const confirmed = overview.bookings.filter((item) => item.status === "confirmed");
+  return <View className="zg-page-content zg-subpage"><View className="zg-page-title"><Text>接单状态与日程</Text><Text>学员指定时间，教练确认后才锁定课程</Text></View><View className="zg-availability"><View><Text className="zg-action-title">接受新预约</Text><Text>{overview.coach.bookingEnabled === false ? "停止后不影响已确认课程" : "公开展示并接受学员时间申请"}</Text></View><Switch checked={overview.coach.bookingEnabled !== false} color="#176c54" onChange={(event) => onToggle(event.detail.value)} /></View><View className="zg-section-heading"><Text>已确认课程</Text><Text className="zg-heading-link">北京时间</Text></View>{confirmed.length ? <View className="zg-list-surface">{confirmed.map((booking) => <View className="zg-booking-row" key={booking.id}><View><Text className="zg-booking-title">{booking.dateLabel}</Text><Text>{booking.time}–{booking.endTime}</Text><Text>{booking.venueName || "地点待确认"}</Text></View></View>)}</View> : <View className="zg-muted-note"><Text>暂无已确认课程。场馆资料需要运营审核，接单状态可以随时调整。</Text></View>}<View className="zg-section-heading"><Text>审核通过的场馆</Text></View><View className="zg-list-surface">{overview.venues.map((venue) => <View className="zg-venue-row" key={venue.id}><Text>{venue.name}</Text><Text>{venue.district} · {venue.address}</Text></View>)}</View></View>;
+}

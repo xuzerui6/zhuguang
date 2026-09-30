@@ -1,39 +1,30 @@
 import {
   ArrowRight,
-  BadgeCheck,
-  CalendarCheck2,
-  Check,
   ClipboardCheck,
-  MapPin,
-  MessagesSquare,
-  Search,
   ShieldCheck,
   UsersRound,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { PublicFooter } from "./_components/public-footer";
-import { PublicHeader } from "./_components/public-header";
 import { AppDownloadClient } from "./_components/app-download-client";
-import { ServiceLeadForm } from "./_components/service-lead-form";
-import { CoachSpotlightCarousel } from "./_components/coach-spotlight-carousel";
+import { HomeCityProvider, HomeHeroCopy, HomeSearchBand, HomeSpotlight, HomeInquiryForm, HomeCityLink, HomePublicHeader } from './_components/home-city-content';
 import { MotionCoordinator } from "./_components/motion-coordinator";
 import styles from "./_components/public-site.module.css";
-import { loadPublicCoaches, loadPublicServiceCatalog, minimumPublishedTrialPrice } from "./_lib/web-platform";
-import { TRAINING_GOAL_OPTIONS } from "../shared/coach-catalog";
+import { loadPublicCoaches, loadPublicServiceCatalog } from "./_lib/web-platform";
+import { resolveServiceCity } from "../shared/service-cities";
 
 type HomePageProps = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
 
 export default async function HomePage({ searchParams }: HomePageProps) {
-  const [catalog, serviceCatalog] = await Promise.all([loadPublicCoaches(),loadPublicServiceCatalog()]);
   const params = await searchParams;
+  const cityId=resolveServiceCity(typeof params?.city==="string"?params.city:undefined);
+  const [catalog, serviceCatalog] = await Promise.all([loadPublicCoaches(cityId),loadPublicServiceCatalog(cityId)]);
   const requestedCoachId = Number(Array.isArray(params?.coach) ? params?.coach[0] : params?.coach);
-  const requestedCoach = catalog.find((coach) => coach.id === requestedCoachId && coach.canConsult);
-  const featuredCoaches = catalog.filter((item) => item.profileKind === "real").slice(0, 3);
-  const minimumTrialPrice = minimumPublishedTrialPrice(catalog);
   return (
     <>
-      <PublicHeader />
+      <HomeCityProvider key={`${cityId}:${requestedCoachId || ''}`} initial={{ cityId, coaches: catalog, catalog: serviceCatalog }} initialCoachId={requestedCoachId || undefined}>
+      <HomePublicHeader />
       <main>
         <MotionCoordinator />
         <section className={styles.hero}>
@@ -43,67 +34,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             <img alt="田径教练在起跑线上指导青少年运动员" fetchPriority="high" src="/images/hero-athletics-v2.webp" />
           </picture>
           <div className={styles.heroInner}>
-            <div className={styles.heroCopy}>
-              <p className={styles.heroKicker}>北京 · 青少年与成人体育训练</p>
-              <h1>北京专业体育教练<br />先核验，再预约</h1>
-              <p>为中考体育、专项提升和体能训练匹配已审核教练，可选合作场馆或协商训练地点。{minimumTrialPrice === undefined ? "教练确认后预约生效，训练费用线下支付。" : `首次试课 ¥${minimumTrialPrice}/60分钟起，教练确认后预约生效。`}</p>
-              <div className={styles.heroActions}>
-                <Link href="/coaches">找教练 <ArrowRight aria-hidden size={18} /></Link>
-                <Link href="#service-inquiry">先咨询训练需求 <MessagesSquare aria-hidden size={18} /></Link>
-              </div>
-              <div className={styles.heroTrust} aria-label="平台服务原则">
-                <span><BadgeCheck aria-hidden size={18} />人工核验</span>
-                <span><CalendarCheck2 aria-hidden size={18} />确认后生效</span>
-                <span><ShieldCheck aria-hidden size={18} />隐私保护</span>
-              </div>
-            </div>
+            <HomeHeroCopy />
           </div>
         </section>
 
-        <section className={styles.discoveryBand} aria-labelledby="find-title" data-motion>
-          <div>
-            <p className="zg-eyebrow">从真实需求出发</p>
-            <h2 id="find-title">先说明你要练什么</h2>
-          </div>
-          <form action="/coaches" className={styles.searchPanel}>
-            <label><span>城市</span><select defaultValue="北京" name="city" aria-label="选择城市"><option>北京</option></select></label>
-            <label><span>项目</span><select defaultValue="" name="sport" aria-label="选择运动项目"><option value="">全部已上线项目</option>{serviceCatalog.sports.map(item=><option key={item.id}>{item.name}</option>)}</select></label>
-            <label><span>目标</span><select defaultValue="中考体育" name="goal" aria-label="选择训练目标">{TRAINING_GOAL_OPTIONS.map((goal) => <option key={goal}>{goal}</option>)}</select></label>
-            <button type="submit"><Search aria-hidden size={18} />查看匹配结果</button>
-          </form>
-        </section>
-
-        <section className={styles.spotlightSection} data-motion>
-          <div className={styles.spotlightHeading}>
-            <div><p className="zg-eyebrow">北京试点教练</p><h2 className="zg-section-title">资料真实，比数字热闹更重要</h2></div>
-            <p>平台只展示已经提供并可核验的信息。没有评价、课量或经营数据时，会如实说明。</p>
-          </div>
-          <CoachSpotlightCarousel count={featuredCoaches.length}>
-            {featuredCoaches.map((coach) => (
-              <article className={styles.spotlightCard} data-motion="card" key={coach.id}>
-                <Link className={styles.spotlightCardMedia} href={`/coaches/${coach.id}`}>
-                  <Image alt={`${coach.name}教练`} fill sizes="(max-width: 760px) 82vw, (max-width: 1100px) 46vw, 31vw" src={coach.media.cardUrl || coach.image} unoptimized />
-                  <span><BadgeCheck aria-hidden size={15} />{coach.verificationLabel}</span>
-                </Link>
-                <div className={styles.spotlightCardBody}>
-                  <div className={styles.spotlightCardIdentity}>
-                    <div><h3>{coach.name}</h3><p>{coach.title}</p></div>
-                    <strong>{coach.experience}年<small>执教</small></strong>
-                  </div>
-                  <p className={styles.coachLocation}><MapPin aria-hidden size={16} />{coach.district} · {coach.venue}</p>
-                  <p className={styles.spotlightHonor}>{coach.honors.slice(0, 2).join(" · ")}</p>
-                  <div className={styles.coachStrengths}>{coach.strengths.slice(0, 3).map((item) => <span key={item}><Check aria-hidden size={14} />{item}</span>)}</div>
-                  <div className={styles.coachDecision}><span><small>适合</small><strong>{coach.audience.slice(0, 2).join("、")}</strong></span><span><small>时间</small><strong>学员指定 · 教练确认</strong></span></div>
-                  <div className={styles.spotlightCardFooter}>
-                    <span><small>常规课</small><strong>{coach.price === undefined ? "待发布" : `¥${coach.price}`}</strong></span>
-                    <span><small>试课</small><strong>{coach.trialPrice === undefined ? "待发布" : `¥${coach.trialPrice}`}</strong></span>
-                    <div className={styles.spotlightCardActions}><Link href={`/coaches/${coach.id}`}>查看详情</Link>{coach.canConsult ? <Link href={`/?coach=${coach.id}#service-inquiry`}>咨询这位教练</Link> : null}</div>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </CoachSpotlightCarousel>
-        </section>
+        <HomeSearchBand />
+        <HomeSpotlight />
 
         <section className={styles.processSection} data-motion>
           <div className={styles.processIntro}>
@@ -136,18 +72,18 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         <section className={styles.plansSection} data-motion id="training-plans">
           <div className={styles.sectionHeading}>
             <div><p className="zg-eyebrow">训练方案</p><h2 className="zg-section-title">目标不同，路径也应该不同</h2></div>
-            <Link href="/coaches">按目标筛选教练 <ArrowRight aria-hidden size={17} /></Link>
+            <HomeCityLink href="/coaches">按目标筛选教练 <ArrowRight aria-hidden size={17} /></HomeCityLink>
           </div>
           <div className={styles.planRows}>
-            <Link href="/coaches?goal=中考体育"><span>01</span><strong>中考体育</strong><p>围绕测试项目建立动作、体能和节奏计划。</p><ArrowRight aria-hidden size={19} /></Link>
-            <Link href="/coaches?goal=短跑专项"><span>02</span><strong>短跑专项</strong><p>拆解起跑、加速、途中跑和冲刺技术。</p><ArrowRight aria-hidden size={19} /></Link>
-            <Link href="/coaches?goal=跑姿纠正"><span>03</span><strong>跑姿纠正</strong><p>从动作评估开始改善效率与身体控制。</p><ArrowRight aria-hidden size={19} /></Link>
-            <Link href="/coaches?goal=专项体能"><span>04</span><strong>专项体能</strong><p>结合训练目标安排力量、速度和恢复。</p><ArrowRight aria-hidden size={19} /></Link>
+            <HomeCityLink href="/coaches?goal=中考体育"><span>01</span><strong>中考体育</strong><p>围绕测试项目建立动作、体能和节奏计划。</p><ArrowRight aria-hidden size={19} /></HomeCityLink>
+            <HomeCityLink href="/coaches?goal=短跑专项"><span>02</span><strong>短跑专项</strong><p>拆解起跑、加速、途中跑和冲刺技术。</p><ArrowRight aria-hidden size={19} /></HomeCityLink>
+            <HomeCityLink href="/coaches?goal=跑姿纠正"><span>03</span><strong>跑姿纠正</strong><p>从动作评估开始改善效率与身体控制。</p><ArrowRight aria-hidden size={19} /></HomeCityLink>
+            <HomeCityLink href="/coaches?goal=专项体能"><span>04</span><strong>专项体能</strong><p>结合训练目标安排力量、速度和恢复。</p><ArrowRight aria-hidden size={19} /></HomeCityLink>
           </div>
         </section>
 
         <section className={styles.cooperationSection} data-motion>
-          <div><p className="zg-eyebrow">教练合作</p><h2>让真实的运动经历，转化为长期的专业服务</h2><p>逐光当前采用人工邀请与审核，不开放自助注册。审核通过的教练可用同一账号进入独立工作台。</p></div>
+          <div><p className="zg-eyebrow">教练合作</p><h2>让真实的运动经历，转化为长期的专业服务</h2><p>教练可在 Android App 或微信小程序提交完整入驻申请。运营核验通过后，同一账号即可进入教练工作台。</p></div>
           <Link href="/coach-partnership">了解合作方式 <ArrowRight aria-hidden size={18} /></Link>
         </section>
 
@@ -157,13 +93,14 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             <h2>把需求说清楚，再决定是否预约</h2>
             <p>咨询不收费，也不会自动生成预约。提交后只进入逐光运营工作台，运营核对需求后通过你留下的手机号或微信联系。</p>
           </div>
-          <ServiceLeadForm coach={requestedCoach ? { id: requestedCoach.id, name: requestedCoach.name, sport: requestedCoach.sport } : undefined} siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} />
+          <HomeInquiryForm siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} />
         </section>
 
         <section className={styles.downloadBand} data-motion id="app-download" aria-label="下载逐光 Android App">
           <AppDownloadClient compact />
         </section>
       </main>
+      </HomeCityProvider>
       <PublicFooter />
     </>
   );

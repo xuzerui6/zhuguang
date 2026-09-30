@@ -112,7 +112,9 @@ export type CoachPublicProfile = {
   bookable: boolean;
   bookingEnabled?: boolean;
   canConsult: boolean;
-  city: "北京";
+  city: "北京" | "长春";
+  serviceCities?: Array<"beijing"|"changchun">;
+  serviceAreas?: Array<{cityId:"beijing"|"changchun";district:string}>;
   credentials: string[];
   district: string;
   experience: number;

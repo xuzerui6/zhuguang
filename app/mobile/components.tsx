@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { LayoutGroup, m, useReducedMotion } from "motion/react";
 import {
   ArrowLeft,
   Bell,
@@ -20,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { type CSSProperties, type ReactNode, useEffect, useRef } from "react";
+import { MOTION_DURATION_MS } from "../../shared/motion";
 import { getBookingStatusCopy, getMatchResult } from "./domain";
 import type { MatchPreferences, MobileBooking, MobileCoach, MobileTab } from "./types";
 
@@ -121,7 +123,7 @@ export function BottomNav({
   onNavigate: (tab: MobileTab) => void;
 }) {
   return (
-    <nav aria-label="手机端主导航" className="zg-bottom-nav">
+    <LayoutGroup id="student-bottom-navigation"><nav aria-label="手机端主导航" className="zg-bottom-nav">
       {mobileTabs.map((item) => {
         const Icon = item.icon;
         const count = item.id === "messages" ? messageCount : item.id === "bookings" ? bookingCount : 0;
@@ -133,6 +135,7 @@ export function BottomNav({
             onClick={() => onNavigate(item.id)}
             type="button"
           >
+            {active === item.id ? <m.i className="zg-bottom-nav-indicator" layoutId="student-active-tab" transition={{ duration: MOTION_DURATION_MS.tab / 1000, ease: [0.2, 0.8, 0.2, 1] }} /> : null}
             <span>
               <Icon aria-hidden size={22} strokeWidth={active === item.id ? 2.25 : 1.8} />
               {count > 0 ? <b>{Math.min(count, 9)}</b> : null}
@@ -141,7 +144,7 @@ export function BottomNav({
           </button>
         );
       })}
-    </nav>
+    </nav></LayoutGroup>
   );
 }
 
@@ -283,6 +286,8 @@ export function TrustRow({ detail, title }: { detail: string; title: string }) {
 export function Sheet({ children, onClose, title }: { children: ReactNode; onClose: () => void; title: string }) {
   const panelRef = useRef<HTMLElement>(null);
   const closeRef = useRef(onClose);
+  const reducedMotion = useReducedMotion();
+  const duration = (reducedMotion ? 80 : MOTION_DURATION_MS.content) / 1000;
 
   useEffect(() => {
     closeRef.current = onClose;
@@ -305,12 +310,12 @@ export function Sheet({ children, onClose, title }: { children: ReactNode; onClo
 
   return (
     <div className="zg-sheet-layer">
-      <button aria-label="关闭弹层" className="zg-sheet-backdrop" onClick={onClose} type="button" />
-      <section aria-label={title} aria-modal="true" className="zg-sheet" ref={panelRef} role="dialog">
+      <m.button animate={{ opacity: 1 }} aria-label="关闭弹层" className="zg-sheet-backdrop" exit={{ opacity: 0 }} initial={{ opacity: 0 }} onClick={onClose} transition={{ duration }} type="button" />
+      <m.section animate={{ opacity: 1, y: 0 }} aria-label={title} aria-modal="true" className="zg-sheet" exit={{ opacity: 0, y: reducedMotion ? 0 : 24 }} initial={{ opacity: 0, y: reducedMotion ? 0 : 24 }} ref={panelRef} role="dialog" transition={{ duration, ease: [0.2, 0.8, 0.2, 1] }}>
         <span className="zg-sheet-handle" />
         <header><h2>{title}</h2><button aria-label="关闭" onClick={onClose} type="button"><X aria-hidden size={20} /></button></header>
         <div className="zg-sheet-body">{children}</div>
-      </section>
+      </m.section>
     </div>
   );
 }

@@ -19,6 +19,8 @@ import type {
   PlatformCapabilities,
 } from "./types";
 import type { PublicCoachReviews } from "../../shared/reviews";
+import type { CoachApplication, CoachApplicationDraft } from "../../shared/coach-application";
+import type { ServiceCityId } from "../../shared/service-cities";
 
 type ApiFailure = { error: { code: string; message: string; requestId: string; fieldErrors?: Record<string, string> } };
 
@@ -55,8 +57,9 @@ export function usesBundledDemoData() {
   return !getBuildValue("VITE_API_BASE_URL");
 }
 
-async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, retry = true, expectedUserId?: string): Promise<T> {
   const session = await readSession();
+  if (expectedUserId && (session?.userId || session?.profile?.userId) !== expectedUserId) throw new MobileApiError({ code:'account_changed', message:'账号已切换，请重新同步收藏', requestId:createRequestId() },401);
   const headers = new Headers(init.headers);
   const deviceId = await getOrCreateDeviceId();
   headers.set("accept", "application/json");
@@ -74,7 +77,7 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   const { response, payload } = await fetchMobilePayload(`${getApiBaseUrl()}${path}`, { ...init, headers });
   if (response.status === 401 && retry && session?.refreshToken) {
     const refreshed = await refreshSession(session.refreshToken);
-    if (refreshed) return request<T>(path, init, false);
+    if (refreshed) return request<T>(path, init, false, expectedUserId);
   }
 
   if (!response.ok || payload.error || payload.data === undefined) {
@@ -129,7 +132,8 @@ async function rotateSession(refreshToken: string, epoch: number) {
 
 export const mobileApi = {
   capabilities: () => request<PlatformCapabilities>("/api/v1/capabilities"),
-  bootstrap: () => request<{
+  bootstrap: (cityId: ServiceCityId = "beijing") => request<{
+    accountIdentity?: MobileIdentity;
     catalog?: import("../../shared/service-catalog").ServiceCatalog;
     accountProfile?: AccountProfile;
     bookings: MobileBooking[];
@@ -138,10 +142,17 @@ export const mobileApi = {
     favoriteCoachIds: number[];
     learnerProfiles: LearnerProfile[];
     minimumAppVersion: string;
-  }>("/api/v1/bootstrap"),
+  }>(`/api/v1/bootstrap?city=${cityId}`),
+  catalog: (cityId: ServiceCityId) => request<import("../../shared/service-catalog").ServiceCatalog>(`/api/v1/catalog?city=${cityId}`),
+  saveServiceCity: (cityId: ServiceCityId, source: "manual" | "location") => request("/api/v1/me/service-city", { body: JSON.stringify({ cityId, source }), method: "PATCH" }),
+  coachApplications: () => request<CoachApplication[]>("/api/v1/coach-applications/mine"),
+  saveCoachApplication: (input: CoachApplicationDraft) => request<CoachApplication>("/api/v1/coach-applications", { body: JSON.stringify(input), method: input.applicationId ? "PATCH" : "POST" }),
+  uploadCoachApplicationMedia: (id: string, kind: "avatar" | "hero" | "credential", file: Blob) => request(`/api/v1/coach-applications/${encodeURIComponent(id)}/media/${kind}`, { body: file, headers: { "content-type": file.type }, method: "PUT" }),
+  submitCoachApplication: (id: string) => request(`/api/v1/coach-applications/${encodeURIComponent(id)}/submit`, { method: "POST" }),
+  withdrawCoachApplication: (id: string) => request(`/api/v1/coach-applications/${encodeURIComponent(id)}/withdraw`, { method: "POST" }),
   me: () => request<MobileIdentity>("/api/v1/me"),
   profile: () => request<AccountProfile>("/api/v1/me/profile"),
-  updateProfile: (input: { bio: string; district: string; nickname: string }) => request<AccountProfile>("/api/v1/me/profile", {
+  updateProfile: (input: { bio: string; district?: string; nickname: string; serviceArea?: string; serviceCityId?: ServiceCityId }) => request<AccountProfile>("/api/v1/me/profile", {
     body: JSON.stringify(input), method: "PATCH",
   }),
   uploadAvatar: (blob: Blob) => request<AccountProfile>("/api/v1/me/avatar", {
@@ -173,11 +184,11 @@ export const mobileApi = {
     await writeSession(null);
   },
   deleteAccount: () => request<{ deletionEffectiveAt: number; retainedForDisputesDays: number }>("/api/v1/users/me", { method: "DELETE" }).finally(() => writeSession(null)),
-  setFavorite: (coachId: number, favorite: boolean) => request<{ favoriteCoachIds: number[] }>(`/api/v1/favorites/${coachId}`, {
+  setFavorite: (coachId: number, favorite: boolean, expectedUserId?: string) => request<{ favoriteCoachIds: number[] }>(`/api/v1/favorites/${coachId}`, {
     method: favorite ? "PUT" : "DELETE",
-  }),
+  }, true, expectedUserId),
   coachSlots: (coachId: number) => request<BookingSlot[]>(`/api/v1/coaches/${coachId}/slots`),
-  coachBookingOptions: (coachId: number) => request<BookingOptions>(`/api/v1/coaches/${coachId}/booking-options`),
+  coachBookingOptions: (coachId: number, cityId: ServiceCityId = "beijing") => request<BookingOptions>(`/api/v1/coaches/${coachId}/booking-options?city=${cityId}`),
   coachReviews: (coachId: number, sort: "helpful" | "recent" = "recent") => request<PublicCoachReviews>(`/api/v1/coaches/${coachId}/reviews?sort=${sort}`),
   markReviewHelpful: (reviewId: string) => request(`/api/v1/reviews/${encodeURIComponent(reviewId)}/helpful`, { method: "POST" }),
   reportReview: (reviewId: string, reason: string) => request(`/api/v1/reviews/${encodeURIComponent(reviewId)}/report`, { body: JSON.stringify({ reason }), method: "POST" }),
@@ -192,6 +203,7 @@ export const mobileApi = {
     method: "POST",
   }).catch(() => undefined),
   createBooking: (input: {
+    serviceCityId?: ServiceCityId;
     coachId: number;
     customAddress?: string;
     customDistrict?: string;
@@ -212,9 +224,10 @@ export const mobileApi = {
     method: "POST",
   }),
   notifications: () => request<MobileNotification[]>("/api/v1/notifications"),
-  saveLearner: (profile: LearnerProfile) => request<LearnerProfile>("/api/v1/learner-profiles", {
+  learnerProfiles: () => request<LearnerProfile[]>("/api/v1/learner-profiles"),
+  saveLearner: (profile: LearnerProfile) => request<LearnerProfile>(profile.id ? `/api/v1/learner-profiles/${encodeURIComponent(profile.id)}` : "/api/v1/learner-profiles", {
     body: JSON.stringify(profile),
-    method: profile.id ? "PUT" : "POST",
+    method: profile.id ? "PATCH" : "POST",
   }),
   cancelBooking: (bookingId: string) => request<MobileBooking>(`/api/v1/bookings/${bookingId}/cancel`, { method: "POST" }),
   respondCompletion: async (completionId: string, decision: "accepted" | "disputed", note = "") => request(`/api/v1/booking-completion-requests/${encodeURIComponent(completionId)}/respond`, { body: JSON.stringify({ decision, note }), headers: { "idempotency-key": await completionIdempotencyKey(completionId, decision, note) }, method: "POST" }),
@@ -240,8 +253,8 @@ export const mobileApi = {
   coachSetAvailability: (online: boolean) => request<{ effectiveOnline: boolean; online: boolean }>("/api/v1/coach/availability", {
     body: JSON.stringify({ online }), method: "PATCH",
   }),
-  coachProposeReschedule: (input: { bookingId: string; startsAt: number; venueId: string; note: string }) => request<{ id: string; status: string }>("/api/v1/coach/reschedule-proposals", {
-    body: JSON.stringify({ ...input, locationType: "venue" }), method: "POST",
+  coachProposeReschedule: (input: { bookingId: string; startsAt: number; venueId?: string; locationType: 'venue' | 'custom'; customDistrict?: string; customAddress?: string; note: string }) => request<{ id: string; status: string }>("/api/v1/coach/reschedule-proposals", {
+    body: JSON.stringify(input), method: "POST",
   }),
   coachSendMessage: (conversationId: string, body: string) => request<import("./types").MobileMessage>(`/api/v1/coach/conversations/${conversationId}/messages`, {
     body: JSON.stringify({ body }),
@@ -254,6 +267,7 @@ export const mobileApi = {
     method: "POST",
   }),
   latestRelease: () => request<AppRelease>("/api/v1/app/releases/latest"),
+  legalDocuments: () => request<import('../../shared/legal-documents').LegalDocument[]>('/api/v1/public/legal-documents'),
   createDownloadTicket: (versionCode: number) => request<{ expiresAt: number; url: string }>(`/api/v1/app/releases/${versionCode}/download-ticket`, {
     method: "POST",
   }),

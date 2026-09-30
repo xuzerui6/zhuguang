@@ -15,11 +15,13 @@ import {
   Plus,
   RefreshCw,
   Send,
+  ShieldCheck,
   Sparkles,
   UserRoundCheck,
   UsersRound,
 } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { BEIJING_DISTRICTS, SPORT_OPTIONS } from "../../shared/coach-catalog";
 import type { CoachVenue, OperatorCoachBusinessSettings } from "../mobile/types";
@@ -30,10 +32,14 @@ import { ReleaseCenter } from "./release-center";
 import { ClassificationFilter, CLASSIFICATION_LABELS } from './classification-filter';
 import { BOOKING_LABELS } from '../../shared/booking-rules';
 import { useOperationPrompt } from "./operation-context";
+import { OperationDialog } from "./operation-dialog";
+import { COACH_APPLICATION_LABELS, type CoachApplication } from "../../shared/coach-application";
+import { resolveServiceCity, SERVICE_AREAS, SERVICE_CITIES, type ServiceCityId } from "../../shared/service-cities";
 
-export type OpsSection = "home" | "matching" | "coaches" | "profile-reviews" | "bookings" | "catalog" | "users" | "reviews" | "support" | "content" | "audit" | "transactions" | "releases";
+export type OpsSection = "home" | "matching" | "coaches" | "profile-reviews" | "coach-applications" | "bookings" | "catalog" | "users" | "reviews" | "support" | "content" | "audit" | "transactions" | "releases";
 type Row = Record<string, unknown>;
-type Overview = { classifications?:Array<{entityType:string;counts:Array<{classification:string;count:number}>}>; bookings: Row[]; coaches: Row[]; leads: Row[]; pushDeliveries: Row[]; users: Row[] };
+type Overview = { classifications?:Array<{entityType:string;counts:Array<{classification:string;count:number}>}>; bookings: Row[]; coaches: Row[]; leads: Row[]; publicSupply: { byCity: Array<{ cityId: string; count: number }>; total: number }; pushDeliveries: Row[]; users: Row[] };
+type SystemHealth = { generatedAt:number; queues:{bookingRequests:number;coachApplications:number;serviceLeads:number}; services:{database:{ready:boolean};media:{ready:boolean};releases:{ready:boolean};email:{configured:boolean;failedDeliveries:number};push:{configured:boolean;failedDeliveries:number};wechat:{configured:boolean}} };
 
 function count(rows: Row[], status?: string) {
   return rows.filter((row) => !status || row.status === status).reduce((sum, row) => sum + Number(row.count || 0), 0);
@@ -65,6 +71,7 @@ export function OpsPage({ section }: { section: OpsSection }) {
   if (section === "matching") return <LeadCenter />;
   if (section === "coaches") return <CoachOperations />;
   if (section === "profile-reviews") return <ProfileReviewCenter />;
+  if (section === "coach-applications") return <CoachApplicationCenter />;
   if (section === "bookings") return <BookingOperations />;
   if (section === "catalog") return <CatalogOperations />;
   if (section === "users") return <UserOperations />;
@@ -75,6 +82,38 @@ export function OpsPage({ section }: { section: OpsSection }) {
   if (section === "transactions") return <TransactionOperations />;
   if (section === "releases") return <ReleaseCenter />;
   return <OpsHome />;
+}
+
+function ApplicationDetailsDialog({title,busy,onClose,children}:{title:string;busy:boolean;onClose:()=>void;children:React.ReactNode}){
+  const dialog=useRef<HTMLDialogElement>(null);
+  const close=useRef<HTMLButtonElement>(null);
+  useEffect(()=>{
+    const previous=document.activeElement as HTMLElement|null;
+    const element=dialog.current;element?.showModal();close.current?.focus();
+    return ()=>{element?.close();previous?.focus();};
+  },[]);
+  return <dialog ref={dialog} aria-label={title} className={styles.applicationDialog} onCancel={event=>{event.preventDefault();if(!busy)onClose();}}>
+    <header className={styles.panelHeader}><h2>{title}</h2><button ref={close} disabled={busy} className={styles.secondary} type="button" onClick={onClose}>关闭</button></header>{children}
+  </dialog>;
+}
+
+function CoachApplicationCenter(){
+  const [status,setStatus]=useState("pending");
+  const state=useOpsData<CoachApplication[]>(`/api/v1/operator/coach-applications${status?`?status=${status}`:""}`);
+  const [selected,setSelected]=useState<CoachApplication|null>(null);
+  const [note,setNote]=useState("");const [busy,setBusy]=useState(false);const [error,setError]=useState("");
+  const requestOperation=useOperationPrompt();
+  async function review(decision:"approved"|"rejected"){
+    if(!selected||busy)return;
+    if(!note.trim()){setError("请填写审核意见");return;}
+    const confirm=await requestOperation(decision==="approved"?"确认真实资料已核验。通过后将自动授予教练身份、上架并开启接单。":"确认拒绝本申请，申请人可根据意见修改后重新提交。",note);
+    if(confirm===null)return;
+    setBusy(true);setError("");
+    try{await platformRequest(`/api/v1/operator/coach-applications/${encodeURIComponent(selected.id)}`,{method:"PATCH",body:{decision,note:confirm}});setSelected(null);setNote("");await state.load();}catch(reason){setError(reason instanceof Error?reason.message:"审核失败，请重试");}finally{setBusy(false);}
+  }
+  const media=(kind:"avatar"|"hero"|"credential",index=0)=>`/api/platform?path=${encodeURIComponent(`/api/v1/operator/coach-applications/${selected?.id}/media/${kind}?index=${index}`)}`;
+  return <div className={styles.page}><Heading title="教练入驻审核" copy="核验真实身份、价格、服务范围、场馆与证明材料。通过后自动开通教练身份并公开接单。"/><div className={styles.filters}><label className={styles.field}><span>申请状态</span><select value={status} onChange={event=>setStatus(event.target.value)}><option value="">全部</option>{Object.entries(COACH_APPLICATION_LABELS).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label></div>{state.loading?<Loading label="正在读取入驻申请"/>:state.data?<section className={styles.panel}>{state.data.length?<div className={styles.list}>{state.data.map(item=><article className={styles.listItem} key={item.id}><div><h3>{item.real_name||"未填写姓名"}</h3><p>{item.sports.map(s=>s.name).join("、")} · {item.areas.map(a=>`${a.cityId==="changchun"?"长春":"北京"}${a.name}`).join("、")}</p><small>{COACH_APPLICATION_LABELS[item.status]} · {item.submitted_at?formatBeijingDate(item.submitted_at):"尚未提交"}</small></div><button className={styles.secondary} onClick={()=>{setSelected(item);setNote("");setError("");}} type="button">查看申请</button></article>)}</div>:<Empty title="暂无此状态的申请" copy="用户提交真实资料后会进入待审核队列。"/>}</section>:<ErrorState message={state.error} onRetry={state.load}/>}
+    {selected?<ApplicationDetailsDialog title={`${selected.real_name||"教练"}的入驻申请`} busy={busy} onClose={()=>setSelected(null)}><div className={styles.form}><p><strong>{selected.title}</strong></p><p>{selected.bio}</p><p>{selected.experience_years}年执教 · 服务对象：{selected.audiences.join("、")}</p><p>目标：{selected.goals.join("、")}<br/>擅长：{selected.strengths.join("、")}</p><p>常规课 {selected.price_fen?formatFen(selected.price_fen):"未填写"}/60分钟 · 试课 {selected.trial_price_fen?formatFen(selected.trial_price_fen):"未填写"}/60分钟</p><p>荣誉：{selected.honors.join("、")||"未填写"}<br/>证明：{selected.credentials.join("、")||"未填写"}</p>{selected.venues.map(venue=><p key={venue.id}>场馆：{venue.name}<br/>{venue.address}</p>)}<div className={styles.rowActions}>{selected.avatar_temp_key?<a className={styles.secondary} href={media("avatar")} target="_blank" rel="noreferrer">查看头像</a>:null}{selected.hero_temp_key?<a className={styles.secondary} href={media("hero")} target="_blank" rel="noreferrer">查看详情图</a>:null}{selected.credentialTempKeys.map((_,index)=><a key={index} className={styles.secondary} href={media("credential",index)} target="_blank" rel="noreferrer">证明材料 {index+1}</a>)}</div>{selected.review_note?<p>原审核意见：{selected.review_note}</p>:null}{selected.status==="pending"?<><label className={styles.field}><span>审核意见（必填）</span><textarea maxLength={500} value={note} onChange={event=>setNote(event.target.value)}/></label>{error?<p className={styles.formError} role="alert">{error}</p>:null}<div className={styles.rowActions}><button disabled={busy} className={styles.danger} onClick={()=>void review("rejected")} type="button">拒绝</button><button disabled={busy} className={styles.primary} onClick={()=>void review("approved")} type="button">{busy?"正在处理":"通过并自动上架"}</button></div></>:null}</div></ApplicationDetailsDialog>:null}</div>;
 }
 
 type CatalogItem = { id: string; name?: string; district?: string; status: "configured" | "published" | "disabled"; coach_count: number };
@@ -88,10 +127,10 @@ function CatalogOperations() {
     try { await platformRequest(`/api/v1/operator/catalog/${kind}/${encodeURIComponent(item.id)}`, { body: { reason, status }, method: "PATCH" }); setNotice("目录状态已更新并写入审计"); await state.load(); }
     catch (error) { setNotice(error instanceof Error ? error.message : "目录更新失败"); }
   }
-  if (state.loading) return <Loading label="正在读取北京服务目录" />;
+  if (state.loading) return <Loading label="正在读取双城服务目录" />;
   if (!state.data) return <ErrorState message={state.error} onRetry={state.load} />;
   const group = (title: string, kind: "regions" | "sports", items: CatalogItem[]) => <section className={styles.panel}><header className={styles.panelHeader}><div><h2>{title}</h2><p>只有真实、审核通过且在线教练形成的供给会进入公共筛选。</p></div></header><div className={styles.list}>{items.map((item) => <article className={styles.listItem} key={item.id}><span className={styles.listIcon}><MapPin aria-hidden size={18} /></span><div><h3>{item.name || item.district}</h3><p>{item.coach_count || 0} 位已关联教练 · {item.status}</p></div><span className={styles.rowActions}><button className={styles.secondary} disabled={item.status === "configured"} onClick={() => void update(kind, item, "configured")} type="button">配置中</button><button className={styles.primary} disabled={item.status === "published"} onClick={() => void update(kind, item, "published")} type="button">发布</button><button className={styles.danger} disabled={item.status === "disabled"} onClick={() => void update(kind, item, "disabled")} type="button">停用</button></span></article>)}</div></section>;
-  return <div className={styles.page}><Heading copy="经营地点严格限定北京 16 区；内部配置不等于对外可服务。" title="北京服务目录" />{group("服务区域", "regions", state.data.regions)}{group("运动项目", "sports", state.data.sports)}{notice ? <Toast copy={notice} /> : null}</div>;
+  return <div className={styles.page}><Heading copy="经营地点仅限北京与吉林长春的已配置区域；内部配置不等于对外可服务。" title="双城服务目录" />{group("服务区域", "regions", state.data.regions)}{group("运动项目", "sports", state.data.sports)}{notice ? <Toast copy={notice} /> : null}</div>;
 }
 
 function TransactionOperations() {
@@ -118,17 +157,17 @@ function OpsHome() {
   const [classification,setClassification]=useState('production_eligible');
   const state = useOpsData<Overview>(`/api/v1/operator/overview?classification=${classification}`);
   const funnel = useOpsData<Row[]>(`/api/v1/operator/analytics/funnel?classification=${classification}`);
+  const health = useOpsData<SystemHealth>('/api/v1/operator/system-health');
   if (state.loading) return <Loading label="正在汇总运营数据" />;
   if (!state.data) return <ErrorState message={state.error} onRetry={state.load} />;
   const failedPush = count(state.data.pushDeliveries, "failed");
   return <div className={styles.page}>
-    <Heading action={<Link className={styles.primary} href="/ops/matching">处理服务线索 <ArrowRight aria-hidden size={16} /></Link>} copy="业务统计按数据分类展示；默认仅计入已核验真实记录。服务健康统计包含全部投递。" title="北京试点运营概览" />
+    <Heading action={<Link className={styles.primary} href="/ops/matching">处理服务线索 <ArrowRight aria-hidden size={16} /></Link>} copy="业务统计按数据分类展示；公开供给独立按实际上线状态计算。" title="双城运营概览" />
     <ClassificationFilter value={classification} onChange={setClassification} />
-    <section className={styles.panel}><header className={styles.panelHeader}><h2>数据核验队列</h2></header><div className={styles.list}>{state.data.classifications?.map(item=><div className={styles.listItem} key={item.entityType}><strong>{({user:'账号',booking:'预约',coach:'教练',review:'评价',support_ticket:'售后',service_lead:'线索',product_event:'匿名事件'} as Record<string,string>)[item.entityType]}</strong><p>{item.counts.map(row=>`${CLASSIFICATION_LABELS[row.classification]} ${row.count}`).join(' · ') || '暂无记录'}</p></div>)}</div></section>
     <section className={styles.metrics}>
       <article><span>新服务线索</span><strong>{count(state.data.leads, "new")}</strong><small>等待首次联系</small></article>
       <article><span>待确认预约</span><strong>{count(state.data.bookings, "pending_coach")}</strong><small>等待教练处理</small></article>
-      <article><span>已上线教练</span><strong>{count(state.data.coaches, "online")}</strong><small>当前公开展示</small></article>
+      <article><span>已上线教练</span><strong>{state.data.publicSupply.total}</strong><small>{state.data.publicSupply.byCity.map(item=>`${item.cityId==='changchun'?'长春':'北京'} ${item.count}`).join(' · ') || '当前无公开供给'}</small></article>
       <article><span>推送失败</span><strong>{failedPush}</strong><small>需要检查或重试</small></article>
     </section>
     <div className={styles.split}>
@@ -139,14 +178,21 @@ function OpsHome() {
       </div></section>
       <aside className={styles.panel}><header className={styles.panelHeader}><div><h2>服务健康</h2><p>需要人工关注的事项</p></div></header><div className={styles.list}>
         <div className={styles.listItem}><span className={styles.listIcon}><Send aria-hidden size={19} /></span><div><h3>原生推送</h3><p>{failedPush ? `${failedPush} 条推送失败，建议查看投递日志` : "当前没有失败记录"}</p></div><em className={styles.status} data-tone={failedPush ? "coral" : "green"}>{failedPush ? "需处理" : "正常"}</em></div>
+        <div className={styles.listItem}><span className={styles.listIcon}><ShieldCheck aria-hidden size={19} /></span><div><h3>核心服务</h3><p>{health.loading ? '正在检查 D1、R2、邮件、推送和微信配置' : health.error ? '健康状态读取失败，可重新加载页面重试' : health.data ? `D1 ${health.data.services.database.ready?'正常':'异常'} · 媒体 ${health.data.services.media.ready?'正常':'未绑定'} · 微信 ${health.data.services.wechat.configured?'已配置':'未配置'}` : '暂时没有健康数据'}</p></div><em className={styles.status} data-tone={health.data?.services.database.ready ? "green" : "amber"}>{health.data?.services.database.ready ? "可用" : "待检查"}</em></div>
         <Link className={styles.listItem} href="/ops/releases"><span className={styles.listIcon}><HardDriveDownload aria-hidden size={19} /></span><div><h3>Android 版本</h3><p>查看灰度、暂停和通知状态</p></div><ArrowRight aria-hidden size={16} /></Link>
       </div></aside>
     </div>
+    <section className={styles.verificationSummary} aria-label="数据核验">
+      <Link className={styles.secondary} href="/ops/matching?classification=unclassified">待核验线索 {state.data.classifications?.find(item=>item.entityType==='service_lead')?.counts.find(row=>row.classification==='unclassified')?.count || 0}<ArrowRight aria-hidden size={16} /></Link>
+      <details><summary>查看分类汇总</summary><div className={styles.list}>{state.data.classifications?.map(item=><div className={styles.listItem} key={item.entityType}><strong>{({user:'账号',booking:'预约',coach:'教练',review:'评价',support_ticket:'售后',service_lead:'线索',product_event:'匿名事件'} as Record<string,string>)[item.entityType]}</strong><p>{item.counts.map(row=>`${CLASSIFICATION_LABELS[row.classification]} ${row.count}`).join(' · ') || '暂无记录'}</p></div>)}</div></details>
+    </section>
     <section className={styles.panel}><header className={styles.panelHeader}><div><h2>近30天业务漏斗</h2><p>只统计匿名流程阶段，不采集姓名、联系方式或输入内容</p></div></header>{funnel.loading ? <Loading label="正在汇总匿名业务漏斗" /> : funnel.data?.length ? <div className={styles.table}><div className={styles.tableHead}><span>流程</span><span>阶段</span><span>结果</span><span>端与角色</span><span>次数</span></div>{funnel.data.map((item, index) => <article className={styles.tableRow} key={`${item.flow}-${item.step}-${item.outcome}-${index}`}><span><strong>{String(item.flow || "业务流程")}</strong><small>近30天</small></span><span><strong>{String(item.step || "阶段")}</strong><small>匿名事件</small></span><span><em className={styles.status} data-tone={item.outcome === "success" ? "green" : item.outcome === "error" ? "coral" : "gray"}>{String(item.outcome || "view")}</em></span><span><strong>{String(item.surface || "web")}</strong><small>{String(item.role || "anonymous")}</small></span><span><strong>{Number(item.count || 0)}</strong><small>次</small></span></article>)}</div> : <Empty copy="用户开始使用新版找教练和预约流程后，匿名阶段数据会出现在这里。" title="暂无漏斗数据" />}</section>
   </div>;
 }
 
 type Lead = {
+  classification?: string;
+  classification_event_id?: string | null;
   assigned_to?: string;
   coach_name?: string;
   contact_name?: string;
@@ -177,8 +223,12 @@ function leadContactSummary(lead: Lead) {
 
 function LeadCenter() {
   const requestOperation = useOperationPrompt();
-  const [classification,setClassification]=useState('production_eligible');
-  const state = useOpsData<Lead[]>(`/api/v1/operator/leads?classification=${classification}`);
+  const params = useSearchParams();
+  const [classification,setClassification]=useState(() => Object.hasOwn(CLASSIFICATION_LABELS, params.get('classification') || '') ? params.get('classification')! : 'work_queue');
+  const selection = classification === 'work_queue' ? 'view=work_queue' : `classification=${classification}`;
+  const state = useOpsData<Lead[]>(`/api/v1/operator/leads?${selection}`);
+  const [classifyLead, setClassifyLead] = useState<Lead | null>(null);
+  const [nextClassification, setNextClassification] = useState('unclassified');
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("all");
   const [status, setStatus] = useState("all");
@@ -206,7 +256,7 @@ function LeadCenter() {
   }
   async function exportMasked() {
     try {
-      const exportRows = await platformRequest<Row[]>(`/api/v1/operator/leads/export?classification=${classification}`);
+      const exportRows = await platformRequest<Row[]>(`/api/v1/operator/leads/export?${selection}`);
       const blob = new Blob([JSON.stringify(exportRows, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `zhuguang-leads-masked-${new Date().toISOString().slice(0, 10)}.json`; anchor.click(); URL.revokeObjectURL(url);
       setNotice("已导出脱敏线索，导出动作已写入审计");
@@ -224,15 +274,29 @@ function LeadCenter() {
     } finally { setBusy(""); }
   }
   function closeContact() { setContact(null); setContactLead(null); }
+  async function classifySelectedLead(reason: string) {
+    if (!classifyLead) return;
+    try {
+      await platformRequest('/api/v1/operator/trust-metrics/classifications', { method: 'POST', body: {
+        entityType: 'service_lead', entityId: classifyLead.id, expectedEventId: classifyLead.classification_event_id ?? null,
+        classification: nextClassification, reason,
+      } });
+      setClassifyLead(null); setNotice('分类已核验并记录'); await state.load();
+    } catch (error) {
+      await state.load();
+      throw error;
+    }
+  }
   return <div className={styles.page}>
-    <Heading action={<div className={styles.toolbar}><input aria-label="搜索线索" onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、项目、区域或教练" value={query} /><select aria-label="线索类型" onChange={(event) => setKind(event.target.value)} value={kind}><option value="all">全部类型</option><option value="student_inquiry">学员咨询</option><option value="coach_partnership">教练合作</option><option value="privacy_request">隐私请求</option></select><select aria-label="处理状态" onChange={(event) => setStatus(event.target.value)} value={status}><option value="all">全部状态</option>{Object.entries(leadStatus).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><button className={styles.secondary} onClick={() => void exportMasked()} type="button">脱敏导出</button></div>} copy="联系方式默认脱敏。每次查看都会重新校验最高权限并写入审计记录。" title="服务线索" /><ClassificationFilter value={classification} onChange={setClassification} />
+    <Heading action={<div className={styles.toolbar}><input aria-label="搜索线索" onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、项目、区域或教练" value={query} /><select aria-label="线索类型" onChange={(event) => setKind(event.target.value)} value={kind}><option value="all">全部类型</option><option value="student_inquiry">学员咨询</option><option value="coach_partnership">教练合作</option><option value="privacy_request">隐私请求</option></select><select aria-label="处理状态" onChange={(event) => setStatus(event.target.value)} value={status}><option value="all">全部状态</option>{Object.entries(leadStatus).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><button className={styles.secondary} onClick={() => void exportMasked()} type="button">脱敏导出</button></div>} copy="工作队列包含新咨询和已核验需求；联系方式默认脱敏。" title="服务线索" /><ClassificationFilter workQueue value={classification} onChange={setClassification} />
     <section className={styles.panel}>{rows.length ? <div className={styles.table}><div className={styles.tableHead}><span>联系人</span><span>需求与类型</span><span>区域与来源</span><span>状态</span><span>操作</span></div>{rows.map((lead) => <article className={styles.tableRow} key={lead.id}>
       <span><strong>{lead.contact_name || "未填写称呼"}</strong><small>{leadContactSummary(lead)}</small></span>
       <span><strong>{lead.sport || "项目待确认"}{lead.coach_name ? ` · ${lead.coach_name}教练` : ""}</strong><small>{leadKindLabel[lead.lead_kind || "student_inquiry"]} · {lead.learner_stage || "阶段待确认"} · {lead.goal || "目标待补充"}</small></span>
       <span><strong>{lead.district || "北京"}</strong><small>{lead.desired_time || "时间待沟通"} · {lead.follow_up_due_at ? `跟进至 ${formatBeijingDate(lead.follow_up_due_at)}` : formatBeijingDate(lead.created_at)}</small></span>
-      <span><em className={styles.status} data-tone={lead.status === "new" ? "amber" : lead.status === "closed" ? "gray" : "green"}>{leadStatus[lead.status || "new"] || lead.status}</em></span>
+      <span><em className={styles.status} data-tone={lead.status === "new" ? "amber" : lead.status === "closed" ? "gray" : "green"}>{leadStatus[lead.status || "new"] || lead.status}</em><small>{CLASSIFICATION_LABELS[lead.classification || 'unclassified']}</small><button className={styles.secondary} onClick={() => { setClassifyLead(lead); setNextClassification(lead.classification || 'unclassified'); }} type="button">核验分类</button></span>
       <span className={styles.rowActions}><button className={styles.secondary} disabled={busy === `contact:${lead.id}`} onClick={() => void reveal(lead)} type="button"><LockKeyhole aria-hidden size={15} />查看联系方式</button><button className={styles.secondary} disabled={busy === lead.id} onClick={() => void assign(lead)} type="button">分派</button><button className={styles.secondary} disabled={busy === lead.id} onClick={() => void update(lead.id, "contacted")} type="button">标记已联系</button><button className={styles.primary} disabled={busy === lead.id} onClick={() => void update(lead.id, "qualified")} type="button">确认需求</button><button className={styles.danger} disabled={busy === lead.id} onClick={() => void update(lead.id, "closed")} type="button">关闭</button></span>
-    </article>)}</div> : <Empty copy="官网访客提交训练咨询或合作意向后，会以真实线索进入这里。" title="暂无服务线索" />}</section>
+    </article>)}</div> : <Empty copy={query || kind !== 'all' || status !== 'all' || classification !== 'work_queue' ? '请调整筛选条件，或返回工作队列查看新咨询。' : '收到咨询或合作意向后，会出现在工作队列中。'} title={query || kind !== 'all' || status !== 'all' || classification !== 'work_queue' ? '没有符合条件的线索' : '暂无服务线索'} />}</section>
+    {classifyLead ? <OperationDialog key={classifyLead.id} title="核验线索分类" description={`记录 #${classifyLead.id}。处理需求不会自动改变指标资格。`} onCancel={() => setClassifyLead(null)} onConfirm={classifySelectedLead}><label className={styles.field}><span>核验分类</span><select value={nextClassification} onChange={(event) => setNextClassification(event.target.value)}>{Object.entries(CLASSIFICATION_LABELS).filter(([key]) => key !== 'all').map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select></label></OperationDialog> : null}
     {contactLead ? <div className={styles.confirmOverlay} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) closeContact(); }}><section aria-labelledby="lead-contact-title" aria-modal="true" className={styles.confirmDialog} role="dialog"><LockKeyhole aria-hidden size={24} /><h2 id="lead-contact-title">{contactLead.contact_name || "联系人"}的联系方式</h2><p>本次查看已经记录到审计日志。请只用于处理该条服务需求。</p>{contact ? <div className={styles.detailList}>{contact.phone ? <div><span>手机号</span><strong>{contact.phone}</strong></div> : null}{contact.wechat ? <div><span>微信号</span><strong>{contact.wechat}</strong></div> : null}{contact.email ? <div><span>邮箱</span><strong>{contact.email}</strong></div> : null}</div> : <LoadingState label="正在安全读取联系方式" variant="detail" />}<div className={styles.confirmActions}><button className={styles.primary} onClick={closeContact} type="button">完成</button></div></section></div> : null}
     {notice ? <Toast copy={notice} /> : null}
   </div>;
@@ -347,9 +411,18 @@ function CoachOperations() {
 
 function BusinessSettingsDialog({ coach, onClose, onUpdated }: { coach: OpsCoach; onClose: () => void; onUpdated: () => Promise<void> }) {
   const [settings, setSettings] = useState<OperatorCoachBusinessSettings | null>(null);
+  const [venueCity, setVenueCity] = useState<ServiceCityId>("beijing");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { void platformRequest<OperatorCoachBusinessSettings>(`/api/v1/operator/coaches/${coach.id}/business-settings`).then(setSettings).catch((error) => setNotice(error instanceof Error ? error.message : "经营设置加载失败")); }, [coach.id]);
+  useEffect(() => {
+    let active = true;
+    void platformRequest<OperatorCoachBusinessSettings>(`/api/v1/operator/coaches/${coach.id}/business-settings`).then(value => {
+      if (!active) return;
+      setSettings(value);
+      setVenueCity(resolveServiceCity(value.city));
+    }).catch(error => { if (active) setNotice(error instanceof Error ? error.message : "经营设置加载失败"); });
+    return () => { active = false; };
+  }, [coach.id]);
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!settings) return;
     const form = new FormData(event.currentTarget); setBusy(true); setNotice("");
@@ -377,12 +450,12 @@ function BusinessSettingsDialog({ coach, onClose, onUpdated }: { coach: OpsCoach
   async function createVenue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); setBusy(true); setNotice("");
     try {
-      await platformRequest(`/api/v1/operator/coaches/${coach.id}/venues`, { body: { address: data.get("address"), district: data.get("district"), name: data.get("name"), reason: data.get("reason") }, method: "POST" });
+      await platformRequest(`/api/v1/operator/coaches/${coach.id}/venues`, { body: { cityId: venueCity, address: data.get("address"), district: data.get("district"), name: data.get("name"), reason: data.get("reason") }, method: "POST" });
       setSettings(await platformRequest<OperatorCoachBusinessSettings>(`/api/v1/operator/coaches/${coach.id}/business-settings`)); form.reset(); setNotice("新场馆已创建并启用");
     } catch (error) { setNotice(error instanceof Error ? error.message : "场馆创建失败"); }
     finally { setBusy(false); }
   }
-  return <div className={styles.confirmOverlay} role="presentation" onClick={onClose}><section aria-labelledby="business-title" aria-modal="true" className={styles.businessDialog} onClick={(event) => event.stopPropagation()} role="dialog"><h2 id="business-title">{coach.name} · 经营设置</h2><p>运营直改只用于经营字段，每次操作必须填写原因并进入审计日志。</p>{settings ? <><form className={styles.form} onSubmit={saveSettings}><div className={styles.formGrid}><label className={styles.field}><span>常规课价格（元）</span><input defaultValue={(settings.priceFen / 100).toFixed(0)} min="0" name="price" required step="0.01" type="number" /></label><label className={styles.field}><span>试课价格（元）</span><input defaultValue={(settings.trialPriceFen / 100).toFixed(0)} min="0" name="trialPrice" required step="0.01" type="number" /></label><label className={styles.field}><span>价格状态</span><select defaultValue={settings.pricingStatus} name="pricingStatus"><option value="published">公开价格</option><option value="unavailable">价格暂不可用</option></select></label><label className={styles.field}><span>服务区域</span><select defaultValue={settings.district} name="district">{BEIJING_DISTRICTS.map((district) => <option key={district}>{district}</option>)}</select></label></div><label className={styles.switchField}><input defaultChecked={settings.bookingEnabled} name="bookingEnabled" type="checkbox" /><span><strong>接受新预约</strong><small>关闭后保留公开资料和历史预约，但不能创建新预约。</small></span></label><label className={styles.field}><span>修改原因</span><textarea maxLength={300} name="reason" required /></label><button className={styles.primary} disabled={busy} type="submit">保存经营设置</button></form><div className={styles.venueSection}><header><div><h3>训练场馆</h3><p>停用前必须先处理该场馆的未来已确认课程。</p></div><MapPin aria-hidden /></header>{settings.venues.map((venue) => <form className={styles.venueEditor} key={venue.id} onSubmit={(event) => { event.preventDefault(); void saveVenue(venue, event.currentTarget); }}><div className={styles.formGrid}><label className={styles.field}><span>场馆名称</span><input defaultValue={venue.name} name="name" required /></label><label className={styles.field}><span>所在区域</span><select defaultValue={venue.district} name="district">{BEIJING_DISTRICTS.map((district) => <option key={district}>{district}</option>)}</select></label></div><label className={styles.field}><span>详细地址</span><input defaultValue={venue.address} name="address" required /></label><label className={styles.switchField}><input defaultChecked={venue.active !== false} name="active" type="checkbox" /><span><strong>启用场馆</strong><small>{venue.active === false ? "当前已停用" : "当前可用于新预约地点"}</small></span></label><label className={styles.field}><span>修改原因</span><input maxLength={300} name="reason" required /></label><button className={styles.secondary} disabled={busy} type="submit">保存场馆</button></form>)}<form className={styles.venueEditor} onSubmit={createVenue}><h4><Plus aria-hidden size={16} />新增场馆</h4><div className={styles.formGrid}><label className={styles.field}><span>场馆名称</span><input name="name" required /></label><label className={styles.field}><span>所在区域</span><select defaultValue={settings.district} name="district">{BEIJING_DISTRICTS.map((district) => <option key={district}>{district}</option>)}</select></label></div><label className={styles.field}><span>详细地址</span><input name="address" required /></label><label className={styles.field}><span>创建原因</span><input maxLength={300} name="reason" required /></label><button className={styles.secondary} disabled={busy} type="submit"><Plus aria-hidden size={16} />创建场馆</button></form></div></> : <Loading label="正在读取经营设置" />}{notice ? <p className={styles.dialogNotice} role="status">{notice}</p> : null}<div><button className={styles.secondary} onClick={onClose} type="button">关闭</button></div></section></div>;
+  return <div className={styles.confirmOverlay} role="presentation" onClick={onClose}><section aria-labelledby="business-title" aria-modal="true" className={styles.businessDialog} onClick={(event) => event.stopPropagation()} role="dialog"><h2 id="business-title">{coach.name} · 经营设置</h2><p>运营直改只用于经营字段，每次操作必须填写原因并进入审计日志。</p>{settings ? <><form className={styles.form} onSubmit={saveSettings}><div className={styles.formGrid}><label className={styles.field}><span>常规课价格（元）</span><input defaultValue={(settings.priceFen / 100).toFixed(2)} min="0" name="price" required step="0.01" type="number" /></label><label className={styles.field}><span>试课价格（元）</span><input defaultValue={(settings.trialPriceFen / 100).toFixed(2)} min="0" name="trialPrice" required step="0.01" type="number" /></label><label className={styles.field}><span>价格状态</span><select defaultValue={settings.pricingStatus} name="pricingStatus"><option value="published">公开价格</option><option value="unavailable">价格暂不可用</option></select></label><label className={styles.field}><span>服务区域</span><select defaultValue={settings.district} name="district">{SERVICE_AREAS[resolveServiceCity(settings.city)].map((district) => <option key={district}>{district}</option>)}</select></label></div><label className={styles.switchField}><input defaultChecked={settings.bookingEnabled} name="bookingEnabled" type="checkbox" /><span><strong>接受新预约</strong><small>关闭后保留公开资料和历史预约，但不能创建新预约。</small></span></label><label className={styles.field}><span>修改原因</span><textarea maxLength={300} name="reason" required /></label><button className={styles.primary} disabled={busy} type="submit">保存经营设置</button></form><div className={styles.venueSection}><header><div><h3>训练场馆</h3><p>停用前必须先处理该场馆的未来已确认课程。</p></div><MapPin aria-hidden /></header>{settings.venues.map((venue) => <form className={styles.venueEditor} key={venue.id} onSubmit={(event) => { event.preventDefault(); void saveVenue(venue, event.currentTarget); }}><div className={styles.formGrid}><label className={styles.field}><span>场馆名称</span><input defaultValue={venue.name} name="name" required /></label><label className={styles.field}><span>所在区域</span><select defaultValue={venue.district} name="district">{SERVICE_AREAS[resolveServiceCity(venue.city)].map((district) => <option key={district}>{district}</option>)}</select></label></div><label className={styles.field}><span>详细地址</span><input defaultValue={venue.address} name="address" required /></label><label className={styles.switchField}><input defaultChecked={venue.active !== false} name="active" type="checkbox" /><span><strong>启用场馆</strong><small>{venue.active === false ? "当前已停用" : "当前可用于新预约地点"}</small></span></label><label className={styles.field}><span>修改原因</span><input maxLength={300} name="reason" required /></label><button className={styles.secondary} disabled={busy} type="submit">保存场馆</button></form>)}<form className={styles.venueEditor} onSubmit={createVenue}><h4><Plus aria-hidden size={16} />新增场馆</h4><label className={styles.field}><span>场馆城市</span><select onChange={event => setVenueCity(resolveServiceCity(event.target.value))} value={venueCity}>{SERVICE_CITIES.map(city => <option key={city.id} value={city.id}>{city.name}</option>)}</select></label><div className={styles.formGrid}><label className={styles.field}><span>场馆名称</span><input name="name" required /></label><label className={styles.field}><span>所在区域</span><select key={venueCity} defaultValue={SERVICE_AREAS[venueCity][0]} name="district">{SERVICE_AREAS[venueCity].map((district) => <option key={district}>{district}</option>)}</select></label></div><label className={styles.field}><span>详细地址</span><input name="address" required /></label><label className={styles.field}><span>创建原因</span><input maxLength={300} name="reason" required /></label><button className={styles.secondary} disabled={busy} type="submit"><Plus aria-hidden size={16} />创建场馆</button></form></div></> : <Loading label="正在读取经营设置" />}{notice ? <p className={styles.dialogNotice} role="status">{notice}</p> : null}<div><button className={styles.secondary} onClick={onClose} type="button">关闭</button></div></section></div>;
 }
 
 type OpsBooking = { id: string; status?: string; fee_fen?: number; payment_status?: string; note?: string; learner_name?: string; coach_name?: string; sport?: string; venue_name?: string; starts_at?: number; ends_at?: number; created_at?: number };

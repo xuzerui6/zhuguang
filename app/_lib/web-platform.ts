@@ -82,9 +82,10 @@ export const opsNavigation: NavItem[] = [
   { group: "概览", href: "/ops", icon: "dashboard", id: "ops-home", label: "运营概览", permission: "ops:manage" },
   { group: "业务运营", href: "/ops/matching", icon: "matching", id: "ops-matching", label: "匹配中心", permission: "ops:manage" },
   { group: "业务运营", href: "/ops/bookings", icon: "calendar", id: "ops-bookings", label: "预约履约", permission: "ops:manage" },
-  { group: "业务运营", href: "/ops/catalog", icon: "matching", id: "ops-catalog", label: "北京服务目录", permission: "ops:manage" },
+  { group: "业务运营", href: "/ops/catalog", icon: "matching", id: "ops-catalog", label: "双城服务目录", permission: "ops:manage" },
   { group: "教练与风控", href: "/ops/coaches", icon: "coaches", id: "ops-coaches", label: "教练管理", permission: "ops:manage" },
   { group: "教练与风控", href: "/ops/profile-reviews", icon: "credential", id: "ops-profile-reviews", label: "资料审核", permission: "ops:manage" },
+  { group: "教练与风控", href: "/ops/coach-applications", icon: "credential", id: "ops-coach-applications", label: "入驻审核", permission: "ops:manage" },
   { group: "用户服务", href: "/ops/users", icon: "users", id: "ops-users", label: "学员服务", permission: "ops:manage" },
   { group: "用户服务", href: "/ops/reviews", icon: "training", id: "ops-reviews", label: "评价审核", permission: "ops:manage" },
   { group: "用户服务", href: "/ops/support", icon: "message", id: "ops-support", label: "售后工单", permission: "ops:manage" },
@@ -116,7 +117,9 @@ export function mapMobileCoachToWeb(coach: MobileCoach): CoachProfile {
     bookable: coach.bookable === true,
     bookingEnabled: coach.bookingEnabled !== false,
     canConsult: coach.canConsult !== false && coach.profileKind !== "demo",
-    city: "北京",
+    city: coach.city === "长春" ? "长春" : "北京",
+    serviceCities: coach.serviceCities?.filter(isServiceCity),
+    serviceAreas: coach.serviceAreas,
     credentials: coach.credentials ?? [],
     district: coach.district || "北京",
     experience: coach.experienceYears || 0,
@@ -157,12 +160,12 @@ function publicApiHeaders() {
   return appKey ? { "x-device-id": "zhuguang-web-public", "x-zhuguang-app-key": appKey } : null;
 }
 
-export async function loadPublicCoaches(): Promise<CoachProfile[]> {
+export async function loadPublicCoaches(cityId:ServiceCityId="beijing"): Promise<CoachProfile[]> {
   const headers = publicApiHeaders();
-  if (!headers) return publicCoaches;
+  if (!headers) return cityId==="beijing"?publicCoaches:[];
   const origin = (process.env.ZHUGUANG_MOBILE_API_URL || "https://api.beijingzhuguang.top").replace(/\/$/u, "");
   try {
-    const response = await fetch(`${origin}/api/v1/coaches`, { cache: "no-store", headers, signal: AbortSignal.timeout(4_000) });
+    const response = await fetch(`${origin}/api/v1/coaches?city=${cityId}`, { cache: "no-store", headers, signal: AbortSignal.timeout(4_000) });
     if (!response.ok) return [];
     const payload = await response.json() as { data?: MobileCoach[] };
     return payload.data?.map(mapMobileCoachToWeb).filter((coach) => coach.profileKind === "real") || [];
@@ -171,15 +174,15 @@ export async function loadPublicCoaches(): Promise<CoachProfile[]> {
   }
 }
 
-export async function loadPublicServiceCatalog(): Promise<ServiceCatalog> {
+export async function loadPublicServiceCatalog(cityId:ServiceCityId="beijing"): Promise<ServiceCatalog> {
   const headers=publicApiHeaders();
   if (!headers) return EMPTY_SERVICE_CATALOG;
   const origin=(process.env.ZHUGUANG_MOBILE_API_URL || 'https://api.beijingzhuguang.top').replace(/\/$/u,'');
   try {
-    const response=await fetch(`${origin}/api/v1/catalog`,{cache:'no-store',headers,signal:AbortSignal.timeout(10_000)});
+    const response=await fetch(`${origin}/api/v1/catalog?city=${cityId}`,{cache:'no-store',headers,signal:AbortSignal.timeout(10_000)});
     if (!response.ok) return EMPTY_SERVICE_CATALOG;
     const payload=await response.json() as {data?:ServiceCatalog};
-    return payload.data?.city==='北京' ? payload.data : EMPTY_SERVICE_CATALOG;
+    return payload.data && ['北京','长春'].includes(payload.data.city) ? payload.data : EMPTY_SERVICE_CATALOG;
   } catch { return EMPTY_SERVICE_CATALOG; }
 }
 
@@ -244,3 +247,4 @@ export function getRouteArea(pathname: string): WebArea {
   if (pathname.startsWith("/ops")) return "ops";
   return "public";
 }
+import { isServiceCity, type ServiceCityId } from "../../shared/service-cities";

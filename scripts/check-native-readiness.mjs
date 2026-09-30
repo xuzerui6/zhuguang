@@ -84,6 +84,7 @@ const checks = [
   ["Android 8 adaptive icon excludes unsupported monochrome layer", !adaptiveIconV26.includes("<monochrome")],
   ["Android 13 themed icon enabled", adaptiveIconV33.includes("<monochrome")],
   ["Android notification icon is monochrome", notificationIcon.includes("#FFFFFFFF") && !notificationIcon.includes("#FF835C")],
+  ["Android location stays foreground and approximate", androidManifest.includes('android:name="android.permission.ACCESS_COARSE_LOCATION" />') && androidManifest.includes('android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove"') && androidManifest.includes('android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove"') && Boolean(packageJson.dependencies?.["@capacitor/geolocation"])],
   ["Android JPush common service declared", androidManifest.includes(".ZhuguangJCommonService") && androidManifest.includes("cn.jiguang.user.service.action") && androidManifest.includes('android:process=":pushcore"')],
   ["Android JPush receiver action is correct", androidManifest.includes("cn.jpush.android.intent.RECEIVER_MESSAGE") && !androidManifest.includes("cn.jpush.android.intent.RECEIVE_MESSAGE")],
   ["Android JPush common service implementation", jpushService.includes("extends JCommonService")],

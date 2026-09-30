@@ -17,11 +17,11 @@ export function CoachSpotlightCarousel({ children, count }: { children: ReactNod
 
   return (
     <div className={styles.coachCarouselShell}>
-      <div className={styles.coachSpotlightGrid} onScroll={updateProgress} ref={trackRef}>{children}</div>
-      <div className={styles.coachCarouselProgress} aria-label={`正在查看第 ${active + 1} 位，共 ${count} 位教练`}>
+      <div className={`${styles.coachSpotlightGrid} ${count === 1 ? styles.coachSpotlightSingle : ''}`} onScroll={updateProgress} ref={trackRef}>{children}</div>
+      {count > 1 ? <div className={styles.coachCarouselProgress} aria-label={`正在查看第 ${Math.min(active + 1, count)} 位，共 ${count} 位教练`}>
         <span>左右滑动查看教练</span>
         <div aria-hidden>{Array.from({ length: count }, (_, index) => <i className={index === active ? styles.activeDot : undefined} key={index} />)}</div>
-      </div>
+      </div> : null}
     </div>
   );
 }

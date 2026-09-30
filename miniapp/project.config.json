@@ -1,0 +1,14 @@
+{
+  "appid": "touristappid",
+  "compileType": "miniprogram",
+  "description": "逐光运动教练微信小程序开发版",
+  "miniprogramRoot": "dist/",
+  "projectname": "zhuguang-wechat-miniapp",
+  "setting": {
+    "checkSiteMap": true,
+    "es6": true,
+    "minified": true,
+    "postcss": true,
+    "urlCheck": true
+  }
+}

@@ -70,8 +70,10 @@ export async function writeSession(session: MobileSession | null) {
   else window.sessionStorage.removeItem(SESSION_KEY);
 }
 
-export async function readPreference<T>(key: "favorites" | "preferences" | "bookingDraft") {
-  const storageKey = key === "favorites" ? FAVORITES_KEY : key === "preferences" ? PREFERENCES_KEY : BOOKING_DRAFT_KEY;
+type PreferenceKey = "favorites" | "preferences" | "service-city" | "bookingDraft" | `favorites:${string}`;
+function preferenceKey(key: PreferenceKey) { return key==="service-city"?"zhuguang-service-city":key.startsWith('favorites:') ? `${FAVORITES_KEY}:${key.slice(10)}` : key === "favorites" ? FAVORITES_KEY : key === "preferences" ? PREFERENCES_KEY : BOOKING_DRAFT_KEY; }
+export async function readPreference<T>(key: PreferenceKey) {
+  const storageKey = preferenceKey(key);
   try {
     const result = await Preferences.get({ key: storageKey });
     return result.value ? (JSON.parse(result.value) as T) : null;
@@ -80,8 +82,8 @@ export async function readPreference<T>(key: "favorites" | "preferences" | "book
   }
 }
 
-export async function writePreference(key: "favorites" | "preferences" | "bookingDraft", value: unknown) {
-  const storageKey = key === "favorites" ? FAVORITES_KEY : key === "preferences" ? PREFERENCES_KEY : BOOKING_DRAFT_KEY;
+export async function writePreference(key: PreferenceKey, value: unknown) {
+  const storageKey = preferenceKey(key);
   await Preferences.set({ key: storageKey, value: JSON.stringify(value) });
 }
 

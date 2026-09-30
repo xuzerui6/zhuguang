@@ -5,7 +5,7 @@ import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { IconName, NavItem, WebArea, WebSession } from "../_lib/web-platform";
 import { coachNavigation, opsNavigation, studentNavigation } from "../_lib/web-platform";
 import { Brand } from "./brand";
@@ -46,7 +46,24 @@ function getNavigation(area: Exclude<WebArea, "public">): NavItem[] {
 export function WorkspaceShell({ area, children, session }: { area: Exclude<WebArea, "public">; children: React.ReactNode; session: WebSession }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
+  const drawer = useRef<HTMLDialogElement>(null);
+  const menuTrigger = useRef<HTMLButtonElement>(null);
   const [profilePromptOpen, setProfilePromptOpen] = useState(false);
+
+  useEffect(() => {
+    const dialog=drawer.current;
+    if (!dialog || !menuOpen) return;
+    const trigger=menuTrigger.current;
+    const previousOverflow=document.body.style.overflow;
+    document.body.style.overflow='hidden';
+    dialog.showModal(); dialog.querySelector<HTMLButtonElement>('button')?.focus();
+    const close=()=>dialog.close();
+    const media=window.matchMedia('(min-width: 821px)');
+    const resized=()=>{ if(media.matches) close(); };
+    media.addEventListener('change',resized); window.addEventListener('popstate',close);
+    return ()=>{ dialog.close(); document.body.style.overflow=previousOverflow; media.removeEventListener('change',resized); window.removeEventListener('popstate',close); trigger?.focus(); };
+  },[menuOpen]);
+  useEffect(()=>{ drawer.current?.close(); },[pathname]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -65,6 +82,14 @@ export function WorkspaceShell({ area, children, session }: { area: Exclude<WebA
   }, [area, pathname]);
 
   const profilePrompt = profilePromptOpen ? <ProfilePrompt onDismiss={() => { sessionStorage.setItem("zhuguang:profile-prompt-dismissed", "true"); setProfilePromptOpen(false); }} /> : null;
+  const sidebarContents = <>
+    <div className={styles.sidebarTop}><Brand /><button aria-label="关闭菜单" className={styles.mobileClose} onClick={() => setMenuOpen(false)} type="button"><X aria-hidden size={20} /></button></div>
+    <p className={styles.modeLabel}>{areaMeta[area].label}</p>
+    <nav aria-label={`${areaMeta[area].label}导航`}>
+      {[...new Set(navigation.map((item) => item.group))].map((group) => <section key={group}><p>{group}</p>{navigation.filter((item) => item.group === group).map((item) => <NavLink active={active?.id === item.id} item={item} key={item.id} onNavigate={() => setMenuOpen(false)} />)}</section>)}
+    </nav>
+    <div className={styles.sidebarTrust}><ShieldCheck aria-hidden size={18} /><span><strong>受保护工作区</strong><small>身份、角色与关键操作均由服务端校验</small></span></div>
+  </>;
 
   if (area === "student") {
     return (
@@ -78,17 +103,10 @@ export function WorkspaceShell({ area, children, session }: { area: Exclude<WebA
 
   return (
     <div className={`${styles.workspaceShell} ${area === "ops" ? styles.opsShell : styles.coachShell}`}>
-      <aside className={`${styles.sidebar} ${menuOpen ? styles.sidebarOpen : ""}`}>
-        <div className={styles.sidebarTop}><Brand /><button aria-label="关闭菜单" className={styles.mobileClose} onClick={() => setMenuOpen(false)} type="button"><X aria-hidden size={20} /></button></div>
-        <p className={styles.modeLabel}>{areaMeta[area].label}</p>
-        <nav aria-label={`${areaMeta[area].label}导航`}>
-          {[...new Set(navigation.map((item) => item.group))].map((group) => <section key={group}><p>{group}</p>{navigation.filter((item) => item.group === group).map((item) => <NavLink active={active?.id === item.id} item={item} key={item.id} onNavigate={() => setMenuOpen(false)} />)}</section>)}
-        </nav>
-        <div className={styles.sidebarTrust}><ShieldCheck aria-hidden size={18} /><span><strong>受保护工作区</strong><small>身份、角色与关键操作均由服务端校验</small></span></div>
-      </aside>
-      {menuOpen ? <button aria-label="关闭菜单遮罩" className={styles.scrim} onClick={() => setMenuOpen(false)} type="button" /> : null}
+      <aside className={`${styles.sidebar} ${styles.desktopSidebar}`}>{sidebarContents}</aside>
+      <dialog aria-label={`${areaMeta[area].label}菜单`} className={`${styles.sidebar} ${styles.mobileDrawer}`} id="workspace-navigation" ref={drawer} onCancel={(event)=>{event.preventDefault();setMenuOpen(false);}} onClose={()=>setMenuOpen(false)} onClick={(event)=>{if(event.target===event.currentTarget){const bounds=event.currentTarget.getBoundingClientRect();if(event.clientX>bounds.right || event.clientX<bounds.left) setMenuOpen(false);}}}>{sidebarContents}</dialog>
       <div className={styles.workspaceBody}>
-        <header className={styles.workspaceTopbar}><button aria-label="打开菜单" className={styles.mobileMenuButton} onClick={() => setMenuOpen(true)} type="button"><Menu aria-hidden size={21} /></button><div><p>北京试点 / {active?.label}</p><strong>{active?.label}</strong></div><AccountMenu area={area} session={session} /></header>
+        <header className={styles.workspaceTopbar}><button aria-label="打开菜单" aria-expanded={menuOpen} aria-controls="workspace-navigation" ref={menuTrigger} className={styles.mobileMenuButton} onClick={() => setMenuOpen(true)} type="button"><Menu aria-hidden size={21} /></button><div><p>北京与吉林长春 / {active?.label}</p><strong>{active?.label}</strong></div><AccountMenu area={area} session={session} /></header>
         <main className={styles.workspaceMain}><RouteTransition routeKey={pathname}>{children}</RouteTransition></main>{profilePrompt}
       </div>
     </div>
@@ -105,8 +123,17 @@ function NavLink({ active, item, onNavigate }: { active: boolean; item: NavItem;
 }
 
 function AccountMenu({ area, session }: { area: Exclude<WebArea, "public">; session: WebSession }) {
+  const menu=useRef<HTMLDetailsElement>(null);
+  const pathname=usePathname();
+  useEffect(()=>{ if(menu.current) menu.current.open=false; },[pathname]);
+  useEffect(()=>{
+    const outside=(event:PointerEvent)=>{if(menu.current && !menu.current.contains(event.target as Node)) menu.current.open=false;};
+    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape' && menu.current?.open){menu.current.open=false;menu.current.querySelector('summary')?.focus();event.stopPropagation();}};
+    document.addEventListener('pointerdown',outside); document.addEventListener('keydown',escape);
+    return ()=>{document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',escape);};
+  },[]);
   return (
-    <details className={styles.accountMenu}>
+    <details className={styles.accountMenu} ref={menu} onClick={(event)=>{if((event.target as Element).closest('a') && menu.current) menu.current.open=false;}}>
       <summary><span className={styles.avatar}>{session.avatarUrl ? <Image alt="" height={34} src={session.avatarUrl} unoptimized width={34} /> : session.displayName.slice(0, 1)}</span><span className={styles.accountText}><strong>{session.displayName}</strong><small>{areaMeta[area].short}</small></span><ChevronDown aria-hidden size={16} /></summary>
       <div><p>切换工作模式</p>{session.availableAreas.includes("student") ? <Link href="/student"><Home aria-hidden size={16} />学员服务</Link> : null}{session.availableAreas.includes("coach") ? <Link href="/coach-workspace"><ClipboardCheck aria-hidden size={16} />教练工作台</Link> : null}{session.availableAreas.includes("ops") ? <Link href="/ops"><Settings2 aria-hidden size={16} />运营工作台</Link> : null}<Link href="/"><Search aria-hidden size={16} />返回官网</Link></div>
     </details>

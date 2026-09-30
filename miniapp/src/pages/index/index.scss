@@ -1,0 +1,15 @@
+.zg-app { min-height: 100vh; padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
+.zg-view { min-height: calc(100vh - 130px); }
+
+.zg-city-tools { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18rpx; }
+.zg-city-chip { min-height: 64rpx; padding: 0 22rpx; display: inline-flex; align-items: center; gap: 10rpx; color: #123c30; background: #e8f3ed; border-radius: 8rpx; font-weight: 650; transition: transform 120ms ease, background 180ms ease; }
+.zg-city-chip:active, .zg-locate-link:active { transform: scale(.97); }
+.zg-locate-link { min-height: 64rpx; padding: 0 8rpx; display: flex; align-items: center; color: #176c54; font-size: 26rpx; }
+.zg-honest-empty, .zg-empty-with-action { padding: 40rpx 28rpx; background: #fff; border: 1rpx solid #e0e7e3; border-radius: 12rpx; color: #63716b; }
+.zg-honest-empty text { display: block; }
+.zg-honest-empty text:first-child { color: #13221d; font-size: 30rpx; font-weight: 650; margin-bottom: 10rpx; }
+.zg-empty-with-action .zg-outline-button { margin: 20rpx auto 0; max-width: 320rpx; }
+
+@media (prefers-reduced-motion: reduce) {
+  .zg-city-chip, .zg-locate-link { transition-duration: 80ms; }
+}

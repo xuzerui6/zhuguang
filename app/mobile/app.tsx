@@ -2,8 +2,12 @@
 import { consumesTrial } from "../../shared/booking-rules";
 import { useRefreshLoop } from "./use-refresh-loop";
 import { EMPTY_SERVICE_CATALOG, type ServiceCatalog } from '../../shared/service-catalog';
+import { cityName, isServiceCity, type ServiceCityId } from "../../shared/service-cities";
+import { locateServiceCity } from "./service-location";
+import { CoachApplicationSheet } from "./coach-application-sheet";
 
 import { WifiOff } from "lucide-react";
+import { AnimatePresence } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOperationPrompt } from "../_components/operation-context";
 import { MobileApiError, mobileApi, usesBundledDemoData } from "./api-client";
@@ -27,9 +31,12 @@ import {
   writePreference,
   writeSession,
 } from "./device";
-import { createRequestId, getMatchResult, mergeFavoriteIds } from "./domain";
+import { createRequestId, getMatchResult } from "./domain";
+import { useAccountFavorites } from './use-account-favorites';
 import { calculateDurationPriceFen } from "../../shared/pricing";
 import { formatBeijingDateTimeLocal, parseBeijingDateTimeLocal } from "../../shared/scheduling";
+import { nextMotion, STUDENT_TAB_ORDER, tabDirection, type NavigationMotionState } from "../../shared/motion";
+import { MotionStage } from "../_components/motion-provider";
 import { PullToRefresh } from "./pull-to-refresh";
 import {
   AccountSheet,
@@ -48,6 +55,7 @@ import {
 import type {
   BookingOptions,
   CoachVenue,
+  LearnerProfile,
   MatchPreferences,
   MobileBooking,
   MobileCoach,
@@ -68,7 +76,7 @@ import { HomeView } from "./views/home-view";
 import { MessagesView } from "./views/messages-view";
 import { ProfileView } from "./views/profile-view";
 
-type SheetName = "account" | "account-profile" | "assurance" | "auth" | "booking-success" | "cancel" | "city" | "favorites" | "feedback" | "filters" | "learner" | "notifications" | "review" | null;
+type SheetName = "account" | "account-profile" | "assurance" | "auth" | "booking-success" | "cancel" | "city" | "coach-application" | "favorites" | "feedback" | "filters" | "learner" | "notifications" | "review" | null;
 type BookingTab = "pending" | "active" | "completed";
 
 function getInitialPreferences(props: MobileStudentAppProps): MatchPreferences {
@@ -91,7 +99,14 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
   const [catalog,setCatalog]=useState<ServiceCatalog>(EMPTY_SERVICE_CATALOG);
   const [activeTab, setActiveTab] = useState<MobileTab>(props.initialTab ?? "home");
   const [view, setView] = useState<MobileView>(props.initialTab ?? "home");
+  const [navigationMotion, setNavigationMotion] = useState<NavigationMotionState>({ direction: "none", intent: "tab", sequence: 0 });
   const [preferences, setPreferences] = useState<MatchPreferences>(() => getInitialPreferences(props));
+  const initialPreferences=useRef(getInitialPreferences(props));
+  const [serviceCityId,setServiceCityId]=useState<ServiceCityId>("beijing");
+  const activeCity=useRef<ServiceCityId>("beijing");
+  const cityRequestEpoch=useRef(0);
+  const pendingAccountAction=useRef<"learner"|"coach-application"|null>(null);
+  const [learnerProfiles,setLearnerProfiles]=useState<LearnerProfile[]>([]);
   const [learner, setLearner] = useState(() => demoMode ? defaultLearner : {
     ...defaultLearner,
     age: 0,
@@ -106,7 +121,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
   const [notifications, setNotifications] = useState<MobileNotification[]>(() => demoMode ? demoNotifications : []);
   const [query, setQuery] = useState("");
   const [selectedCoachId, setSelectedCoachId] = useState(props.selectedCoachId || 5);
-  const [savedCoachIds, setSavedCoachIds] = useState<number[]>(props.savedCoachIds);
+  const { ids:savedCoachIds, pending:favoriteSyncPending, activate:activateFavorites, flush:flushFavorites, toggle:toggleFavorite, accept:acceptFavorites, ticket:favoriteTicket, consumeGuest:consumeGuestFavorites } = useAccountFavorites();
   const [bookings, setBookings] = useState<MobileBooking[]>([]);
   const [bookingTab, setBookingTab] = useState<BookingTab>("pending");
   const [bookingOptions, setBookingOptions] = useState<BookingOptions | null>(null);
@@ -155,7 +170,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
   const unreadMessages = conversations.reduce((total, conversation) => total + conversation.unreadCount, 0);
   const activeBookingCount = bookings.filter((booking) => booking.status === "confirmed").length;
   const pendingBookingCount = bookings.filter((booking) => booking.status === "pending_coach" || booking.status === "reschedule_requested").length;
-  const isTrialBooking = !bookings.some((booking) => booking.coachId === selectedCoach.id && consumesTrial(booking.status));
+  const isTrialBooking = bookingOptions?.trialEligible != null ? bookingOptions.trialEligible : !bookings.some((booking) => booking.coachId === selectedCoach.id && consumesTrial(booking.status));
 
   const showFeedback = useCallback((message: string) => {
     setFeedback(message);
@@ -170,27 +185,36 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     if (refreshInFlight.current) return refreshInFlight.current;
     if (!navigator.onLine) return Promise.resolve({ status: "error", message: "当前离线，无法刷新" });
     const request = (async (): Promise<PullRefreshResult> => {
+      const requestCity=activeCity.current;
+      const requestEpoch=cityRequestEpoch.current;
       try {
+        await activateFavorites(await readSession());
+        await flushFavorites().catch(() => undefined);
+        const favoritesRequest = favoriteTicket();
         const [bootstrap, remoteNotifications, remoteCapabilities] = await Promise.all([
-          mobileApi.bootstrap(),
+          mobileApi.bootstrap(requestCity),
           mobileApi.notifications().catch(() => []),
           mobileApi.capabilities().catch(() => null),
         ]);
+        const currentFavorites = favoriteTicket();
+        if(requestEpoch!==cityRequestEpoch.current)return {status:"error",message:"城市已切换"};
+        if (currentFavorites.owner !== favoritesRequest.owner || currentFavorites.epoch !== favoritesRequest.epoch) return {status:'error',message:'账号已切换，请重新刷新'};
         setCoaches(bootstrap.coaches);
         setCatalog(bootstrap.catalog ?? EMPTY_SERVICE_CATALOG);
-        if (bootstrap.learnerProfiles.length) setLearner(bootstrap.learnerProfiles[0]);
+        setLearnerProfiles(bootstrap.learnerProfiles);
+        setLearner(current=>bootstrap.learnerProfiles.find(item=>item.id===current.id)??bootstrap.learnerProfiles[0]??{...current,id:"",name:"",age:0});
         if (!demoMode || remoteNotifications.length) setNotifications(remoteNotifications);
         setBookings(bootstrap.bookings);
         setConversations(bootstrap.conversations);
         if (remoteCapabilities) setCapabilities(remoteCapabilities);
-        if (bootstrap.accountProfile) {
+        if (bootstrap.accountProfile || bootstrap.accountIdentity) {
           setSession((current) => {
             if (!current) return current;
-            const next = { ...current, profile: bootstrap.accountProfile };
+            const next = { ...current, ...bootstrap.accountIdentity, profile: bootstrap.accountProfile ?? current.profile };
             void writeSession(next); onSessionChange?.(next); return next;
           });
         }
-        setSavedCoachIds((current) => mergeFavoriteIds(current, bootstrap.favoriteCoachIds));
+        acceptFavorites(bootstrap.favoriteCoachIds, favoritesRequest);
         setApiConnected(true);
         setBootstrapped(true);
         return { status: "success", updatedAt: Date.now() };
@@ -205,7 +229,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       if (refreshInFlight.current === request) refreshInFlight.current = null;
     });
     return request;
-  }, [demoMode, onSessionChange]);
+  }, [demoMode, onSessionChange, activateFavorites, flushFavorites, favoriteTicket, acceptFavorites]);
 
   const refreshRemoteData = useRefreshLoop(fetchRemoteData, !demoMode);
 
@@ -213,7 +237,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     const result = await refreshRemoteData();
     if (result.status === "error" || view !== "booking") return result;
     try {
-      const options = await mobileApi.coachBookingOptions(selectedCoachId);
+      const options = await mobileApi.coachBookingOptions(selectedCoachId,activeCity.current);
       setBookingOptions(options);
       if (!options.venues.some((venue) => venue.id === bookingVenue.id) && options.venues[0]) {
         setBookingVenue(options.venues[0]);
@@ -228,16 +252,18 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     let cancelled = false;
     void Promise.all([
       readSession(),
-      readPreference<number[]>("favorites"),
       readPreference<MatchPreferences>("preferences"),
       clearLegacyAppointment(),
       getNetworkStatus(),
-    ]).then(([storedSession, storedFavorites, storedPreferences, , network]) => {
+      readPreference<ServiceCityId>("service-city"),
+    ]).then(([storedSession, storedPreferences, , network, storedCity]) => {
       if (cancelled) return;
       setSession(storedSession);
       onSessionChange?.(storedSession);
-      if (storedFavorites?.length) setSavedCoachIds((current) => mergeFavoriteIds(current, storedFavorites));
-      if (storedPreferences) setPreferences(storedPreferences);
+      void activateFavorites(storedSession);
+      const city=storedCity&&isServiceCity(storedCity)?storedCity:"beijing";
+      activeCity.current=city;setServiceCityId(city);
+      setPreferences({...initialPreferences.current,...storedPreferences,city:cityName(city),district:storedPreferences?.city===cityName(city)?storedPreferences.district:`全${cityName(city)}`});
       setOnline(network.connected);
       void refreshRemoteData();
     });
@@ -253,7 +279,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       window.removeEventListener("offline", onOffline);
       removeResume();
     };
-  }, [onSessionChange, refreshRemoteData]);
+  }, [onSessionChange, refreshRemoteData, activateFavorites]);
 
   const handleBack = useCallback(() => {
     if (sheet) {
@@ -261,16 +287,19 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       return true;
     }
     if (selectedConversation) {
+      setNavigationMotion((current) => nextMotion(current, "pop", "backward"));
       setSelectedConversation(null);
       queueScroll(tabScrollPositions.current.messages);
       return true;
     }
     if (view === "booking") {
+      setNavigationMotion((current) => nextMotion(current, "pop", "backward"));
       setView("coach");
       queueScroll(detailScrollPosition.current);
       return true;
     }
     if (view === "coach") {
+      setNavigationMotion((current) => nextMotion(current, "pop", "backward"));
       setView(activeTab);
       queueScroll(tabScrollPositions.current[activeTab]);
       return true;
@@ -309,17 +338,29 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     void writePreference("preferences", next);
   }, [props]);
 
+  const changeServiceCity=useCallback(async(city:ServiceCityId,source:"manual"|"location"="manual")=>{
+    activeCity.current=city;cityRequestEpoch.current+=1;setServiceCityId(city);
+    updatePreferences({...preferences,city:cityName(city),district:`全${cityName(city)}`});
+    setBookingOptions(null);setBookingCustomDistrict("");
+    await writePreference("service-city",city);
+    if(session)await mobileApi.saveServiceCity(city,source).catch(()=>showFeedback("城市已保存到本机，账号同步暂未完成"));
+    await refreshInFlight.current;
+    const result=await refreshRemoteData();
+    if(result.status==="error")throw new Error(result.message||"城市内容加载失败，请重试");
+  },[preferences,refreshRemoteData,session,showFeedback,updatePreferences]);
+
   const navigateTab = useCallback((tab: MobileTab) => {
     if (["home", "discover", "bookings", "messages", "profile"].includes(view) && !selectedConversation) {
       tabScrollPositions.current[view as MobileTab] = window.scrollY;
     }
     void impact();
+    setNavigationMotion((current) => nextMotion(current, "tab", tabDirection(STUDENT_TAB_ORDER, activeTab, tab)));
     setActiveTab(tab);
     onTabChange?.(tab);
     setView(tab);
     setSelectedConversation(null);
     queueScroll(tabScrollPositions.current[tab]);
-  }, [onTabChange, queueScroll, selectedConversation, view]);
+  }, [activeTab, onTabChange, queueScroll, selectedConversation, view]);
 
   const openCoach = useCallback((coach: MobileCoach) => {
     if (["home", "discover", "bookings", "messages", "profile"].includes(view)) {
@@ -327,21 +368,19 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     }
     props.onSelectCoach(coach.id);
     setSelectedCoachId(coach.id);
+    setNavigationMotion((current) => nextMotion(current, "push", "forward"));
     setView("coach");
     queueScroll(0);
     void impact();
   }, [props, queueScroll, view]);
 
   const toggleSaved = useCallback((coachId: number) => {
-    const favorite = !savedCoachIds.includes(coachId);
-    const next = favorite ? [...savedCoachIds, coachId] : savedCoachIds.filter((id) => id !== coachId);
-    setSavedCoachIds(next);
-    props.onToggleSaved(coachId);
-    void writePreference("favorites", next);
+    const favorite = toggleFavorite(coachId);
     void impact();
-    showFeedback(favorite ? "已加入收藏" : "已取消收藏");
-    if (session && online) void mobileApi.setFavorite(coachId, favorite).catch(() => undefined);
-  }, [online, props, savedCoachIds, session, showFeedback]);
+    if (!session) { showFeedback(favorite ? '已加入本机收藏' : '已取消本机收藏'); return; }
+    if (!online) { showFeedback('收藏变更已保留，联网后同步'); return; }
+    void flushFavorites().then(()=>showFeedback('收藏已同步')).catch(()=>showFeedback('收藏暂未同步，变更已保留，可重试'));
+  }, [online, session, showFeedback, toggleFavorite, flushFavorites]);
 
   const openBooking = useCallback(async (coach = selectedCoach) => {
     if (coach.bookable === false || coach.profileKind === "demo") {
@@ -355,7 +394,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
         coachId: coach.id, durationMinutes: [60, 90, 120], earliestStartsAt: Date.now() + 2 * 60 * 60_000,
         latestStartsAt: Date.now() + 60 * 24 * 60 * 60_000, regularBasePriceFen: (coach.price || 0) * 100,
         trialBasePriceFen: (coach.trialPrice || coach.price || 0) * 100, venues: venues.filter((item) => item.coachId === coach.id || item.coachId === 5),
-      } : await mobileApi.coachBookingOptions(coach.id);
+      } : await mobileApi.coachBookingOptions(coach.id,activeCity.current);
     } catch (error) {
       showFeedback(error instanceof Error ? error.message : "暂时无法读取预约配置");
       return;
@@ -368,6 +407,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     else setBookingLocationType("custom");
     setAgreed(false);
     detailScrollPosition.current = window.scrollY;
+    setNavigationMotion((current) => nextMotion(current, "push", "forward"));
     setView("booking");
     void mobileApi.trackEvents([{ flow: "booking", outcome: "success", role: "student", step: "options" }]);
     queueScroll(0);
@@ -382,6 +422,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     void mobileApi.trackEvents([{ flow: "booking", outcome: "started", role: "student", step: "submit" }]);
     const input = {
       coachId: selectedCoach.id,
+      serviceCityId:activeCity.current,
       customAddress: bookingCustomAddress,
       customDistrict: bookingCustomDistrict,
       customLocationNote: bookingCustomNote,
@@ -454,8 +495,9 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       showFeedback("请先设置账号昵称，再提交预约");
       return;
     }
+    if(!learner.id){setSheet("learner");showFeedback("请先新增或选择学员档案");return;}
     void performBooking();
-  }, [performBooking, session, showFeedback]);
+  }, [learner.id,performBooking, session, showFeedback]);
 
   const requestCode = useCallback(async () => {
     setAuthLoading(true);
@@ -499,9 +541,13 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       } else {
         verifiedSession = await mobileApi.verifyEmailOtp(challengeId, otpCode, savedCoachIds);
       }
+      await consumeGuestFavorites();
+      await activateFavorites(verifiedSession);
       setSession(verifiedSession);
+      void refreshRemoteData();
       onSessionChange?.(verifiedSession);
-      setSheet(verifiedSession.profile?.completed ? null : "account-profile");
+      setSheet(pendingAccountAction.current === "coach-application" ? "coach-application" : verifiedSession.profile?.completed ? pendingAccountAction.current : "account-profile");
+      pendingAccountAction.current=null;
       showFeedback("邮箱验证成功");
       if (!verifiedSession.profile?.completed) return;
       if (pendingBooking) window.setTimeout(() => void performBooking(), 120);
@@ -512,6 +558,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
           void mobileApi.createConversation(coachId).then((conversation) => {
             setConversations((current) => [conversation, ...current.filter((item) => item.coachId !== coachId)]);
             setSelectedConversation(conversation);
+            setNavigationMotion((current) => nextMotion(current, "push", "forward"));
             setActiveTab("messages");
             setView("messages");
             queueScroll(0);
@@ -523,7 +570,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     } finally {
       setAuthLoading(false);
     }
-  }, [challengeId, email, onSessionChange, otpCode, pendingBooking, pendingConversationCoachId, performBooking, queueScroll, savedCoachIds, showFeedback]);
+  }, [challengeId, email, onSessionChange, otpCode, pendingBooking, pendingConversationCoachId, performBooking, queueScroll, savedCoachIds, showFeedback, consumeGuestFavorites, activateFavorites, refreshRemoteData]);
 
   const openConversationForCoach = useCallback((coachId: number) => {
     if (!session) {
@@ -543,6 +590,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       const updated = { ...existing, unreadCount: 0, messages: existing.messages.map((message) => ({ ...message, read: true })) };
       setConversations((current) => current.map((item) => item.id === updated.id ? updated : item));
       setSelectedConversation(updated);
+      setNavigationMotion((current) => nextMotion(current, "push", "forward"));
     } else {
       if (!online) {
         showFeedback("当前离线，联网后即可开始新咨询");
@@ -550,6 +598,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
       }
       void mobileApi.createConversation(coachId).then((remote) => {
         setSelectedConversation(remote);
+        setNavigationMotion((current) => nextMotion(current, "push", "forward"));
         setConversations((current) => [remote, ...current.filter((item) => item.coachId !== coachId)]);
         setActiveTab("messages");
         setView("messages");
@@ -596,7 +645,7 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
   const profileAction = useCallback((action: string) => {
     if (action === "bookings") navigateTab("bookings");
     else if (action === "favorites") setSheet("favorites");
-    else if (action === "learners") setSheet("learner");
+    else if (action === "learners" || action === "coach-application") {const next=action==="learners"?"learner":"coach-application";if(!session){pendingAccountAction.current=next;setSheet("auth");}else setSheet(next);}
     else if (action === "records") { navigateTab("bookings"); setBookingTab("completed"); }
     else if (action === "authenticate") setSheet("auth");
     else if (action === "edit-profile") setSheet("account-profile");
@@ -604,53 +653,50 @@ export default function MobileStudentApp(props: MobileStudentAppProps) {
     else if (action === "assurance") setSheet("assurance");
     else if (action === "feedback") setSheet("feedback");
     else if (action === "updates") onOpenUpdates?.();
-  }, [navigateTab, onOpenUpdates]);
+  }, [navigateTab, onOpenUpdates,session]);
 
   const filterResultCount = coaches.filter((coach) => getMatchResult(coach, preferences).eligible).length;
   const activeBooking = bookings.find((booking) => booking.status === "pending_coach" || booking.status === "confirmed") ?? null;
   const reviewTodo = bookings.find((booking) => booking.review.canSubmit || booking.review.canResubmit) ?? null;
   const showBottomNav = ["home", "discover", "bookings", "messages", "profile"].includes(view) && !selectedConversation;
   const unreadNotifications = notifications.filter((notification) => !notification.read).length;
-
-  if (!coaches.length) {
-    return (
-      <main className="zg-mobile-app">
-        <div className="zg-mobile-loading" role="status">
-          {bootstrapped ? <><strong>北京试点教练正在准备中</strong><p>通过审核的教练上线后会第一时间出现在这里。</p></> : <><span /><span /><span /><small>正在载入已审核教练</small></>}
-        </div>
-      </main>
-    );
-  }
+  const sceneKey = selectedConversation ? `conversation-${selectedConversation.id}` : `${view}-${selectedCoachId}-${navigationMotion.sequence}`;
 
   return (
     <main className={online ? "zg-mobile-app" : "zg-mobile-app is-offline"}>
       <PullToRefresh disabled={Boolean(sheet) || Boolean(selectedConversation)} onRefresh={handlePullRefresh} />
       {!online ? <div className="zg-offline-banner"><WifiOff aria-hidden size={15} />当前离线，可继续浏览已缓存内容</div> : null}
+      {session && favoriteSyncPending ? <div className="zg-offline-banner" role="status">收藏变更待同步<button onClick={() => void flushFavorites().then(()=>showFeedback('收藏已同步')).catch(()=>showFeedback('同步失败，变更已保留'))} type="button">重试同步</button></div> : null}
       {online && bootstrapped && !apiConnected && !demoMode ? <div className="zg-offline-banner is-service-fallback"><WifiOff aria-hidden size={15} />本地资料可能不是最新<button onClick={() => void refreshRemoteData()} type="button">重新连接</button></div> : null}
-      {view === "home" ? <AppHeader avatarUrl={session?.profile?.avatarUrl} city={preferences.district === "全北京" ? "北京" : preferences.district} notificationCount={unreadNotifications} onCity={() => setSheet("city")} onNotifications={() => setSheet("notifications")} onProfile={() => navigateTab("profile")} /> : null}
+      {view === "home" ? <AppHeader avatarUrl={session?.profile?.avatarUrl} city={preferences.district.startsWith("全") ? cityName(serviceCityId) : `${cityName(serviceCityId)} · ${preferences.district}`} notificationCount={unreadNotifications} onCity={() => setSheet("city")} onNotifications={() => setSheet("notifications")} onProfile={() => navigateTab("profile")} /> : null}
 
-      {view === "home" ? <HomeView catalog={catalog} activeBooking={activeBooking} coaches={coaches} onDiscover={() => navigateTab("discover")} onOpenBooking={() => navigateTab("bookings")} onOpenCoach={openCoach} onOpenReview={() => { if (reviewTodo) { setReviewTarget(reviewTodo); setSheet("review"); } }} onSearch={(value) => { setQuery(value); if (value) navigateTab("discover"); }} onSelectSport={(sport) => updatePreferences({ ...preferences, sport })} onToggleSaved={toggleSaved} preferences={preferences} query={query} reviewTodo={reviewTodo} savedCoachIds={savedCoachIds} /> : null}
-      {view === "discover" ? <DiscoverView coaches={coaches} onFilter={() => setSheet("filters")} onOpenCoach={openCoach} onQuery={setQuery} onToggleSaved={toggleSaved} preferences={preferences} query={query} savedCoachIds={savedCoachIds} /> : null}
-      {view === "coach" ? <CoachDetailView key={selectedCoach.id} coach={selectedCoach} isSaved={savedCoachIds.includes(selectedCoach.id)} onBack={handleBack} onBook={() => void openBooking(selectedCoach)} onMessage={() => openConversationForCoach(selectedCoach.id)} onToggleSaved={() => toggleSaved(selectedCoach.id)} preferences={preferences} /> : null}
-      {view === "booking" && bookingOptions ? <BookingView agreed={agreed} coach={selectedCoach} customAddress={bookingCustomAddress} customDistrict={bookingCustomDistrict} customLocationNote={bookingCustomNote} durationMinutes={bookingDuration} isTrialBooking={isTrialBooking} learner={learner} locationType={bookingLocationType} note={bookingNote} onBack={handleBack} onChangeCustomAddress={setBookingCustomAddress} onChangeCustomDistrict={setBookingCustomDistrict} onChangeCustomLocationNote={setBookingCustomNote} onChangeDuration={setBookingDuration} onChangeLocationType={setBookingLocationType} onChangeNote={setBookingNote} onChangeStartsAt={setBookingStartsAt} onChangeVenue={(id) => { const venue = bookingOptions.venues.find((item) => item.id === id); if (venue) setBookingVenue(venue); }} onConfirm={submitBooking} onEditLearner={() => setSheet("learner")} onToggleAgreement={() => setAgreed((current) => !current)} options={bookingOptions} preferences={preferences} startsAt={bookingStartsAt} submitting={submitting} venue={bookingVenue} /> : null}
-      {view === "bookings" ? <BookingsView bookings={bookings} capabilities={capabilities} coaches={coaches} onCancel={(booking) => { setCancelTarget(booking); setSheet("cancel"); }} onComplete={(booking, decision) => void respondToCompletion(booking, decision)} onDiscover={() => navigateTab("discover")} onMessage={openConversationForCoach} onReschedule={(booking) => void openBooking(coaches.find((coach) => coach.id === booking.coachId) ?? selectedCoach)} onReview={(booking) => { setReviewTarget(booking); setSheet("review"); }} onTab={setBookingTab} onTestPayment={(booking) => void completeTestPayment(booking)} tab={bookingTab} venues={venues} /> : null}
-      {view === "messages" ? <MessagesView coaches={coaches} conversations={conversations} draft={messageDraft} onBack={() => setSelectedConversation(null)} onChangeDraft={setMessageDraft} onOpen={(conversation) => { setSelectedConversation({ ...conversation, unreadCount: 0 }); setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, unreadCount: 0 } : item)); if (!demoMode && conversation.unreadCount) void mobileApi.markConversationRead(conversation.id).catch((error) => showFeedback(error instanceof Error ? error.message : "已读状态同步失败")); }} onSend={sendMessage} selectedConversation={selectedConversation} sending={messageSending} /> : null}
-      {view === "profile" ? <ProfileView activeBookingCount={activeBookingCount} coachSummary={session?.coach ?? props.coachSummary} completedCount={bookings.filter((booking) => booking.status === "completed").length} contactMasked={session?.contactMasked ?? session?.phoneMasked} learner={learner} onAction={profileAction} onOpenCoachMode={props.onOpenCoachMode} profile={session?.profile} savedCount={savedCoachIds.length} /> : null}
+      <MotionStage className="zg-mobile-scene" direction={navigationMotion.direction} intent={navigationMotion.intent} sceneKey={sceneKey} stageClassName="zg-mobile-scene-stage">
+        {view === "home" ? <HomeView catalog={catalog} activeBooking={activeBooking} coaches={coaches} onDiscover={() => navigateTab("discover")} onOpenBooking={() => navigateTab("bookings")} onOpenCoach={openCoach} onOpenReview={() => { if (reviewTodo) { setReviewTarget(reviewTodo); setSheet("review"); } }} onSearch={(value) => { setQuery(value); if (value) navigateTab("discover"); }} onSelectSport={(sport) => updatePreferences({ ...preferences, sport })} onToggleSaved={toggleSaved} preferences={preferences} query={query} reviewTodo={reviewTodo} savedCoachIds={savedCoachIds} /> : null}
+        {view === "discover" ? <DiscoverView coaches={coaches} onFilter={() => setSheet("filters")} onOpenCoach={openCoach} onQuery={setQuery} onToggleSaved={toggleSaved} preferences={preferences} query={query} savedCoachIds={savedCoachIds} /> : null}
+        {view === "coach" ? <CoachDetailView key={selectedCoach.id} coach={selectedCoach} isSaved={savedCoachIds.includes(selectedCoach.id)} onBack={handleBack} onBook={() => void openBooking(selectedCoach)} onMessage={() => openConversationForCoach(selectedCoach.id)} onToggleSaved={() => toggleSaved(selectedCoach.id)} preferences={preferences} /> : null}
+        {view === "booking" && bookingOptions ? <BookingView agreed={agreed} coach={selectedCoach} customAddress={bookingCustomAddress} customDistrict={bookingCustomDistrict} customLocationNote={bookingCustomNote} durationMinutes={bookingDuration} isTrialBooking={isTrialBooking} learner={learner} locationType={bookingLocationType} note={bookingNote} onBack={handleBack} onChangeCustomAddress={setBookingCustomAddress} onChangeCustomDistrict={setBookingCustomDistrict} onChangeCustomLocationNote={setBookingCustomNote} onChangeDuration={setBookingDuration} onChangeLocationType={setBookingLocationType} onChangeNote={setBookingNote} onChangeStartsAt={setBookingStartsAt} onChangeVenue={(id) => { const venue = bookingOptions.venues.find((item) => item.id === id); if (venue) setBookingVenue(venue); }} onConfirm={submitBooking} onEditLearner={() => setSheet("learner")} onToggleAgreement={() => setAgreed((current) => !current)} options={bookingOptions} preferences={preferences} startsAt={bookingStartsAt} submitting={submitting} venue={bookingVenue} /> : null}
+        {view === "bookings" ? <BookingsView bookings={bookings} capabilities={capabilities} coaches={coaches} onCancel={(booking) => { setCancelTarget(booking); setSheet("cancel"); }} onComplete={(booking, decision) => void respondToCompletion(booking, decision)} onDiscover={() => navigateTab("discover")} onMessage={openConversationForCoach} onReschedule={(booking) => void openBooking(coaches.find((coach) => coach.id === booking.coachId) ?? selectedCoach)} onReview={(booking) => { setReviewTarget(booking); setSheet("review"); }} onTab={setBookingTab} onTestPayment={(booking) => void completeTestPayment(booking)} tab={bookingTab} venues={venues} /> : null}
+        {view === "messages" ? <MessagesView coaches={coaches} conversations={conversations} draft={messageDraft} onBack={() => { setNavigationMotion((current) => nextMotion(current, "pop", "backward")); setSelectedConversation(null); }} onChangeDraft={setMessageDraft} onOpen={(conversation) => { setNavigationMotion((current) => nextMotion(current, "push", "forward")); setSelectedConversation({ ...conversation, unreadCount: 0 }); setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, unreadCount: 0 } : item)); if (!demoMode && conversation.unreadCount) void mobileApi.markConversationRead(conversation.id).catch((error) => showFeedback(error instanceof Error ? error.message : "已读状态同步失败")); }} onSend={sendMessage} selectedConversation={selectedConversation} sending={messageSending} /> : null}
+        {view === "profile" ? <ProfileView activeBookingCount={activeBookingCount} coachSummary={session ? session.coach : props.coachSummary} coachOnboarding={session?.coachOnboarding} completedCount={bookings.filter((booking) => booking.status === "completed").length} contactMasked={session?.contactMasked ?? session?.phoneMasked} learner={learner} onAction={profileAction} onOpenCoachMode={props.onOpenCoachMode} profile={session?.profile} savedCount={savedCoachIds.length} /> : null}
+      </MotionStage>
 
       {showBottomNav ? <BottomNav active={activeTab} bookingCount={pendingBookingCount} messageCount={unreadMessages} onNavigate={navigateTab} /> : null}
 
-      {sheet === "filters" ? <FilterSheet catalog={catalog} onChange={updatePreferences} onClose={() => setSheet(null)} resultCount={filterResultCount} value={preferences} /> : null}
-      {sheet === "city" ? <CitySheet catalog={catalog} district={preferences.district} onClose={() => setSheet(null)} onDistrict={(district) => updatePreferences({ ...preferences, district })} /> : null}
-      {sheet === "notifications" ? <NotificationsSheet notifications={notifications} onClose={() => setSheet(null)} /> : null}
-      {sheet === "auth" ? <AuthSheet challengeSent={Boolean(challengeId)} code={otpCode} email={email} error={authError} loading={authLoading} nativeSecurity={isNativeMobile()} onChangeCode={setOtpCode} onChangeEmail={setEmail} onChangeTurnstileToken={setTurnstileToken} onClose={() => { setSheet(null); setPendingBooking(false); setPendingConversationCoachId(null); }} onRequestCode={requestCode} onVerify={verifyCode} showLocalCode={demoMode} turnstileSiteKey={(import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_TURNSTILE_SITE_KEY || ""} turnstileToken={turnstileToken} /> : null}
-      {sheet === "booking-success" ? <BookingSuccessSheet coach={selectedCoach} onClose={() => setSheet(null)} onViewBooking={() => { setSheet(null); navigateTab("bookings"); setBookingTab("pending"); }} /> : null}
-      {sheet === "cancel" ? <CancelBookingSheet onCancel={() => void confirmCancel()} onClose={() => { setCancelTarget(null); setSheet(null); }} /> : null}
-      {sheet === "favorites" ? <FavoritesSheet coaches={coaches.filter((coach) => savedCoachIds.includes(coach.id))} onClose={() => setSheet(null)} onOpen={(coach) => { setSheet(null); openCoach(coach); }} /> : null}
-      {sheet === "learner" ? <LearnerSheet learner={learner} onClose={() => setSheet(null)} onSave={(next) => { setLearner(next); if (session) void mobileApi.saveLearner(next).then(setLearner).catch((error) => showFeedback(error instanceof Error ? error.message : "档案保存失败")); }} /> : null}
-      {sheet === "review" && reviewTarget ? <ReviewSheet booking={reviewTarget} coachName={coaches.find((coach) => coach.id === reviewTarget.coachId)?.name || "教练"} onClose={() => { setSheet(null); setReviewTarget(null); }} onSubmit={async (input) => { if (reviewTarget.review.canResubmit && reviewTarget.review.reviewId) await mobileApi.resubmitReview(reviewTarget.review.reviewId, input); else await mobileApi.createReview({ ...input, bookingId: reviewTarget.id }); await refreshRemoteData(); showFeedback("评价已提交审核"); }} /> : null}
-      {sheet === "account" ? <AccountSheet onClose={() => setSheet(null)} onDelete={() => { void mobileApi.deleteAccount().then(() => { setSession(null); props.onSessionChange?.(null); setSheet(null); showFeedback("账号已注销"); }).catch((error) => showFeedback(error instanceof Error ? error.message : "注销失败，请稍后重试")); }} onLogout={() => { void mobileApi.logout().catch(() => writeSession(null)); setSession(null); props.onSessionChange?.(null); setSheet(null); showFeedback("已退出登录"); }} session={session} /> : null}
-      {sheet === "account-profile" ? <AccountProfileSheet onClose={() => setSheet(null)} onDeleteAvatar={async () => { const profile = await mobileApi.deleteAvatar(); setSession((current) => { if (!current) return current; const next = { ...current, profile }; void writeSession(next); props.onSessionChange?.(next); return next; }); }} onSave={async (input) => { const profile = await mobileApi.updateProfile(input); setSession((current) => { if (!current) return current; const next = { ...current, profile }; void writeSession(next); props.onSessionChange?.(next); return next; }); showFeedback("账号资料已更新"); if (pendingBooking) { setPendingBooking(false); window.setTimeout(() => void performBooking(), 100); } if (pendingConversationCoachId) { const coachId = pendingConversationCoachId; setPendingConversationCoachId(null); window.setTimeout(() => void mobileApi.createConversation(coachId).then((conversation) => { setConversations((current) => [conversation, ...current.filter((item) => item.coachId !== coachId)]); setSelectedConversation(conversation); setActiveTab("messages"); setView("messages"); }), 100); } }} onUploadAvatar={async (blob) => { const profile = await mobileApi.uploadAvatar(blob); setSession((current) => { if (!current) return current; const next = { ...current, profile }; void writeSession(next); props.onSessionChange?.(next); return next; }); showFeedback("头像已更新"); }} profile={session?.profile} /> : null}
-      {sheet === "assurance" || sheet === "feedback" ? <SupportSheet mode={sheet} onClose={() => setSheet(null)} onSubmit={async (message) => { if (!session) throw new Error("请先验证邮箱后提交反馈"); await mobileApi.createFeedbackTicket(message); showFeedback("反馈已提交，运营人员会尽快查看"); }} /> : null}
+      <AnimatePresence initial={false} mode="sync">
+      {sheet === "filters" ? <FilterSheet key="filters" catalog={catalog} onChange={updatePreferences} onClose={() => setSheet(null)} resultCount={filterResultCount} value={preferences} /> : null}
+      {sheet === "city" ? <CitySheet key="city" catalog={catalog} cityId={serviceCityId} district={preferences.district} onClose={() => setSheet(null)} onCity={changeServiceCity} onLocate={async()=>changeServiceCity(await locateServiceCity(),"location")} onDistrict={(district) => updatePreferences({ ...preferences, district })} /> : null}
+      {sheet === "notifications" ? <NotificationsSheet key="notifications" notifications={notifications} onClose={() => setSheet(null)} /> : null}
+      {sheet === "auth" ? <AuthSheet key="auth" challengeSent={Boolean(challengeId)} code={otpCode} email={email} error={authError} loading={authLoading} nativeSecurity={isNativeMobile()} onChangeCode={setOtpCode} onChangeEmail={setEmail} onChangeTurnstileToken={setTurnstileToken} onClose={() => { setSheet(null); setPendingBooking(false); setPendingConversationCoachId(null); }} onRequestCode={requestCode} onVerify={verifyCode} showLocalCode={demoMode} turnstileSiteKey={(import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_TURNSTILE_SITE_KEY || ""} turnstileToken={turnstileToken} /> : null}
+      {sheet === "booking-success" ? <BookingSuccessSheet key="booking-success" coach={selectedCoach} onClose={() => setSheet(null)} onViewBooking={() => { setSheet(null); navigateTab("bookings"); setBookingTab("pending"); }} /> : null}
+      {sheet === "cancel" ? <CancelBookingSheet key="cancel" onCancel={() => void confirmCancel()} onClose={() => { setCancelTarget(null); setSheet(null); }} /> : null}
+      {sheet === "favorites" ? <FavoritesSheet key="favorites" coaches={coaches.filter((coach) => savedCoachIds.includes(coach.id))} onClose={() => setSheet(null)} onOpen={(coach) => { setSheet(null); openCoach(coach); }} /> : null}
+      {sheet === "learner" ? <LearnerSheet key="learner" learner={learner} learners={learnerProfiles} onClose={() => setSheet(null)} onSelect={setLearner} onSave={async(next)=>{if(!session)throw new Error("请先登录后保存档案");const saved=await mobileApi.saveLearner(next);setLearner(saved);setLearnerProfiles(current=>[saved,...current.filter(item=>item.id!==saved.id)]);return saved;}} /> : null}
+      {sheet === "coach-application" ? <CoachApplicationSheet key="coach-application" initialCity={serviceCityId} onClose={()=>{setSheet(null);void refreshRemoteData();}} onApproved={refreshRemoteData} /> : null}
+      {sheet === "review" && reviewTarget ? <ReviewSheet key="review" booking={reviewTarget} coachName={coaches.find((coach) => coach.id === reviewTarget.coachId)?.name || "教练"} onClose={() => { setSheet(null); setReviewTarget(null); }} onSubmit={async (input) => { if (reviewTarget.review.canResubmit && reviewTarget.review.reviewId) await mobileApi.resubmitReview(reviewTarget.review.reviewId, input); else await mobileApi.createReview({ ...input, bookingId: reviewTarget.id }); await refreshRemoteData(); showFeedback("评价已提交审核"); }} /> : null}
+      {sheet === "account" ? <AccountSheet key="account" onClose={() => setSheet(null)} onDelete={() => { void mobileApi.deleteAccount().then(async () => { await activateFavorites(null); setSession(null); setLearnerProfiles([]); setLearner({ ...defaultLearner, id: "", name: "", age: 0, guardianName: undefined, guardianPhone: undefined }); setBookings([]); setConversations([]); props.onSessionChange?.(null); setSheet(null); showFeedback("账号已注销"); }).catch((error) => showFeedback(error instanceof Error ? error.message : "注销失败，请稍后重试")); }} onLogout={() => { void mobileApi.logout().catch(() => writeSession(null)).then(async () => { await activateFavorites(null); setSession(null); setLearnerProfiles([]); setLearner({ ...defaultLearner, id: "", name: "", age: 0, guardianName: undefined, guardianPhone: undefined }); setBookings([]); setConversations([]); props.onSessionChange?.(null); setSheet(null); showFeedback("已退出登录"); }); }} session={session} /> : null}
+      {sheet === "account-profile" ? <AccountProfileSheet key="account-profile" onClose={() => setSheet(null)} onDeleteAvatar={async () => { const profile = await mobileApi.deleteAvatar(); setSession((current) => { if (!current) return current; const next = { ...current, profile }; void writeSession(next); props.onSessionChange?.(next); return next; }); }} onSave={async (input) => { const profile = await mobileApi.updateProfile(input); setSession((current) => { if (!current) return current; const next = { ...current, profile }; void writeSession(next); props.onSessionChange?.(next); return next; }); showFeedback("账号资料已更新"); if (pendingBooking) { setPendingBooking(false); window.setTimeout(() => void performBooking(), 100); } if (pendingConversationCoachId) { const coachId = pendingConversationCoachId; setPendingConversationCoachId(null); window.setTimeout(() => void mobileApi.createConversation(coachId).then((conversation) => { setConversations((current) => [conversation, ...current.filter((item) => item.coachId !== coachId)]); setSelectedConversation(conversation); setActiveTab("messages"); setView("messages"); }), 100); } }} onUploadAvatar={async (blob) => { const profile = await mobileApi.uploadAvatar(blob); setSession((current) => { if (!current) return current; const next = { ...current, profile }; void writeSession(next); props.onSessionChange?.(next); return next; }); showFeedback("头像已更新"); }} profile={session?.profile} /> : null}
+      {sheet === "assurance" || sheet === "feedback" ? <SupportSheet key={sheet} mode={sheet} onClose={() => setSheet(null)} onSubmit={async (message) => { if (!session) throw new Error("请先验证邮箱后提交反馈"); await mobileApi.createFeedbackTicket(message); showFeedback("反馈已提交，运营人员会尽快查看"); }} /> : null}
+      </AnimatePresence>
       {feedback ? <div className="zg-toast" role="status">{feedback}</div> : null}
     </main>
   );

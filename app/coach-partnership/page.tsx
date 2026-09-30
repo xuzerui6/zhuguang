@@ -7,7 +7,7 @@ import { ServiceLeadForm } from "../_components/service-lead-form";
 import styles from "../_components/public-pages.module.css";
 
 export const metadata: Metadata = {
-  description: "了解逐光北京试点服务的教练合作方式、审核材料和工作台能力。",
+  description: "了解逐光北京与吉林长春服务的教练入驻方式、审核材料和工作台能力。",
   title: "教练合作 | 逐光",
 };
 
@@ -17,8 +17,8 @@ export default function CoachPartnershipPage() {
       <PublicHeader />
       <main className={styles.publicPage}>
         <section className={styles.partnerIntro}>
-          <div><p>教练合作</p><h1>让专业经历成为<br />长期可信的服务</h1><span>逐光当前采用定向邀请和人工审核，不开放线上自助注册。</span></div>
-          <div className={styles.partnerStatus}><BadgeCheck aria-hidden size={28} /><strong>北京试点服务</strong><p>首批合作优先面向退役运动员、专业队经历教练和具备可核验资质的专项教练。</p></div>
+          <div><p>教练合作</p><h1>让专业经历成为<br />长期可信的服务</h1><span>服务北京与吉林长春。教练可通过 Android App 或微信小程序提交资料，公开展示前均需人工核验。</span></div>
+          <div className={styles.partnerStatus}><BadgeCheck aria-hidden size={28} /><strong>双城服务</strong><p>合作面向退役运动员、专业队经历教练和具备可核验资质的专项教练。</p></div>
         </section>
         <section className={styles.partnerSteps}>
           <article><span>01</span><ClipboardCheck aria-hidden size={24} /><h2>资料核验</h2><p>身份证明、运动经历、教练资质、场馆与服务范围由运营团队人工确认。</p></article>
@@ -32,7 +32,7 @@ export default function CoachPartnershipPage() {
           </ul>
         </section>
         <section className={styles.partnerLeadSection} id="partnership-inquiry">
-          <div><p>合作意向</p><h2>先提交真实经历，再进入人工核验</h2><span>逐光不开放自助注册。提交意向后，运营会核对项目、经历、服务区域和合作条件。</span></div>
+          <div><p>合作意向</p><h2>先提交真实经历，再进入人工核验</h2><span>完整申请可在 Android App 或微信小程序的“我的”中提交；网页也可先留下合作意向，运营会核对项目、经历、服务区域和合作条件。</span></div>
           <ServiceLeadForm kind="coach" siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} />
         </section>
         <section className={styles.pageCta}>

@@ -1,3 +1,5 @@
+import type { ServiceCityId } from "../../shared/service-cities";
+
 export type MobileTab = "home" | "discover" | "bookings" | "messages" | "profile";
 
 export type PullRefreshState = "idle" | "pulling" | "armed" | "refreshing" | "success" | "error";
@@ -34,10 +36,13 @@ export type BookingStatus =
   | "cancelled_by_coach";
 
 export type MobileCoach = {
+  sports?: string[];
   id: number;
   name: string;
   sport: string;
   city: string;
+  serviceCities?: string[];
+  serviceAreas?: Array<{ cityId: "beijing" | "changchun"; cityName: string; district: string }>;
   level: string;
   title: string;
   price?: number;
@@ -86,6 +91,7 @@ export type CoachVenue = {
   name: string;
   address: string;
   district: string;
+  city?: string;
   active?: boolean;
 };
 
@@ -120,6 +126,10 @@ export type LearnerProfile = {
 };
 
 export type MobileBooking = {
+  metricEligible?: boolean;
+  serviceCityId?: 'beijing' | 'changchun';
+  startsAt?: number;
+  endsAt?: number;
   fulfillmentVersion?: 1 | 2;
   id: string;
   coachId: number;
@@ -143,6 +153,7 @@ export type MobileBooking = {
   expiresAt?: number;
   locationType?: "venue" | "custom";
   customDistrict?: string;
+  customCity?: string;
   customAddress?: string;
   customLocationNote?: string;
   review: ReviewEligibility;
@@ -173,11 +184,14 @@ export type ReviewEligibility = {
 
 export type BookingOptions = {
   coachId: number;
+  cityId?: "beijing" | "changchun";
+  cityName?: string;
   durationMinutes: [60, 90, 120];
   earliestStartsAt: number;
   latestStartsAt: number;
   regularBasePriceFen: number;
   trialBasePriceFen: number;
+  trialEligible?: boolean | null;
   venues: CoachVenue[];
 };
 
@@ -241,28 +255,33 @@ export type AccountProfile = {
   };
   district: string;
   nickname: string;
+  serviceArea?: string;
+  serviceCityId?: ServiceCityId;
   updatedAt: number;
   userId: string;
 };
 
 export type MobileSession = {
+  coachOnboarding?: import("../../shared/coach-application").CoachOnboardingSummary;
+  userId?: string;
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
   contactMasked: string;
   phoneMasked?: string;
-  authMethod?: "phone_otp" | "email_otp";
+  authMethod?: "phone_otp" | "email_otp" | "wechat";
   availableModes: AccountMode[];
   coach?: CoachAccountSummary;
   profile?: AccountProfile;
 };
 
 export type MobileIdentity = {
+  coachOnboarding?: import("../../shared/coach-application").CoachOnboardingSummary;
   availableModes: AccountMode[];
   coach?: CoachAccountSummary;
   contactMasked: string;
   phoneMasked?: string;
-  authMethod?: "phone_otp" | "email_otp";
+  authMethod?: "phone_otp" | "email_otp" | "wechat";
   userId?: string;
   roles?: Array<"student" | "coach" | "operator">;
   profile?: AccountProfile;
@@ -291,6 +310,7 @@ export type CoachOverview = {
 };
 
 export type OperatorCoachBusinessSettings = {
+  city?: string;
   bookingEnabled: boolean;
   coachId: number;
   district: string;

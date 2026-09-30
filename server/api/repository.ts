@@ -17,7 +17,7 @@ import type {
   MobileMessage,
   MobileSession,
 } from "../../app/mobile/types";
-import { BEIJING_DISTRICTS } from "../../shared/coach-catalog";
+import { cityName, isServiceArea, isServiceCity, type ServiceCityId } from "../../shared/service-cities";
 import { ApiError, type ApiEnv } from "./contracts";
 import {
   decryptPhone,
@@ -38,7 +38,7 @@ import { sendBookingStatusSms, sendOtpSms } from "./sms";
 import { sendEmailOtp } from "./email";
 
 export type StudentIdentity = {
-  authMethod: "phone_otp" | "email_otp";
+  authMethod: "phone_otp" | "email_otp" | "wechat";
   contactMasked: string;
   deviceId: string;
   phoneLast4: string;
@@ -91,14 +91,20 @@ function normalizeNickname(value: unknown) {
   return nickname;
 }
 
-function normalizeProfileInput(input: { bio?: unknown; district?: unknown; nickname?: unknown }) {
-  const district = typeof input.district === "string" ? input.district.trim() : "";
-  if (district && !BEIJING_DISTRICTS.includes(district as (typeof BEIJING_DISTRICTS)[number])) {
-    throw new ApiError(422, "invalid_district", "请选择北京市内的区域", { district: "区域不在可选范围内" });
+function normalizeProfileInput(input: { bio?: unknown; district?: unknown; nickname?: unknown; serviceArea?: unknown; serviceCityId?: unknown }) {
+  const serviceCityId: ServiceCityId = typeof input.serviceCityId === "string" && isServiceCity(input.serviceCityId) ? input.serviceCityId : "beijing";
+  if (input.serviceCityId !== undefined && !isServiceCity(String(input.serviceCityId))) {
+    throw new ApiError(422, "unsupported_service_city", "当前仅支持北京和长春", { serviceCityId: "请选择已开放的服务城市" });
+  }
+  const district = typeof input.serviceArea === "string"
+    ? input.serviceArea.trim()
+    : typeof input.district === "string" ? input.district.trim() : "";
+  if (district && !isServiceArea(serviceCityId, district)) {
+    throw new ApiError(422, "invalid_service_area", `请选择${cityName(serviceCityId)}已开放的区域`, { serviceArea: "区域不在当前城市可选范围内" });
   }
   const bio = typeof input.bio === "string" ? input.bio.trim() : "";
   if ([...bio].length > 80 || /\p{Cc}/u.test(bio)) throw new ApiError(422, "invalid_profile_bio", "个性签名不能超过 80 个字", { bio: "最多填写 80 个字" });
-  return { bio, district, nickname: normalizeNickname(input.nickname) };
+  return { bio, district, nickname: normalizeNickname(input.nickname), serviceArea: district, serviceCityId };
 }
 
 async function avatarUrl(userId: string, avatarUpdatedAt: number, env: ApiEnv) {
@@ -125,14 +131,16 @@ export async function getAccountProfileD1(identity: StudentIdentity, env: ApiEnv
   const database = db(env);
   const now = Date.now();
   await database.prepare("INSERT OR IGNORE INTO user_profiles (user_id, created_at, updated_at) VALUES (?, ?, ?)").bind(identity.userId, now, now).run();
-  const row = await database.prepare(`
+  const [row, preference] = await Promise.all([database.prepare(`
     SELECT p.*, u.email_encrypted, u.phone_last4
     FROM user_profiles p JOIN users u ON u.id = p.user_id
     WHERE p.user_id = ? AND u.status = 'active' AND u.deleted_at IS NULL
-  `).bind(identity.userId).first<Row>();
+  `).bind(identity.userId).first<Row>(), database.prepare("SELECT city_id FROM user_service_preferences WHERE user_id=?").bind(identity.userId).first<Row>()]);
   if (!row) throw new ApiError(404, "profile_not_found", "账号资料不存在");
   const email = row.email_encrypted ? await decryptPhone(stringValue(row.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? "") : "";
   const updatedAt = numberValue(row.updated_at);
+  const serviceCityId: ServiceCityId = preference && isServiceCity(stringValue(preference.city_id)) ? stringValue(preference.city_id) as ServiceCityId : "beijing";
+  const district = stringValue(row.district);
   return {
     avatarUrl: row.avatar_object_key ? await avatarUrl(identity.userId, numberValue(row.avatar_updated_at) || updatedAt, env) : undefined,
     bio: stringValue(row.bio),
@@ -143,23 +151,31 @@ export async function getAccountProfileD1(identity: StudentIdentity, env: ApiEnv
       phoneMasked: row.phone_last4 ? maskPhone(stringValue(row.phone_last4)) : undefined,
       phoneVerified: Boolean(row.phone_last4),
     },
-    district: stringValue(row.district),
+    district,
     nickname: stringValue(row.nickname),
+    serviceArea: district && isServiceArea(serviceCityId, district) ? district : "",
+    serviceCityId,
     updatedAt,
     userId: identity.userId,
   };
 }
 
-export async function updateAccountProfileD1(identity: StudentIdentity, input: { bio?: unknown; district?: unknown; nickname?: unknown }, request: Request, env: ApiEnv) {
+export async function updateAccountProfileD1(identity: StudentIdentity, input: { bio?: unknown; district?: unknown; nickname?: unknown; serviceArea?: unknown; serviceCityId?: unknown }, request: Request, env: ApiEnv) {
   const value = normalizeProfileInput(input);
-  await profileEvent(identity, request, "profile_updated", { district: value.district, hasBio: Boolean(value.bio) }, env);
+  await profileEvent(identity, request, "profile_updated", { serviceArea: value.serviceArea, serviceCityId: value.serviceCityId, hasBio: Boolean(value.bio) }, env);
   const now = Date.now();
-  await db(env).prepare(`
-    INSERT INTO user_profiles (user_id, nickname, district, bio, completed_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(user_id) DO UPDATE SET nickname = excluded.nickname, district = excluded.district,
-      bio = excluded.bio, completed_at = coalesce(user_profiles.completed_at, excluded.completed_at), updated_at = excluded.updated_at
-  `).bind(identity.userId, value.nickname, value.district, value.bio, now, now, now).run();
+  const database = db(env);
+  await database.batch([
+    database.prepare(`
+      INSERT INTO user_profiles (user_id, nickname, district, bio, completed_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET nickname = excluded.nickname, district = excluded.district,
+        bio = excluded.bio, completed_at = coalesce(user_profiles.completed_at, excluded.completed_at), updated_at = excluded.updated_at
+    `).bind(identity.userId, value.nickname, value.district, value.bio, now, now, now),
+    database.prepare(`INSERT INTO user_service_preferences(user_id,city_id,source,updated_at) VALUES(?,?,'manual',?)
+      ON CONFLICT(user_id) DO UPDATE SET city_id=excluded.city_id,source='manual',updated_at=excluded.updated_at`)
+      .bind(identity.userId, value.serviceCityId, now),
+  ]);
   return getAccountProfileD1(identity, env);
 }
 
@@ -320,6 +336,20 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
   const honors = jsonArray(row.honors_json);
   const credentials = jsonArray(row.credentials_json);
   const strengths = jsonArray(row.strengths_json);
+  const serviceCities = jsonArray(row.service_cities_json);
+  let serviceAreas: Array<{ cityId: ServiceCityId; cityName: string; district: string }> = [];
+  try {
+    const parsed = JSON.parse(stringValue(row.service_areas_json) || "[]") as Array<Record<string, unknown>>;
+    serviceAreas = parsed.flatMap((area) => {
+      const cityId = stringValue(area.cityId);
+      const district = stringValue(area.district);
+      return isServiceCity(cityId) && isServiceArea(cityId, district)
+        ? [{ cityId, cityName: cityName(cityId), district }]
+        : [];
+    });
+  } catch {
+    serviceAreas = [];
+  }
   const profileComplete = pricingPublished
     && audience.length > 0
     && goals.length > 0
@@ -342,6 +372,8 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
     canConsult: profileKind === "real",
     cardUrl: publicCoachMediaUrl(row, "card", env),
     city: stringValue(row.city),
+    serviceAreas,
+    serviceCities: serviceCities.length ? serviceCities : [stringValue(row.city)],
     credentials,
     district: stringValue(row.district),
     experienceYears: numberValue(row.experience_years),
@@ -368,6 +400,7 @@ function mapCoach(row: Row, env?: ApiEnv): MobileCoach {
     responseMinutes: numberValue(row.response_minutes),
     reviewCount,
     sport: stringValue(row.sport),
+    sports: [...new Set([stringValue(row.sport), ...jsonArray(row.service_sports_json)])],
     strengths,
     title: stringValue(row.title),
     trialPrice: pricingPublished ? Math.round(numberValue(row.trial_price_fen) / 100) : undefined,
@@ -426,6 +459,7 @@ function mapBooking(row: Row): MobileBooking {
       };
   return {
     ...beijingDateParts(startsAt, endsAt),
+    metricEligible: row.metric_eligible == null ? true : Boolean(row.metric_eligible),
     coachId: numberValue(row.coach_id),
     feeFen: numberValue(row.fee_fen),
     id: stringValue(row.id),
@@ -443,6 +477,10 @@ function mapBooking(row: Row): MobileBooking {
     venueName: row.venue_name ? stringValue(row.venue_name) : undefined,
     customAddress: row.custom_address ? stringValue(row.custom_address) : undefined,
     customDistrict: row.custom_district ? stringValue(row.custom_district) : undefined,
+    customCity: row.custom_city ? stringValue(row.custom_city) : undefined,
+    serviceCityId: row.custom_city === '长春' || row.venue_city === '长春' ? 'changchun' : row.custom_city === '北京' || row.venue_city === '北京' ? 'beijing' : undefined,
+    startsAt: numberValue(row.starts_at),
+    endsAt: numberValue(row.ends_at),
     customLocationNote: row.custom_note ? stringValue(row.custom_note) : undefined,
     durationMinutes: row.duration_minutes ? numberValue(row.duration_minutes) : durationMinutesBetween(startsAt, endsAt),
     expiresAt: row.expires_at ? numberValue(row.expires_at) : undefined,
@@ -480,8 +518,8 @@ export async function authenticateStudent(request: Request, env: ApiEnv, require
     return null;
   }
   void db(env).prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?").bind(now, row.id).run();
-  const authMethod = row.auth_method === "email_otp" ? "email_otp" as const : "phone_otp" as const;
-  const contactMasked = authMethod === "email_otp" && row.email_encrypted
+  const authMethod = row.auth_method === "wechat" ? "wechat" as const : row.auth_method === "email_otp" ? "email_otp" as const : "phone_otp" as const;
+  const contactMasked = row.email_encrypted
     ? maskEmail(await decryptPhone(stringValue(row.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? ""))
     : maskPhone(stringValue(row.phone_last4));
   return {
@@ -549,14 +587,15 @@ async function authenticateTrustedWebStudent(emailInput: string, env: ApiEnv): P
 
 export async function getMobileIdentityD1(identity: StudentIdentity, env: ApiEnv) {
   const database = db(env);
-  const [user, roleRows, coach] = await Promise.all([
+  const [user, roleRows, coach, application] = await Promise.all([
     database.prepare("SELECT phone_last4, email_encrypted FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").bind(identity.userId).first<Row>(),
     database.prepare("SELECT role FROM user_roles WHERE user_id = ? AND status = 'active'").bind(identity.userId).all<Row>(),
     database.prepare(`
       SELECT id, name, sport, title, audit_status,
         (SELECT count(*) FROM booking_requests b WHERE b.coach_id = coaches.id AND b.status IN ('pending_coach', 'reschedule_requested')) AS pending_count
-      FROM coaches WHERE user_id = ? AND profile_kind = 'real' AND audit_status IN ('approved', 'suspended') LIMIT 1
+      FROM coaches WHERE user_id = ? AND profile_kind = 'real' LIMIT 1
     `).bind(identity.userId).first<Row>(),
+    database.prepare("SELECT id,status,review_note,created_coach_id FROM coach_applications WHERE user_id=? ORDER BY CASE WHEN status='approved' THEN 0 ELSE 1 END,created_at DESC LIMIT 1").bind(identity.userId).first<Row>(),
   ]);
   if (!user) throw new ApiError(401, "invalid_session", "登录状态已失效，请重新验证手机号");
   const roles = new Set<AccountMode>(["student"]);
@@ -586,9 +625,18 @@ export async function getMobileIdentityD1(identity: StudentIdentity, env: ApiEnv
     : maskPhone(stringValue(user.phone_last4));
   const profile = await getAccountProfileD1(identity, env);
   return {
-    authMethod: user.email_encrypted ? "email_otp" as const : "phone_otp" as const,
+    authMethod: identity.authMethod,
     availableModes: [...roles],
     coach: coachSummary,
+    coachOnboarding: {
+      status: coach || application?.status === "approved" ? "approved" : stringValue(application?.status) || "not_applied",
+      isOnboarded: Boolean(coach || application?.status === "approved"),
+      canApply: !coach && application?.status !== "approved" && application?.status !== "pending",
+      canEnterWorkspace: coach?.audit_status === "approved",
+      applicationId: application ? stringValue(application.id) : undefined,
+      coachId: coach ? numberValue(coach.id) : application?.created_coach_id ? numberValue(application.created_coach_id) : undefined,
+      rejectionReason: application?.status === "rejected" ? stringValue(application.review_note) : undefined,
+    } as import("../../shared/coach-application").CoachOnboardingSummary,
     contactMasked,
     email,
     phoneMasked: contactMasked,
@@ -655,7 +703,7 @@ function newSessionRecord(
   userId: string,
   deviceId: string,
   contactMasked: string,
-  authMethod: "phone_otp" | "email_otp",
+  authMethod: "phone_otp" | "email_otp" | "wechat",
   rotatedFromId?: string,
 ) {
   const accessToken = randomToken("zga");
@@ -674,6 +722,50 @@ function newSessionRecord(
     refreshToken,
     refreshTokenHashPromise: sha256Hex(refreshToken),
     rotatedFromId: rotatedFromId ?? null,
+    userId,
+  };
+}
+
+export async function issueWechatSessionD1(userId: string, deviceId: string, env: ApiEnv): Promise<MobileSession> {
+  const database = db(env);
+  const user = await database.prepare(`
+    SELECT id, phone_last4, email_encrypted FROM users
+    WHERE id = ? AND status = 'active' AND deleted_at IS NULL
+  `).bind(userId).first<Row>();
+  if (!user) throw new ApiError(401, "invalid_session", "关联账号已失效，请重新登录");
+
+  const email = user.email_encrypted
+    ? await decryptPhone(stringValue(user.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? "")
+    : "";
+  const phoneLast4 = stringValue(user.phone_last4);
+  const contactMasked = email ? maskEmail(email) : phoneLast4 ? maskPhone(phoneLast4) : "微信账号";
+  const session = newSessionRecord(userId, deviceId, contactMasked, "wechat");
+  const [accessTokenHash, refreshTokenHash] = await Promise.all([session.accessTokenHashPromise, session.refreshTokenHashPromise]);
+  const now = Date.now();
+  await database.prepare(`
+    INSERT INTO sessions
+      (id, user_id, device_id, auth_method, access_token_hash, refresh_token_hash, access_expires_at, refresh_expires_at, rotated_from_id, last_seen_at, created_at)
+    VALUES (?, ?, ?, 'wechat', ?, ?, ?, ?, NULL, ?, ?)
+  `).bind(session.id, userId, deviceId, accessTokenHash, refreshTokenHash, session.expiresAt, session.refreshExpiresAt, now, now).run();
+  const identity: StudentIdentity = {
+    authMethod: "wechat",
+    contactMasked,
+    deviceId,
+    phoneLast4,
+    sessionId: session.id,
+    userId,
+  };
+  const mobileIdentity = await getMobileIdentityD1(identity, env);
+  return {
+    accessToken: session.accessToken,
+    authMethod: "wechat",
+    availableModes: mobileIdentity.availableModes,
+    coach: mobileIdentity.coach,
+    contactMasked,
+    expiresAt: session.expiresAt,
+    phoneMasked: contactMasked,
+    profile: mobileIdentity.profile,
+    refreshToken: session.refreshToken,
     userId,
   };
 }
@@ -779,8 +871,8 @@ export async function refreshSessionD1(refreshToken: string, deviceId: string, e
   if (numberValue(row.refresh_expires_at) <= now || stringValue(row.device_id) !== deviceId) {
     throw new ApiError(401, "invalid_session", "登录状态已失效，请重新验证手机号");
   }
-  const authMethod = row.auth_method === "email_otp" ? "email_otp" as const : "phone_otp" as const;
-  const contactMasked = authMethod === "email_otp" && row.email_encrypted
+  const authMethod = row.auth_method === "wechat" ? "wechat" as const : row.auth_method === "email_otp" ? "email_otp" as const : "phone_otp" as const;
+  const contactMasked = row.email_encrypted
     ? maskEmail(await decryptPhone(stringValue(row.email_encrypted), env.PHONE_ENCRYPTION_KEY ?? ""))
     : maskPhone(stringValue(row.phone_last4));
   const session = newSessionRecord(stringValue(row.user_id), deviceId, contactMasked, authMethod, stringValue(row.id));
@@ -882,26 +974,36 @@ export async function deleteAccountD1(identity: StudentIdentity, env: ApiEnv) {
 }
 
 export async function listCoachesD1(env: ApiEnv, filters: URLSearchParams) {
-  const clauses = ["profile_kind = 'real'", "audit_status = 'approved'", "listing_status = 'online'", "booking_enabled = 1", "city = '北京'"];
-  const values: unknown[] = [];
-  for (const [field, column] of [["sport", "sport"], ["district", "district"]] as const) {
-    const value = filters.get(field);
-    if (value) {
-      clauses.push(`${column} = ?`);
-      values.push(value);
-    }
+  const requestedCity = filters.get("city") ?? "beijing";
+  if(!isServiceCity(requestedCity))throw new ApiError(422,"unsupported_service_city","当前仅支持北京和长春");
+  const cityId: ServiceCityId = isServiceCity(requestedCity) ? requestedCity : "beijing";
+  const clauses = ["c.profile_kind = 'real'", "c.audit_status = 'approved'", "c.listing_status = 'online'", "c.booking_enabled = 1",
+    "(EXISTS (SELECT 1 FROM coach_service_areas csa JOIN service_areas sa ON sa.id=csa.area_id WHERE csa.coach_id=c.id AND sa.city_id=? AND sa.status='published') OR c.city=?)"];
+  const values: unknown[] = [cityName(cityId), cityId, cityName(cityId)];
+  const sport = filters.get("sport");
+  if (sport) {
+    clauses.push("(EXISTS (SELECT 1 FROM coach_sports cs JOIN service_sports ss ON ss.id=cs.sport_id WHERE cs.coach_id=c.id AND ss.name=? AND ss.status='published') OR c.sport=?)");
+    values.push(sport, sport);
+  }
+  const district = filters.get("district");
+  if (district) {
+    clauses.push("(EXISTS (SELECT 1 FROM coach_service_areas csa JOIN service_areas sa ON sa.id=csa.area_id WHERE csa.coach_id=c.id AND sa.city_id=? AND sa.name=? AND sa.status='published') OR (c.city=? AND c.district=?))");
+    values.push(cityId, district, cityName(cityId), district);
   }
   const maxPriceFen = Number(filters.get("maxPriceFen"));
   if (Number.isFinite(maxPriceFen) && maxPriceFen > 0) {
-    clauses.push("price_fen <= ?");
+    clauses.push("c.price_fen <= ?");
     values.push(maxPriceFen);
   }
-  const query = `SELECT coaches.*,
-    (SELECT count(*) FROM public_eligible_coach_reviews r WHERE r.coach_id = coaches.id) AS public_review_count,
-    (SELECT round(avg(r.rating) * 100) FROM public_eligible_coach_reviews r WHERE r.coach_id = coaches.id) AS public_rating_basis_points,
-    (SELECT name FROM venues WHERE venues.coach_id = coaches.id AND active = 1 ORDER BY created_at LIMIT 1) AS venue_name,
-    (SELECT count(*) FROM availability_slots slots WHERE slots.coach_id = coaches.id AND slots.status = 'open' AND slots.starts_at > unixepoch() * 1000) AS open_slot_count
-    FROM coaches WHERE ${clauses.join(" AND ")} ORDER BY CASE WHEN public_review_count >= 3 THEN public_rating_basis_points ELSE 0 END DESC, id ASC LIMIT 100`;
+  const query = `SELECT c.*,
+    (SELECT json_group_array(ss.name) FROM coach_sports cs JOIN service_sports ss ON ss.id=cs.sport_id WHERE cs.coach_id=c.id AND ss.status='published') AS service_sports_json,
+    (SELECT count(*) FROM public_eligible_coach_reviews r WHERE r.coach_id = c.id) AS public_review_count,
+    (SELECT round(avg(r.rating) * 100) FROM public_eligible_coach_reviews r WHERE r.coach_id = c.id) AS public_rating_basis_points,
+    (SELECT name FROM venues WHERE venues.coach_id = c.id AND active = 1 AND city=? ORDER BY created_at LIMIT 1) AS venue_name,
+    (SELECT count(*) FROM availability_slots slots WHERE slots.coach_id = c.id AND slots.status = 'open' AND slots.starts_at > unixepoch() * 1000) AS open_slot_count,
+    (SELECT json_group_array(city_id) FROM (SELECT DISTINCT sa.city_id FROM coach_service_areas csa JOIN service_areas sa ON sa.id=csa.area_id WHERE csa.coach_id=c.id ORDER BY sa.city_id)) AS service_cities_json,
+    (SELECT json_group_array(json_object('cityId',sa.city_id,'district',sa.name)) FROM coach_service_areas csa JOIN service_areas sa ON sa.id=csa.area_id WHERE csa.coach_id=c.id AND sa.status='published' ORDER BY sa.city_id,sa.sort_order) AS service_areas_json
+    FROM coaches c WHERE ${clauses.join(" AND ")} ORDER BY CASE WHEN public_review_count >= 3 THEN public_rating_basis_points ELSE 0 END DESC, c.id ASC LIMIT 100`;
   const result = await db(env).prepare(query).bind(...values).all<Row>();
   const goal = filters.get("goal") ?? "";
   const audience = filters.get("audience") ?? "";
@@ -911,12 +1013,15 @@ export async function listCoachesD1(env: ApiEnv, filters: URLSearchParams) {
 }
 
 export async function getCoachD1(coachId: number, env: ApiEnv) {
-  const row = await db(env).prepare(`SELECT coaches.*,
-    (SELECT count(*) FROM public_eligible_coach_reviews r WHERE r.coach_id = coaches.id) AS public_review_count,
-    (SELECT round(avg(r.rating) * 100) FROM public_eligible_coach_reviews r WHERE r.coach_id = coaches.id) AS public_rating_basis_points,
-    (SELECT name FROM venues WHERE venues.coach_id = coaches.id AND active = 1 ORDER BY created_at LIMIT 1) AS venue_name,
-    (SELECT count(*) FROM availability_slots slots WHERE slots.coach_id = coaches.id AND slots.status = 'open' AND slots.starts_at > unixepoch() * 1000) AS open_slot_count
-    FROM coaches WHERE id = ? AND profile_kind = 'real'`).bind(coachId).first<Row>();
+  const row = await db(env).prepare(`SELECT c.*,
+    (SELECT json_group_array(ss.name) FROM coach_sports cs JOIN service_sports ss ON ss.id=cs.sport_id WHERE cs.coach_id=c.id AND ss.status='published') AS service_sports_json,
+    (SELECT count(*) FROM public_eligible_coach_reviews r WHERE r.coach_id = c.id) AS public_review_count,
+    (SELECT round(avg(r.rating) * 100) FROM public_eligible_coach_reviews r WHERE r.coach_id = c.id) AS public_rating_basis_points,
+    (SELECT name FROM venues WHERE venues.coach_id = c.id AND active = 1 ORDER BY created_at LIMIT 1) AS venue_name,
+    (SELECT count(*) FROM availability_slots slots WHERE slots.coach_id = c.id AND slots.status = 'open' AND slots.starts_at > unixepoch() * 1000) AS open_slot_count,
+    (SELECT json_group_array(city_id) FROM (SELECT DISTINCT sa.city_id FROM coach_service_areas csa JOIN service_areas sa ON sa.id=csa.area_id WHERE csa.coach_id=c.id ORDER BY sa.city_id)) AS service_cities_json,
+    (SELECT json_group_array(json_object('cityId',sa.city_id,'district',sa.name)) FROM coach_service_areas csa JOIN service_areas sa ON sa.id=csa.area_id WHERE csa.coach_id=c.id AND sa.status='published' ORDER BY sa.city_id,sa.sort_order) AS service_areas_json
+    FROM coaches c WHERE c.id = ? AND c.profile_kind = 'real'`).bind(coachId).first<Row>();
   if (!row) throw new ApiError(404, "coach_not_found", "未找到该教练");
   if (row.audit_status !== "approved" || row.listing_status !== "online" || row.booking_enabled === 0) {
     throw new ApiError(410, "coach_offline", "该教练当前未公开展示");
@@ -981,7 +1086,7 @@ async function listBookings(userId: string, env: ApiEnv) {
   const completionSelect = ", cr.id AS completion_id, cr.status AS completion_status, cr.coach_note AS completion_coach_note, cr.student_note AS completion_student_note";
   const completionJoin = "LEFT JOIN booking_completion_requests cr ON cr.booking_id = b.id";
   const result = await db(env).prepare(`
-    SELECT b.*, s.starts_at, s.ends_at, c.name AS coach_name, c.sport, v.name AS venue_name, d.duration_minutes, d.location_type, d.custom_district, d.custom_address, d.custom_note, d.expires_at,
+    SELECT b.*, s.starts_at, s.ends_at, c.name AS coach_name, c.sport, v.name AS venue_name, v.city AS venue_city, d.duration_minutes, d.location_type, d.custom_city, d.custom_district, d.custom_address, d.custom_note, d.expires_at,
       r.id AS review_id, r.status AS review_status, r.review_note, r.resubmission_count AS review_resubmission_count ${completionSelect}
     FROM booking_requests b
     JOIN availability_slots s ON s.id = b.slot_id
@@ -1036,14 +1141,18 @@ async function listConversations(userId: string, env: ApiEnv): Promise<MobileCon
 }
 
 export async function bootstrapD1(request: Request, env: ApiEnv) {
-  const [coaches, identity, catalog] = await Promise.all([listCoachesD1(env, new URLSearchParams()), authenticateStudent(request, env, false), listPublicCatalogD1(env)]);
+  const url = new URL(request.url);
+  const filters = new URLSearchParams();
+  filters.set("city", isServiceCity(url.searchParams.get("city") ?? "") ? url.searchParams.get("city")! : "beijing");
+  const [coaches, identity, catalog] = await Promise.all([listCoachesD1(env, filters), authenticateStudent(request, env, false), listPublicCatalogD1(env, filters.get("city"))]);
   if (!identity) return { bookings: [], coaches, catalog, conversations: [], favoriteCoachIds: [], learnerProfiles: [], minimumAppVersion: "1.0.0" };
-  const [bookings, conversations, favoriteRows, learnerProfiles, accountProfile] = await Promise.all([
+  const [bookings, conversations, favoriteRows, learnerProfiles, accountProfile, accountIdentity] = await Promise.all([
     listBookings(identity.userId, env),
     listConversations(identity.userId, env),
     db(env).prepare("SELECT coach_id FROM favorites WHERE user_id = ? ORDER BY coach_id").bind(identity.userId).all<Row>(),
     listLearners(identity.userId, env),
     getAccountProfileD1(identity, env),
+    getMobileIdentityD1(identity, env),
   ]);
   return {
     bookings,
@@ -1053,6 +1162,7 @@ export async function bootstrapD1(request: Request, env: ApiEnv) {
     favoriteCoachIds: (favoriteRows.results ?? []).map((row) => numberValue(row.coach_id)),
     learnerProfiles,
     accountProfile,
+    accountIdentity,
     minimumAppVersion: "1.0.0",
   };
 }
@@ -1079,24 +1189,31 @@ const BOOKING_DURATIONS = [60, 90, 120] as const;
 const MIN_BOOKING_NOTICE_MS = 2 * 60 * 60_000;
 const MAX_BOOKING_HORIZON_MS = 60 * 24 * 60 * 60_000;
 
-export async function getCoachBookingOptionsD1(coachId: number, env: ApiEnv) {
+export async function getCoachBookingOptionsD1(coachId: number, env: ApiEnv, requestedCity = "beijing", userId?: string) {
+  if(!isServiceCity(requestedCity))throw new ApiError(422,"unsupported_service_city","当前仅支持北京和长春");
+  const cityId: ServiceCityId = isServiceCity(requestedCity) ? requestedCity : "beijing";
   const database = db(env);
   const coach = await database.prepare(`SELECT id, price_fen, trial_price_fen FROM coaches
     WHERE id = ? AND profile_kind = 'real' AND audit_status = 'approved' AND listing_status = 'online'
-      AND booking_enabled = 1 AND pricing_status = 'published'`).bind(coachId).first<Row>();
+      AND booking_enabled = 1 AND pricing_status = 'published'
+      AND (EXISTS (SELECT 1 FROM coach_service_areas csa JOIN service_areas sa ON sa.id=csa.area_id WHERE csa.coach_id=coaches.id AND sa.city_id=? AND sa.status='published') OR city=?)`).bind(coachId, cityId, cityName(cityId)).first<Row>();
   if (!coach) throw new ApiError(410, "coach_not_accepting_requests", "该教练当前未上线接单");
-  const venues = await database.prepare(`SELECT id, coach_id, name, address, district FROM venues
-    WHERE coach_id = ? AND active = 1 AND id NOT LIKE 'venue_coordination_%' ORDER BY created_at`).bind(coachId).all<Row>();
+  const venues = await database.prepare(`SELECT id, coach_id, name, address, city, district FROM venues
+    WHERE coach_id = ? AND city = ? AND active = 1 AND id NOT LIKE 'venue_coordination_%' ORDER BY created_at`).bind(coachId, cityName(cityId)).all<Row>();
   const now = Date.now();
+  const effective = userId ? await database.prepare(`SELECT id FROM booking_requests WHERE user_id = ? AND coach_id = ? AND status IN ('pending_coach','reschedule_requested','confirmed','completed') LIMIT 1`).bind(userId, coachId).first<Row>() : null;
   return {
     coachId,
+    trialEligible: userId ? !effective : null,
+    cityId,
+    cityName: cityName(cityId),
     durationMinutes: BOOKING_DURATIONS,
     earliestStartsAt: now + MIN_BOOKING_NOTICE_MS,
     latestStartsAt: now + MAX_BOOKING_HORIZON_MS,
     regularBasePriceFen: numberValue(coach.price_fen),
     trialBasePriceFen: numberValue(coach.trial_price_fen),
     venues: (venues.results ?? []).map((venue) => ({
-      address: stringValue(venue.address), coachId, district: stringValue(venue.district),
+      address: stringValue(venue.address), coachId, city: stringValue(venue.city), district: stringValue(venue.district),
       id: stringValue(venue.id), name: stringValue(venue.name),
     })),
   };
@@ -1106,6 +1223,7 @@ export async function createTimeRequestBookingD1(
   identity: StudentIdentity,
   input: {
     coachId: number;
+    serviceCityId?: string;
     fulfillmentV2?: boolean;
     customAddress?: string;
     customDistrict?: string;
@@ -1127,31 +1245,37 @@ export async function createTimeRequestBookingD1(
   if (existing) return mapBooking(existing);
 
   const now = Date.now();
+  const cityId: ServiceCityId = isServiceCity(input.serviceCityId ?? "") ? input.serviceCityId as ServiceCityId : "beijing";
+  if(input.serviceCityId && !isServiceCity(input.serviceCityId))throw new ApiError(422,"unsupported_service_city","当前仅支持北京和长春");
   const fieldErrors: Record<string, string> = {};
   if (!BOOKING_DURATIONS.includes(input.durationMinutes as typeof BOOKING_DURATIONS[number])) fieldErrors.durationMinutes = "请选择60、90或120分钟";
   if (!Number.isFinite(input.startsAt) || input.startsAt < now + MIN_BOOKING_NOTICE_MS) fieldErrors.startsAt = "预约时间至少需要提前2小时";
   if (input.startsAt > now + MAX_BOOKING_HORIZON_MS) fieldErrors.startsAt = "只能预约未来60天内的时间";
   if (input.locationType !== "venue" && input.locationType !== "custom") fieldErrors.locationType = "请选择训练地点方式";
   if (input.locationType === "custom" && (!input.customDistrict?.trim() || !input.customAddress?.trim())) fieldErrors.customAddress = "请填写期望区域和详细地点";
-  if (input.locationType === "custom" && input.customDistrict && !BEIJING_DISTRICTS.includes(input.customDistrict.trim() as (typeof BEIJING_DISTRICTS)[number])) fieldErrors.customDistrict = "训练地点仅限北京 16 区";
+  if (input.locationType === "custom" && input.customDistrict && !isServiceArea(cityId, input.customDistrict.trim())) fieldErrors.customDistrict = `训练地点仅限${cityName(cityId)}已开放区域`;
   if (Object.keys(fieldErrors).length) throw new ApiError(422, "invalid_booking_request", "请检查预约时间和地点", fieldErrors);
 
   const coach = await database.prepare(`SELECT * FROM coaches WHERE id = ? AND profile_kind = 'real'
     AND audit_status = 'approved' AND listing_status = 'online' AND booking_enabled = 1 AND pricing_status = 'published'`
   ).bind(input.coachId).first<Row>();
   if (!coach) throw new ApiError(410, "coach_not_accepting_requests", "该教练当前未上线接单");
+  const servesCity = await database.prepare(`SELECT 1 FROM coaches c WHERE c.id=? AND (c.city=? OR EXISTS (
+    SELECT 1 FROM coach_service_areas csa JOIN service_areas sa ON sa.id=csa.area_id
+    WHERE csa.coach_id=c.id AND sa.city_id=? AND sa.status='published')) LIMIT 1`).bind(input.coachId, cityName(cityId), cityId).first<Row>();
+  if (!servesCity) throw new ApiError(422, "coach_city_unavailable", `该教练暂未在${cityName(cityId)}开放服务`);
   const learner = await database.prepare("SELECT id FROM learner_profiles WHERE id = ? AND user_id = ?").bind(input.learnerId, identity.userId).first<Row>();
   if (!learner) throw new ApiError(422, "learner_required", "请选择有效的学员档案", { learnerId: "学员档案无效" });
 
   let venueId = input.venueId?.trim() || "";
   if (input.locationType === "venue") {
-    const venue = await database.prepare("SELECT id FROM venues WHERE id = ? AND coach_id = ? AND active = 1").bind(venueId, input.coachId).first<Row>();
+    const venue = await database.prepare("SELECT id FROM venues WHERE id = ? AND coach_id = ? AND city = ? AND active = 1").bind(venueId, input.coachId, cityName(cityId)).first<Row>();
     if (!venue) throw new ApiError(422, "venue_not_found", "请选择该教练已审核的训练场馆", { venueId: "场馆无效" });
   } else {
-    venueId = `venue_coordination_${input.coachId}`;
+    venueId = `venue_coordination_${input.coachId}_${cityId}`;
     await database.prepare(`INSERT OR IGNORE INTO venues (id, coach_id, name, address, city, district, active, created_at, updated_at)
-      VALUES (?, ?, '学员期望地点', '仅预约双方可见', '北京', ?, 0, ?, ?)`)
-      .bind(venueId, input.coachId, input.customDistrict!.trim().slice(0, 40), now, now).run();
+      VALUES (?, ?, '学员期望地点', '仅预约双方可见', ?, ?, 0, ?, ?)`)
+      .bind(venueId, input.coachId, cityName(cityId), input.customDistrict!.trim().slice(0, 40), now, now).run();
   }
 
   const bookingId = randomId("booking");
@@ -1175,10 +1299,11 @@ export async function createTimeRequestBookingD1(
     ).bind(bookingId, idempotencyKey, identity.userId, learner.id, input.coachId, venueId, slotId, feeFen, input.note.slice(0, 500), now, now),
     database.prepare(`INSERT INTO booking_request_details
       (booking_id, requested_starts_at, requested_ends_at, duration_minutes, location_type, requested_venue_id,
-       custom_district, custom_address, custom_note, expires_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       custom_city, custom_district, custom_address, custom_note, expires_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(bookingId, input.startsAt, endsAt, input.durationMinutes, input.locationType,
       input.locationType === "venue" ? venueId : null,
+      cityName(cityId),
       input.locationType === "custom" ? input.customDistrict!.trim().slice(0, 40) : null,
       input.locationType === "custom" ? input.customAddress!.trim().slice(0, 240) : null,
       input.locationType === "custom" ? (input.customLocationNote || "").trim().slice(0, 300) : null,
@@ -1402,8 +1527,8 @@ export async function coachOverviewD1(identity: CoachIdentity, env: ApiEnv) {
   const [coach, bookings, conversations, slots, venues] = await Promise.all([
     Promise.resolve(mapCoach(coachRow, env)),
     database.prepare(`
-      SELECT b.*, s.starts_at, s.ends_at, s.source, l.name AS learner_name, v.name AS venue_name, c.name AS coach_name, c.sport,
-        d.duration_minutes, d.location_type, d.custom_district, d.custom_address, d.custom_note, d.expires_at ${completionSelect}
+      SELECT b.*, s.starts_at, s.ends_at, s.source, l.name AS learner_name, v.name AS venue_name, v.city AS venue_city, c.name AS coach_name, c.sport,
+        d.duration_minutes, d.location_type, d.custom_city, d.custom_district, d.custom_address, d.custom_note, d.expires_at ${completionSelect}
       FROM booking_requests b JOIN availability_slots s ON s.id = b.slot_id
       LEFT JOIN booking_request_details d ON d.booking_id = b.id
       ${completionJoin}
@@ -1416,7 +1541,7 @@ export async function coachOverviewD1(identity: CoachIdentity, env: ApiEnv) {
       FROM conversations c LEFT JOIN user_profiles p ON p.user_id = c.student_user_id
       WHERE c.coach_id = ? ORDER BY c.last_message_at DESC LIMIT 50`).bind(identity.coachId).all<Row>(),
     listSlotsD1(identity.coachId, env, false),
-    database.prepare("SELECT id, coach_id, name, address, district FROM venues WHERE coach_id = ? AND active = 1 ORDER BY created_at").bind(identity.coachId).all<Row>(),
+    database.prepare("SELECT id, coach_id, name, address, city, district FROM venues WHERE coach_id = ? AND active = 1 ORDER BY created_at").bind(identity.coachId).all<Row>(),
   ]);
   const mappedConversations: MobileConversation[] = await Promise.all((conversations.results ?? []).map(async (conversation) => {
     const messageRows = await database.prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT 200").bind(conversation.id).all<Row>();
@@ -1447,6 +1572,7 @@ export async function coachOverviewD1(identity: CoachIdentity, env: ApiEnv) {
     slots,
     venues: (venues.results ?? []).map((venue) => ({
       address: stringValue(venue.address),
+      city: stringValue(venue.city),
       coachId: numberValue(venue.coach_id),
       district: stringValue(venue.district),
       id: stringValue(venue.id),

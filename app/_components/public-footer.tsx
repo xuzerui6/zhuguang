@@ -18,7 +18,7 @@ export function PublicFooter() {
         <div className={styles.footerBrand}>
           <Brand />
           <p>连接经过审核的专业教练与学员家庭，让训练选择更透明，让每一次课程都有记录。</p>
-          <span>北京试点服务</span>
+          <span>北京、吉林长春服务</span>
         </div>
         <div>
           <strong>寻找服务</strong>

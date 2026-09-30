@@ -18,7 +18,7 @@ export function randomId(prefix: string) {
   return `${prefix}_${crypto.randomUUID()}`;
 }
 
-export function randomToken(prefix: "zga" | "zgr") {
+export function randomToken(prefix: "zga" | "zgr" | "zgw") {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return `${prefix}_${bytesToBase64Url(bytes)}`;
 }
@@ -127,7 +127,7 @@ export function assertPilotApp(request: Request, env: ApiEnv) {
 export async function assertPilotPhone(phoneHash: string, env: ApiEnv) {
   if (!env.PILOT_PHONE_HASHES) return;
   const allowed = env.PILOT_PHONE_HASHES.split(",").map((item) => item.trim()).filter(Boolean);
-  if (!allowed.includes(phoneHash)) throw new ApiError(403, "pilot_not_invited", "该手机号尚未加入北京试点名单");
+  if (!allowed.includes(phoneHash)) throw new ApiError(403, "pilot_not_invited", "该手机号尚未加入逐光定向体验名单");
 }
 
 export async function verifyTurnstile(request: Request, token: unknown, env: ApiEnv) {

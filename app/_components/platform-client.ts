@@ -35,7 +35,11 @@ export function describeBookingOptionsFailure(error: unknown, unavailableReason?
       return { action: "none", copy: unavailableReason || error.message || "该教练当前暂不接受新的时间申请。", title: "教练暂未接单" };
     }
   }
-  return { action: "retry", copy: error instanceof Error ? error.message : "预约配置加载失败，请检查网络后重试。", title: "预约配置暂时无法加载" };
+  return {
+    action: "retry",
+    copy: error instanceof PlatformRequestError ? error.message : "预约配置加载失败，请检查网络后重试。",
+    title: "预约配置暂时无法加载",
+  };
 }
 
 export async function platformRequest<T>(

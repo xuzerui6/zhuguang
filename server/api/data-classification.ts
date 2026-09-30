@@ -14,6 +14,12 @@ export function classificationSql(type: EntityType, alias: string) {
 }
 export function classificationFilter(type: EntityType, alias: string) { return `(?='all' OR ${classificationSql(type,alias)}=?)`; }
 
+export function leadQueueSelection(selected?: string | null, view?: string | null) {
+  if (view && (view !== 'work_queue' || selected != null)) throw new ApiError(422, 'invalid_lead_view', '工作队列与精确分类不能同时选择');
+  const classification = view ? null : parseClassification(selected);
+  return { classification, sql: view ? `${classificationSql('service_lead','l')} IN ('production_eligible','unclassified')` : classificationFilter('service_lead','l'), bindings: classification ? [classification, classification] : [] };
+}
+
 export async function classificationCounts(env: ApiEnv) {
   if (!env.DB) throw new ApiError(503,'database_unavailable','业务数据库暂时不可用');
   const result = await Promise.all(Object.entries(tables).map(async ([type,table]) => {
@@ -23,7 +29,7 @@ export async function classificationCounts(env: ApiEnv) {
   return result;
 }
 
-export async function classifyMetricEntityD1(entityType: string, entityId: string, classification: string, reason: string, actor: string, requestId: string, env: ApiEnv) {
+export async function classifyMetricEntityD1(entityType: string, entityId: string, classification: string, reason: string, actor: string, requestId: string, env: ApiEnv, expectedEventId?: string | null) {
   if (!Object.hasOwn(tables,entityType) || !['unclassified','qa','production_eligible','excluded'].includes(classification) || (entityType==='product_event' && classification==='excluded')) throw new ApiError(422,'invalid_metric_classification','指标分类参数无效');
   if (reason.trim().length<4 || reason.length>500) throw new ApiError(422,'reason_required','请填写4至500字的分类原因');
   const database=env.DB;
@@ -31,6 +37,7 @@ export async function classifyMetricEntityD1(entityType: string, entityId: strin
   const table=tables[entityType as EntityType];
   const existing=await database.prepare(`SELECT e.id,m.last_event_id,m.classification FROM ${table} e LEFT JOIN entity_metric_classifications m ON m.entity_type=? AND m.entity_id=CAST(e.id AS TEXT) WHERE CAST(e.id AS TEXT)=?`).bind(entityType,entityId).first<{last_event_id:string|null;classification:string|null}>();
   if (!existing) throw new ApiError(404,'metric_entity_not_found','未找到要分类的记录');
+  if (expectedEventId !== undefined && expectedEventId !== existing.last_event_id) throw new ApiError(409,'classification_conflict','记录分类已变化，请刷新后重试');
   const now=Date.now(); const eventId=randomId('metric_event');
   const guard='EXISTS (SELECT 1 FROM entity_metric_classifications WHERE last_event_id=?)';
   const statements=[database.prepare(`INSERT INTO entity_metric_classifications(entity_type,entity_id,classification,last_event_id,updated_at)

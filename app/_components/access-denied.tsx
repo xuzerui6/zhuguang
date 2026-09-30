@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { refreshPlatformSession } from "./platform-client";
+import { recoverPageSession, type PageRecoveryState } from '../_lib/page-session-recovery';
 import { Brand } from "./brand";
 import styles from "./access-denied.module.css";
 
@@ -16,13 +17,16 @@ const areaLabels = {
 
 export function AccessDenied({ area, authenticated, unavailable = false, recoverable = false }: { area: keyof typeof areaLabels; authenticated: boolean; unavailable?: boolean; recoverable?: boolean }) {
   const router = useRouter();
-  const attempted = useRef(false);
-  const [recoveryFailed, setRecoveryFailed] = useState(false);
+  const request = useRef<Promise<boolean> | null>(null);
+  const [recovery, setRecovery] = useState<PageRecoveryState>('recovering');
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    if (!recoverable || attempted.current) return;
-    attempted.current = true;
-    void refreshPlatformSession().then((ok) => { setRecoveryFailed(true); if (ok) router.refresh(); });
-  }, [recoverable, router]);
+    if (!recoverable) return;
+    const controller = new AbortController();
+    request.current ??= refreshPlatformSession();
+    void recoverPageSession(request.current, setRecovery, () => router.refresh(), controller.signal);
+    return () => controller.abort();
+  }, [attempt, recoverable, router]);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const query = searchParams.toString();
@@ -31,9 +35,9 @@ export function AccessDenied({ area, authenticated, unavailable = false, recover
 
   if (unavailable || recoverable) return <main className={styles.page}><header><Brand /></header><section>
     <span className={styles.icon}><LockKeyhole aria-hidden size={26} /></span>
-    <h1>{unavailable ? "暂时无法连接身份服务" : recoveryFailed ? "登录状态需要重试" : "正在恢复登录状态"}</h1>
-    <p role="status">{unavailable ? "登录信息已保留，请稍后重试。" : recoveryFailed ? "未能恢复页面，可以重试或重新登录。" : "正在安全续期，原页面和操作选择会保留。"}</p>
-    <div><button className={styles.primary} onClick={() => window.location.reload()} type="button">重新加载</button><Link href={loginHref}>重新登录</Link><Link href="/">返回官网</Link></div>
+    <h1>{unavailable ? "暂时无法连接身份服务" : recovery === 'failed' ? "登录状态需要重试" : recovery === 'succeeded' ? '登录已恢复' : "正在恢复登录状态"}</h1>
+    <p role="status">{unavailable ? "登录信息已保留，请稍后重试。" : recovery === 'failed' ? "未能恢复页面，登录信息已保留，可以重试或重新登录。" : recovery === 'succeeded' ? '正在返回原页面，你的操作选择会保留。' : "正在安全续期，原页面和操作选择会保留。"}</p>
+    <div>{unavailable ? <button className={styles.primary} onClick={() => window.location.reload()} type="button">重新加载</button> : recovery === 'failed' ? <button className={styles.primary} onClick={() => { request.current = null; setRecovery('recovering'); setAttempt(value => value + 1); }} type="button">重试恢复</button> : null}{unavailable || recovery === 'failed' ? <Link href={loginHref}>重新登录</Link> : null}<Link href="/">返回官网</Link></div>
   </section></main>;
 
   return (

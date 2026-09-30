@@ -4,7 +4,7 @@ import { WorkspaceShell } from "../_components/workspace-shell";
 import { canAccessArea, getWebSession } from "../_lib/web-session";
 
 export const metadata: Metadata = {
-  description: "逐光北京试点运营工作台。",
+  description: "逐光北京与吉林长春运营工作台。",
   title: "运营工作台 | 逐光",
 };
 

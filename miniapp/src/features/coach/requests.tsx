@@ -1,0 +1,11 @@
+import Taro from "@tarojs/taro";
+import { Text, View } from "@tarojs/components";
+import { EmptyState } from "../../components/empty-state";
+import type { Booking } from "../../types";
+
+export function CoachRequests({ bookings }: { bookings: Booking[] }) {
+  const pending = bookings.filter((item) => item.status === "pending_coach");
+  const waiting = bookings.filter((item) => item.status === "reschedule_requested");
+  const history = bookings.filter(item => ['completed', 'rejected', 'expired', 'cancelled_by_coach', 'cancelled_by_student'].includes(item.status));
+  return <View className="zg-page-content zg-subpage"><View className="zg-page-title"><Text>预约请求</Text><Text>确认前核对时间、地点和课程信息</Text></View>{pending.length ? <View className="zg-list-surface">{pending.map((booking) => <View className="zg-request-card" key={booking.id} onClick={() => Taro.navigateTo({ url: `/pages/coach-request/index?id=${encodeURIComponent(booking.id)}` })}><View><Text className="zg-booking-title">{booking.dateLabel} {booking.time}</Text><Text>{booking.venueName || booking.customAddress || "学员填写地点"}</Text></View><View className="zg-request-actions"><View className="zg-outline-button"><Text>查看并处理</Text></View></View></View>)}</View> : <EmptyState description="学员指定时间并提交申请后，会出现在这里。" title="暂无待处理预约" />}{waiting.length ? <><View className="zg-section-heading"><Text>等待学员回应</Text><Text className="zg-heading-link">{waiting.length} 个方案</Text></View><View className="zg-list-surface">{waiting.map((booking) => <View className="zg-request-card" key={booking.id} onClick={() => Taro.navigateTo({ url: `/pages/coach-request/index?id=${encodeURIComponent(booking.id)}` })}><View><Text className="zg-booking-title">{booking.dateLabel} {booking.time}</Text><Text>{booking.venueName || booking.customAddress || "地点待确认"}</Text><Text className="zg-helper">已提出新方案，暂不需要重复操作</Text></View></View>)}</View></> : null}{history.length ? <><View className="zg-section-heading"><Text>历史课程与申请</Text></View>{history.map(booking => <View className="zg-request-card" key={booking.id} onClick={() => Taro.navigateTo({ url: '/pages/coach-request/index?id=' + encodeURIComponent(booking.id) })}><Text>{booking.dateLabel} {booking.time}</Text><Text>{booking.status === 'completed' ? '已完成 · 查看训练总结' : '申请已结束'}</Text></View>)}</> : null}</View>;
+}

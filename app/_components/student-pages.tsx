@@ -1,5 +1,5 @@
 "use client";
-import { consumesTrial } from "../../shared/booking-rules";
+import { consumesTrial, isTerminalBooking, BOOKING_LABELS } from "../../shared/booking-rules";
 
 import {
   ArrowRight,
@@ -19,7 +19,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { BEIJING_DISTRICTS, SPORT_OPTIONS, TRAINING_GOAL_OPTIONS } from "../../shared/coach-catalog";
+import { SPORT_OPTIONS, TRAINING_GOAL_OPTIONS } from "../../shared/coach-catalog";
 import { calculateDurationPriceFen } from "../../shared/pricing";
 import { getBookingPresentation } from "../../shared/booking-presentation";
 import { completionIdempotencyKey } from "../../shared/completion-idempotency";
@@ -32,6 +32,7 @@ import { describeBookingOptionsFailure, formatBeijingDate, formatFen, PlatformRe
 import styles from "./platform-pages.module.css";
 import { LoadingState as SharedLoadingState } from "./async-states";
 import { useOperationPrompt } from "./operation-context";
+import { cityName, resolveServiceCity, SERVICE_AREAS, SERVICE_CITIES, type ServiceCityId } from "../../shared/service-cities";
 
 export type StudentSection = "home" | "coaches" | "bookings" | "messages" | "training" | "profile";
 
@@ -73,16 +74,7 @@ type TrainingRecord = {
 type SupportTicket = { id: string; subject?: string; category?: string; status?: string; latest_message?: string; updated_at?: number; created_at?: number };
 type RescheduleProposal = { id: string; booking_id: string; status: string; note?: string; starts_at?: number; ends_at?: number; venue_name?: string; venue_address?: string; created_at?: number };
 
-const statusCopy: Record<MobileBooking["status"], string> = {
-  cancelled_by_coach: "教练已取消",
-  cancelled_by_student: "已取消",
-  completed: "已完成",
-  confirmed: "已确认",
-  pending_coach: "等待教练确认",
-  rejected: "未被接受",
-  expired: "申请已失效",
-  reschedule_requested: "教练申请改期",
-};
+const statusCopy = BOOKING_LABELS;
 
 function statusTone(status: MobileBooking["status"]) {
   if (status === "confirmed" || status === "completed") return "green";
@@ -90,7 +82,7 @@ function statusTone(status: MobileBooking["status"]) {
   return "gray";
 }
 
-function useStudentBootstrap() {
+function useStudentBootstrap(cityId:ServiceCityId) {
   const [data, setData] = useState<BootstrapData | null>(null);
   const hasData = useRef(false);
   const [error, setError] = useState("");
@@ -98,26 +90,26 @@ function useStudentBootstrap() {
   const load = useCallback(async () => {
     if (!hasData.current) setLoading(true);
     try {
-      setData(await platformRequest<BootstrapData>("/api/v1/bootstrap")); hasData.current = true;
+      setData(await platformRequest<BootstrapData>(`/api/v1/bootstrap?city=${cityId}`)); hasData.current = true;
       setError("");
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "暂时无法读取学员数据");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [cityId]);
   const refresh = useCallback(async () => {
-    try { setData(await platformRequest<BootstrapData>("/api/v1/bootstrap")); setError(""); }
+    try { setData(await platformRequest<BootstrapData>(`/api/v1/bootstrap?city=${cityId}`)); setError(""); }
     catch { /* Keep the last successfully loaded workspace state. */ }
-  }, []);
+  }, [cityId]);
   useEffect(() => {
     let active = true;
-    void platformRequest<BootstrapData>("/api/v1/bootstrap")
+    void platformRequest<BootstrapData>(`/api/v1/bootstrap?city=${cityId}`)
       .then((result) => { if (active) { setData(result); hasData.current = true; setError(""); } })
       .catch((loadError: unknown) => { if (active) setError(loadError instanceof Error ? loadError.message : "暂时无法读取学员数据"); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [cityId]);
   return { data, error, load, loading, refresh, setData };
 }
 
@@ -127,7 +119,8 @@ export function StudentPage({ initialCoachId, initialSlotId, section }: { initia
 }
 
 function StudentDataPage({ initialCoachId, initialSlotId, section }: { initialCoachId?: number; initialSlotId?: string; section: Exclude<StudentSection, "coaches"> }) {
-  const state = useStudentBootstrap();
+  const cityId=resolveServiceCity(useSearchParams().get("city"));
+  const state = useStudentBootstrap(cityId);
   if (state.loading) return <LoadingState label="正在读取你的服务记录" />;
   if (!state.data) return <ErrorState message={state.error} onRetry={state.load} />;
   if (section === "bookings") return <BookingsPage data={state.data} initialCoachId={initialCoachId} initialSlotId={initialSlotId} reload={state.load} />;
@@ -138,14 +131,14 @@ function StudentDataPage({ initialCoachId, initialSlotId, section }: { initialCo
 }
 
 function StudentHome({ data }: { data: BootstrapData }) {
-  const active = data.bookings.find((booking) => !["completed", "cancelled_by_coach", "cancelled_by_student", "rejected"].includes(booking.status));
+  const active = data.bookings.find((booking) => !isTerminalBooking(booking.status));
   const coach = active ? data.coaches.find((item) => item.id === active.coachId) : undefined;
   const unread = data.conversations.reduce((total, item) => total + item.unreadCount, 0);
   const reviewTodo = data.bookings.find((booking) => booking.review.canSubmit || booking.review.canResubmit);
   return (
     <div className={styles.page}>
       <header className={styles.heading}>
-        <div><p className={styles.eyebrow}>北京学员服务</p><h1>把训练安排在真正合适的位置</h1><p>预约、沟通和训练记录都以服务端数据为准，不展示虚构课量或进度。</p></div>
+        <div><p className={styles.eyebrow}>学员服务</p><h1>我的训练</h1><p>查看训练安排、与教练沟通，回顾每次课程记录。</p></div>
         <Link className={styles.primary} href="/student/coaches">继续找教练 <ArrowRight aria-hidden size={17} /></Link>
       </header>
       <section className={styles.metrics}>
@@ -173,7 +166,7 @@ function StudentHome({ data }: { data: BootstrapData }) {
         <aside className={styles.panel}>
           <header className={styles.panelHeader}><div><h2>账号准备度</h2><p>完善档案能让教练更准确地准备课程。</p></div></header>
           <div className={styles.list}>
-            <Link className={styles.listItem} href="/student/profile"><span className={styles.listIcon}><UserRound aria-hidden size={19} /></span><div><h3>学员档案</h3><p>{data.learnerProfiles.length ? `${data.learnerProfiles.length} 份档案已保存` : "还没有建立学员档案"}</p></div><ArrowRight aria-hidden size={17} /></Link>
+            <Link className={styles.listItem} href="/student/profile"><span className={styles.listIcon}><UserRound aria-hidden size={19} /></span><div><h3>账号资料</h3><p>{data.accountProfile?.completed ? "账号资料已完善" : "完善昵称与账号资料"}</p></div><ArrowRight aria-hidden size={17} /></Link>
             <Link className={styles.listItem} href="/student/messages"><span className={styles.listIcon}><MessageCircle aria-hidden size={19} /></span><div><h3>服务沟通</h3><p>{unread ? `${unread} 条消息等待查看` : "暂无未读消息"}</p></div><ArrowRight aria-hidden size={17} /></Link>
             <Link className={styles.listItem} href="/student/training"><span className={styles.listIcon}><FileText aria-hidden size={19} /></span><div><h3>训练档案</h3><p>由已完成课程和教练记录生成</p></div><ArrowRight aria-hidden size={17} /></Link>
           </div>
@@ -184,11 +177,12 @@ function StudentHome({ data }: { data: BootstrapData }) {
 }
 
 function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: BootstrapData; initialCoachId?: number; initialSlotId?: string; reload: () => Promise<void> }) {
+  const cityId=resolveServiceCity(useSearchParams().get("city"));
   const requestOperation = useOperationPrompt();
   const selectedCoach = data.coaches.find((coach) => coach.id === initialCoachId) ?? (initialCoachId ? undefined : data.coaches[0]);
-  const hasPriorEffectiveBooking = selectedCoach ? data.bookings.some((booking) => booking.coachId === selectedCoach.id && consumesTrial(booking.status)) : false;
-  const bookingPriceLabel = hasPriorEffectiveBooking ? "常规课" : "首次试课";
   const [options, setOptions] = useState<BookingOptions | null>(null);
+  const hasPriorEffectiveBooking = options?.trialEligible != null ? !options.trialEligible : selectedCoach ? data.bookings.some((booking) => booking.coachId === selectedCoach.id && consumesTrial(booking.status)) : false;
+  const bookingPriceLabel = hasPriorEffectiveBooking ? "常规课" : "首次试课";
   const [optionsLoading, setOptionsLoading] = useState(Boolean(selectedCoach));
   const [optionsError, setOptionsError] = useState<unknown>(null);
   const [optionsReloadKey, setOptionsReloadKey] = useState(0);
@@ -216,17 +210,18 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
     if (!selectedCoach) return;
     let active = true;
     queueMicrotask(() => { setOptionsLoading(true); setOptionsError(null); setError(""); });
-    void platformRequest<BookingOptions>(`/api/v1/coaches/${selectedCoach.id}/booking-options`).then((value) => {
+    void platformRequest<BookingOptions>(`/api/v1/coaches/${selectedCoach.id}/booking-options?city=${cityId}`).then((value) => {
       if (!active) return;
       setOptions(value);
       setOptionsError(null);
       setVenueId(value.venues[0]?.id || "");
+      setLocationType(value.venues.length?"venue":"custom");setCustomDistrict(SERVICE_AREAS[cityId][0]);
       setStartsAt(formatBeijingDateTimeLocal(value.earliestStartsAt + 5 * 60_000));
     }).catch((loadError: unknown) => {
       if (active) { setOptions(null); setOptionsError(loadError); }
     }).finally(() => { if (active) setOptionsLoading(false); });
     return () => { active = false; };
-  }, [initialSlotId, optionsReloadKey, selectedCoach]);
+  }, [cityId, initialSlotId, optionsReloadKey, selectedCoach]);
   useEffect(() => {
     if (!selectedLearnerId && data.learnerProfiles[0]?.id) queueMicrotask(() => setSelectedLearnerId(data.learnerProfiles[0].id));
   }, [data.learnerProfiles, selectedLearnerId]);
@@ -253,7 +248,7 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
     trackProductEvent({ flow: "booking", outcome: "started", role: "student", step: "submit" });
     try {
       await platformRequest("/api/v1/bookings", {
-        body: { coachId: selectedCoach.id, customAddress, customDistrict, customLocationNote, durationMinutes, learnerId: selectedLearnerId, locationType, note: bookingNote, startsAt: requestedStartsAt, venueId: locationType === "venue" ? venueId : undefined },
+        body: { coachId: selectedCoach.id, serviceCityId:cityId,customAddress, customDistrict, customLocationNote, durationMinutes, learnerId: selectedLearnerId, locationType, note: bookingNote, startsAt: requestedStartsAt, venueId: locationType === "venue" ? venueId : undefined },
         idempotencyKey,
         method: "POST",
       });
@@ -328,7 +323,7 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
       {error ? <div className={styles.error} role="alert"><strong>操作没有完成</strong><p>{error}</p></div> : null}
       {!selectedCoach && initialCoachId ? <section className={styles.panel}><EmptyState action={<Link className={styles.primary} href="/student/coaches">重新选择教练</Link>} copy="该教练可能已下线、暂停接单或不再公开展示。" title="当前教练不可预约" /></section> : null}
       {selectedCoach ? <section className={styles.panel}>
-        <header className={styles.panelHeader}><div><h2>向{selectedCoach.name}教练申请训练时间</h2><p>{selectedCoach.sport} · {selectedCoach.district || "北京"} · 自主选择北京时间 · 教练确认后生效</p></div><Link className={styles.secondary} href={`/coaches/${selectedCoach.id}`}>查看教练档案</Link></header>
+        <header className={styles.panelHeader}><div><h2>向{selectedCoach.name}教练申请训练时间</h2><p>{selectedCoach.sport} · {cityName(cityId)} · 自主选择北京时间 · 教练确认后生效</p></div><Link className={styles.secondary} href={`/coaches/${selectedCoach.id}?city=${cityId}`}>查看教练档案</Link></header>
         {!data.learnerProfiles.length ? <form className={styles.quickProfile} onSubmit={createLearner}><header><div><h3>先建立学员档案</h3><p>只填写本次预约所需信息，创建后会自动继续当前流程。</p></div><UserRound aria-hidden size={22} /></header><div className={styles.formGrid}><label className={styles.field}><span>学员姓名</span><input maxLength={40} name="name" required /></label><label className={styles.field}><span>身份关系</span><select defaultValue="self" name="relation"><option value="self">本人</option><option value="child">子女</option></select></label><label className={styles.field}><span>年龄</span><input max={100} min={1} name="age" required type="number" /></label><label className={styles.field}><span>性别</span><select defaultValue="unspecified" name="gender"><option value="unspecified">暂不填写</option><option value="male">男</option><option value="female">女</option></select></label><label className={styles.field}><span>运动项目</span><select defaultValue={selectedCoach.sport} name="sport">{SPORT_OPTIONS.map((item) => <option key={item}>{item}</option>)}</select></label><label className={styles.field}><span>训练基础</span><select defaultValue="初学" name="level"><option>初学</option><option>有一定基础</option><option>校队或专项训练</option></select></label><label className={styles.field}><span>训练目标</span><select defaultValue={selectedCoach.goals[0] || TRAINING_GOAL_OPTIONS[0]} name="goal">{Array.from(new Set([...TRAINING_GOAL_OPTIONS, ...selectedCoach.goals])).map((item) => <option key={item}>{item}</option>)}</select></label></div><button className={styles.primary} disabled={profileBusy} type="submit">{profileBusy ? "创建中" : "建立档案并继续"}</button></form> : null}
         {optionsLoading ? <LoadingState label="正在读取预约配置" /> : options ? <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void book(); }}>
           <div className={styles.formGrid}>
@@ -337,8 +332,8 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
           </div>
           <div className={styles.durationOptions} aria-label="训练时长"><span>训练时长</span>{options.durationMinutes.map((minutes) => <button aria-pressed={durationMinutes === minutes} className={durationMinutes === minutes ? styles.selectedOption : undefined} key={minutes} onClick={() => { setDurationMinutes(minutes); setIdempotencyKey(`web-booking-${crypto.randomUUID()}`); }} type="button">{minutes}分钟</button>)}</div>
           <div className={styles.formGrid}>
-            <label className={styles.field}><span>地点方式</span><select onChange={(event) => setLocationType(event.target.value as "venue" | "custom")} value={locationType}><option value="venue">教练已审核场馆</option><option value="custom">填写期望地点</option></select></label>
-            {locationType === "venue" ? <label className={styles.field}><span>训练场馆</span><select onChange={(event) => setVenueId(event.target.value)} value={venueId}><option value="">请选择场馆</option>{options.venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name} · {venue.district}</option>)}</select></label> : <label className={styles.field}><span>期望区域</span><input maxLength={40} onChange={(event) => setCustomDistrict(event.target.value)} placeholder="例如：通州区" value={customDistrict} /></label>}
+            <label className={styles.field}><span>地点方式（{cityName(cityId)}）</span><select onChange={(event) => setLocationType(event.target.value as "venue" | "custom")} value={locationType}><option disabled={!options.venues.length} value="venue">{options.venues.length?"教练已审核场馆":"当前城市暂无已审核场馆"}</option><option value="custom">填写期望地点</option></select></label>
+            {locationType === "venue" ? <label className={styles.field}><span>训练场馆</span><select onChange={(event) => setVenueId(event.target.value)} value={venueId}><option value="">请选择场馆</option>{options.venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name} · {venue.district}</option>)}</select></label> : <label className={styles.field}><span>期望区域</span><select onChange={event=>setCustomDistrict(event.target.value)} value={customDistrict}>{SERVICE_AREAS[cityId].map(area=><option key={area}>{area}</option>)}</select></label>}
           </div>
           {locationType === "custom" ? <div className={styles.formGrid}><label className={styles.field}><span>详细地点</span><input maxLength={240} onChange={(event) => setCustomAddress(event.target.value)} placeholder="仅预约双方与运营可见" value={customAddress} /></label><label className={styles.field}><span>地点补充说明</span><input maxLength={300} onChange={(event) => setCustomLocationNote(event.target.value)} placeholder="集合点、交通或场地要求" value={customLocationNote} /></label></div> : null}
           <label className={styles.field}><span>训练需求说明</span><textarea maxLength={500} onChange={(event) => setBookingNote(event.target.value)} placeholder="需要教练提前了解的训练目标、基础或伤病情况" rows={3} value={bookingNote} /></label>
@@ -359,7 +354,7 @@ function BookingsPage({ data, initialCoachId, initialSlotId, reload }: { data: B
       </section> : null}
       {proposals.some((item) => item.status === "pending") ? <section className={styles.panel}><header className={styles.panelHeader}><div><h2>待确认改期</h2><p>确认前请核对新时间和场馆</p></div></header><div className={styles.list}>{proposals.filter((item) => item.status === "pending").map((proposal) => <article className={styles.listItem} key={proposal.id}><span className={styles.listIcon}><Clock3 aria-hidden size={19} /></span><div><h3>{formatBeijingDate(proposal.starts_at)}</h3><p>{proposal.venue_name || "训练场馆"} · {proposal.note || "教练提出新的训练时间"}</p></div><span className={styles.rowActions}><button className={styles.danger} disabled={busy === proposal.id} onClick={() => void respondToReschedule(proposal.id, "rejected")} type="button">拒绝</button><button className={styles.primary} disabled={busy === proposal.id} onClick={() => void respondToReschedule(proposal.id, "accepted")} type="button">接受改期</button></span></article>)}</div></section> : null}
       <section className={styles.panel}>
-        <header className={styles.panelHeader}><div><h2>预约记录</h2><p>共 {data.bookings.length} 条真实记录</p></div></header>
+        <header className={styles.panelHeader}><div><h2>预约记录</h2><p>共 {data.bookings.length} 条预约记录</p></div></header>
         {data.bookings.length ? <div className={styles.table}>
           <div className={styles.tableHead}><span>教练</span><span>训练时间</span><span>费用</span><span>状态</span><span>操作</span></div>
           {data.bookings.map((booking) => {
@@ -476,6 +471,9 @@ function ProfilePage({ data, reload }: { data: BootstrapData; reload: () => Prom
   const [contactChallengeId, setContactChallengeId] = useState("");
   const [contactCode, setContactCode] = useState("");
   const accountProfile = data.accountProfile;
+  const [profileSection, setProfileSection] = useState<"account" | "learners" | "service">("account");
+  const [profileCity, setProfileCity] = useState<ServiceCityId>(accountProfile?.serviceCityId || "beijing");
+  const [profileArea, setProfileArea] = useState(accountProfile?.serviceArea || accountProfile?.district || "");
   const loadTickets = useCallback(async () => { try { setTickets(await platformRequest<SupportTicket[]>("/api/v1/support-tickets")); } catch { setTickets([]); } }, []);
   useEffect(() => { queueMicrotask(() => void loadTickets()); }, [loadTickets]);
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -497,7 +495,7 @@ function ProfilePage({ data, reload }: { data: BootstrapData; reload: () => Prom
     const form = new FormData(event.currentTarget);
     setBusy(true); setError("");
     try {
-      await platformRequest<AccountProfile>("/api/v1/me/profile", { body: { bio: form.get("bio"), district: form.get("district"), nickname: form.get("nickname") }, method: "PATCH" });
+      await platformRequest<AccountProfile>("/api/v1/me/profile", { body: { bio: form.get("bio"), nickname: form.get("nickname"), serviceArea: form.get("serviceArea"), serviceCityId: form.get("serviceCityId") }, method: "PATCH" });
       setNotice("账号资料已更新"); await reload();
     } catch (saveError) { setError(saveError instanceof Error ? saveError.message : "账号资料保存失败"); }
     finally { setBusy(false); }
@@ -554,22 +552,23 @@ function ProfilePage({ data, reload }: { data: BootstrapData; reload: () => Prom
   }
   return <div className={styles.page}>
     <header className={styles.heading}><div><p className={styles.eyebrow}>账号与档案</p><h1>把必要信息交给正确的人</h1><p>敏感资料不会出现在公开教练目录中，仅用于已确认的服务。</p></div></header>
-    <section className={styles.panel}><header className={styles.panelHeader}><div><h2>账号资料</h2><p>昵称与头像不会替代学员真实姓名，也不会出现在公开评价中</p></div><span className={styles.status} data-tone={accountProfile?.completed ? "green" : "amber"}>{accountProfile?.completed ? "资料已完善" : "待完善"}</span></header>
+    <nav aria-label="账号设置分类" className={styles.profileTabs}>{([['account','账号资料'],['learners','学员档案'],['service','服务与安全']] as const).map(([id,label])=><button aria-current={profileSection===id?'page':undefined} className={profileSection===id?styles.activeProfileTab:undefined} key={id} onClick={()=>setProfileSection(id)} type="button">{label}</button>)}</nav>
+    {profileSection === "account" ? <section className={styles.panel}><header className={styles.panelHeader}><div><h2>账号资料</h2><p>昵称与头像不会替代学员真实姓名，也不会出现在公开评价中</p></div><span className={styles.status} data-tone={accountProfile?.completed ? "green" : "amber"}>{accountProfile?.completed ? "资料已完善" : "待完善"}</span></header>
       <div className={styles.accountProfileLayout}>
         <div className={styles.avatarEditor}>
           <span className={styles.accountAvatar}>{accountProfile?.avatarUrl ? <Image alt="账号头像" height={96} src={accountProfile.avatarUrl} unoptimized width={96} /> : (accountProfile?.nickname || "逐").slice(0, 1)}</span>
           <div><strong>个人头像</strong><p>上传后自动居中裁切为 1:1 WebP，仅在账号与服务关系中可见。</p><div className={styles.toolbar}><label className={styles.secondary}>选择图片<input accept="image/jpeg,image/png,image/webp" disabled={busy} hidden onChange={(event) => void uploadAvatar(event.target.files?.[0])} type="file" /></label>{accountProfile?.avatarUrl ? <button className={styles.secondary} disabled={busy} onClick={() => void removeAvatar()} type="button">移除头像</button> : null}</div></div>
         </div>
         <form className={styles.form} onSubmit={saveAccountProfile}>
-          <div className={styles.formGrid}><label className={styles.field}><span>昵称</span><input defaultValue={accountProfile?.nickname || ""} maxLength={20} minLength={2} name="nickname" placeholder="2 至 20 个字" required /></label><label className={styles.field}><span>北京所在区</span><select defaultValue={accountProfile?.district || ""} name="district"><option value="">暂不填写</option>{BEIJING_DISTRICTS.map((district) => <option key={district} value={district}>{district}</option>)}</select></label></div>
+          <div className={styles.formGrid}><label className={styles.field}><span>昵称</span><input defaultValue={accountProfile?.nickname || ""} maxLength={20} minLength={2} name="nickname" placeholder="2 至 20 个字" required /></label><label className={styles.field}><span>服务城市</span><select name="serviceCityId" onChange={(event)=>{const next=event.target.value as ServiceCityId;setProfileCity(next);setProfileArea("");}} value={profileCity}>{SERVICE_CITIES.map(city=><option key={city.id} value={city.id}>{city.name}</option>)}</select></label><label className={styles.field}><span>所在区域</span><select name="serviceArea" onChange={(event)=>setProfileArea(event.target.value)} value={profileArea}><option value="">暂不填写</option>{SERVICE_AREAS[profileCity].map((district) => <option key={district} value={district}>{district}</option>)}</select></label></div>
           <label className={styles.field}><span>个性签名</span><textarea defaultValue={accountProfile?.bio || ""} maxLength={80} name="bio" placeholder="最多 80 个字" /></label>
           <div className={styles.contactSummary}><span><strong>邮箱</strong><small>{accountProfile?.contact.emailMasked || "未绑定"}</small></span><span><strong>手机号</strong><small>{accountProfile?.contact.phoneMasked || "未绑定"}</small></span></div>
           <div className={styles.contactBinding}><select aria-label="联系方式类型" disabled={Boolean(contactChallengeId)} onChange={(event) => setContactKind(event.target.value as "email" | "phone")} value={contactKind}><option value="email">邮箱</option><option value="phone">手机号</option></select>{contactChallengeId ? <input aria-label="验证码" autoComplete="one-time-code" inputMode="numeric" maxLength={6} onChange={(event) => setContactCode(event.target.value.replace(/\D/gu, "").slice(0,6))} placeholder="6 位验证码" value={contactCode} /> : <input aria-label="新联系方式" autoComplete={contactKind === "email" ? "email" : "tel"} inputMode={contactKind === "email" ? "email" : "tel"} onChange={(event) => setContactValue(event.target.value)} placeholder={contactKind === "email" ? "新邮箱地址" : "新手机号"} value={contactValue} />}<button className={styles.secondary} disabled={busy || (contactChallengeId ? contactCode.length !== 6 : !contactValue.trim())} onClick={() => void (contactChallengeId ? verifyContactCode() : requestContactCode())} type="button">{contactChallengeId ? "确认绑定" : "发送验证码"}</button></div>
           <div className={styles.formActions}>{error ? <p role="alert">{error}</p> : notice ? <p role="status">{notice}</p> : <p>昵称完成后才能咨询、预约或发送消息。</p>}<button className={styles.primary} disabled={busy} type="submit">{busy ? "保存中" : "保存账号资料"}</button></div>
         </form>
       </div>
-    </section>
-    <div className={styles.split}>
+    </section> : null}
+    {profileSection === "learners" ? <div className={styles.profileSingleColumn}>
       <section className={styles.panel}><header className={styles.panelHeader}><div><h2>学员档案</h2><p>可为本人或孩子分别建立档案</p></div><button className={styles.secondary} onClick={() => setSelectedProfileId("")} type="button">新增档案</button></header>{data.learnerProfiles.length ? <div className={styles.toolbar}>{data.learnerProfiles.map((profile) => <button aria-pressed={profile.id === selectedProfileId} className={profile.id === selectedProfileId ? styles.primary : styles.secondary} key={profile.id} onClick={() => setSelectedProfileId(profile.id)} type="button">{profile.name}</button>)}</div> : null}<form className={styles.form} key={current?.id || "new-profile"} onSubmit={save}>
         <div className={styles.formGrid}>
           <label className={styles.field}><span>姓名或称呼</span><input defaultValue={current?.name || ""} maxLength={40} name="name" required /></label>
@@ -581,15 +580,15 @@ function ProfilePage({ data, reload }: { data: BootstrapData; reload: () => Prom
         </div>
         <label className={styles.field}><span>训练目标</span><textarea defaultValue={current?.goal || ""} maxLength={500} name="goal" required /></label>
         <div className={styles.formActions}>{error ? <p role="alert">{error}</p> : notice ? <p role="status">{notice}</p> : <p>修改后将用于后续匹配与预约。</p>}<button className={styles.primary} disabled={busy} type="submit">{busy ? "保存中" : "保存档案"}</button></div>
-      </form></section>
+      </form></section></div> : null}
+    {profileSection === "service" ? <div className={styles.profileSingleColumn}>
       <aside className={styles.panel}><header className={styles.panelHeader}><div><h2>账号管理</h2><p>隐私、收藏和服务记录</p></div></header><div className={styles.list}>
         <div className={styles.listItem}><span className={styles.listIcon}><Heart aria-hidden size={19} /></span><div><h3>我的收藏</h3><p>{data.favoriteCoachIds.length} 位教练已同步</p></div></div>
         <Link className={styles.listItem} href="/service-guarantee"><span className={styles.listIcon}><ShieldCheck aria-hidden size={19} /></span><div><h3>协议与隐私</h3><p>查看服务保障与个人信息规则</p></div><ArrowRight aria-hidden size={17} /></Link>
         <div className={styles.listItem}><span className={styles.listIcon}><UserRound aria-hidden size={19} /></span><div><h3>登录状态</h3><p>退出后公开教练目录仍可浏览</p></div><button className={styles.secondary} disabled={busy} onClick={() => void logout()} type="button">{busy ? "正在退出" : "退出登录"}</button></div>
         <div className={styles.listItem}><span className={styles.listIcon}><CircleAlert aria-hidden size={19} /></span><div><h3>注销账号</h3><p>最高权限账号受保护，其他账号可提交注销</p></div><button className={styles.danger} onClick={() => setDeleteOpen(true)} type="button">注销</button></div>
       </div></aside>
-    </div>
-    <section className={styles.panel}><header className={styles.panelHeader}><div><h2>售后与服务工单</h2><p>围绕预约、线下支付、隐私或安全问题联系运营</p></div></header><div className={styles.split}><form className={styles.form} onSubmit={createTicket}><label className={styles.field}><span>问题主题</span><input maxLength={120} name="subject" required /></label><div className={styles.formGrid}><label className={styles.field}><span>问题类型</span><select name="category"><option value="service">服务体验</option><option value="booking">预约安排</option><option value="payment">线下支付</option><option value="safety">安全问题</option><option value="privacy">隐私问题</option><option value="other">其他</option></select></label><label className={styles.field}><span>关联预约</span><select name="bookingId"><option value="">不关联预约</option>{data.bookings.map((booking) => <option key={booking.id} value={booking.id}>#{booking.id.slice(-8)} · {booking.dateLabel}</option>)}</select></label></div><label className={styles.field}><span>问题说明</span><textarea maxLength={3000} name="body" required /></label><button className={styles.primary} disabled={busy} type="submit">提交工单</button></form><div className={styles.list}>{tickets.length ? tickets.map((ticket) => <article className={styles.listItem} key={ticket.id}><span className={styles.listIcon}><FileText aria-hidden size={19} /></span><div><h3>{ticket.subject || `工单 #${ticket.id.slice(-8)}`}</h3><p>{ticket.latest_message || "等待运营处理"} · {formatBeijingDate(ticket.updated_at || ticket.created_at)}</p></div><em className={styles.status} data-tone={ticket.status === "resolved" || ticket.status === "closed" ? "green" : "amber"}>{ticket.status === "resolved" ? "已解决" : ticket.status === "closed" ? "已关闭" : ticket.status === "waiting_user" ? "等待回复" : "处理中"}</em></article>) : <EmptyState copy="需要帮助时可创建第一条站内工单。" title="暂无售后工单" />}</div></div></section>
+    <section className={styles.panel}><header className={styles.panelHeader}><div><h2>售后与服务工单</h2><p>围绕预约、线下支付、隐私或安全问题联系运营</p></div></header><div className={styles.split}><form className={styles.form} onSubmit={createTicket}><label className={styles.field}><span>问题主题</span><input maxLength={120} name="subject" required /></label><div className={styles.formGrid}><label className={styles.field}><span>问题类型</span><select name="category"><option value="service">服务体验</option><option value="booking">预约安排</option><option value="payment">线下支付</option><option value="safety">安全问题</option><option value="privacy">隐私问题</option><option value="other">其他</option></select></label><label className={styles.field}><span>关联预约</span><select name="bookingId"><option value="">不关联预约</option>{data.bookings.map((booking) => <option key={booking.id} value={booking.id}>#{booking.id.slice(-8)} · {booking.dateLabel}</option>)}</select></label></div><label className={styles.field}><span>问题说明</span><textarea maxLength={3000} name="body" required /></label><button className={styles.primary} disabled={busy} type="submit">提交工单</button></form><div className={styles.list}>{tickets.length ? tickets.map((ticket) => <article className={styles.listItem} key={ticket.id}><span className={styles.listIcon}><FileText aria-hidden size={19} /></span><div><h3>{ticket.subject || `工单 #${ticket.id.slice(-8)}`}</h3><p>{ticket.latest_message || "等待运营处理"} · {formatBeijingDate(ticket.updated_at || ticket.created_at)}</p></div><em className={styles.status} data-tone={ticket.status === "resolved" || ticket.status === "closed" ? "green" : "amber"}>{ticket.status === "resolved" ? "已解决" : ticket.status === "closed" ? "已关闭" : ticket.status === "waiting_user" ? "等待回复" : "处理中"}</em></article>) : <EmptyState copy="需要帮助时可创建第一条站内工单。" title="暂无售后工单" />}</div></div></section></div> : null}
     {deleteOpen ? <div className={styles.confirmOverlay} role="presentation" onClick={() => setDeleteOpen(false)}><section aria-modal="true" onClick={(event) => event.stopPropagation()} role="dialog"><h2>确认注销账号</h2><p>登录会话、收藏和通知会被清除；争议处理所需的历史履约记录按规则保留。此操作不能在网页内撤销。</p><div><button className={styles.secondary} onClick={() => setDeleteOpen(false)} type="button">取消</button><button className={styles.danger} disabled={busy} onClick={() => void deleteAccount()} type="button">确认注销</button></div></section></div> : null}
   </div>;
 }

@@ -13,8 +13,9 @@
     "preview": "node scripts/local-preview-server.mjs",
     "preview:background": "node scripts/start-preview-background.mjs",
     "test": "npm run test:unit && npm run build && node --test tests/rendered-html.test.mjs",
-    "test:unit": "tsx --test tests/mobile-domain.test.ts tests/api-integration.test.ts tests/web-platform.test.ts tests/request-limits.test.ts",
-    "lint": "eslint app tests scripts --ignore-pattern dist --ignore-pattern .next --ignore-pattern outputs",
+    "test:unit": "tsx --test tests/mobile-domain.test.ts tests/api-integration.test.ts tests/web-platform.test.ts tests/request-limits.test.ts tests/reaudit.test.ts tests/product-readiness.test.ts",
+    "typecheck": "tsc --noEmit --noUnusedLocals --noUnusedParameters --incremental false",
+    "lint": "eslint app tests scripts miniapp/src --ignore-pattern dist --ignore-pattern .next --ignore-pattern outputs",
     "lint:bounded": "node scripts/run-bounded.mjs 120000 node node_modules/eslint/bin/eslint.js app tests scripts --ignore-pattern dist --ignore-pattern .next --ignore-pattern outputs",
     "db:generate": "drizzle-kit generate",
     "native:check": "node scripts/check-native-readiness.mjs",
@@ -35,12 +36,18 @@
     "desktop:prepare": "node scripts/prepare-desktop-app.mjs",
     "desktop:info": "tauri info",
     "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build"
+    "desktop:build": "tauri build",
+    "miniapp:dev": "npm --prefix miniapp run dev:weapp",
+    "miniapp:build": "npm --prefix miniapp run build:weapp",
+    "miniapp:typecheck": "npm --prefix miniapp run typecheck",
+    "miniapp:check": "npm --prefix miniapp run check:readiness",
+    "release:manifest": "node scripts/generate-release-manifest.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-secure-storage": "^8.0.0",
     "@capacitor/app": "^8.0.0",
     "@capacitor/core": "^8.4.2",
+    "@capacitor/geolocation": "^8.2.2",
     "@capacitor/haptics": "^8.0.0",
     "@capacitor/keyboard": "^8.0.0",
     "@capacitor/network": "^8.0.0",
@@ -50,6 +57,7 @@
     "lucide": "^1.28.0",
     "lucide-react": "^1.28.0",
     "morphicons": "^1.7.0",
+    "motion": "^13.4.0",
     "next": "16.3.4",
     "react": "19.2.6",
     "react-dom": "19.2.6",
@@ -82,7 +90,9 @@
   "overrides": {
     "postcss": "8.5.23",
     "nanoid": "3.3.18",
-    "tencentcloud-sdk-nodejs-common": { "uuid": "11.1.1" }
+    "tencentcloud-sdk-nodejs-common": {
+      "uuid": "11.1.1"
+    }
   },
   "type": "module"
 }

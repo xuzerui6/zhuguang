@@ -18,6 +18,8 @@ import {
 import Image from "next/image";
 import { ProfileAvatar, VerifiedPhone } from "../components";
 import type { AccountProfile, CoachAccountSummary, LearnerProfile } from "../types";
+import { coachOnboardingEntry, type CoachOnboardingSummary } from "../../../shared/coach-application";
+import { cityName } from "../../../shared/service-cities";
 
 const menuRows = [
   { icon: CalendarDays, label: "我的预约", detail: "查看全部服务进度", action: "bookings" },
@@ -37,6 +39,7 @@ export function ProfileView({
   contactMasked,
   savedCount,
   coachSummary,
+  coachOnboarding,
   onOpenCoachMode,
   profile,
 }: {
@@ -47,11 +50,13 @@ export function ProfileView({
   contactMasked?: string;
   savedCount: number;
   coachSummary?: CoachAccountSummary;
+  coachOnboarding?: CoachOnboardingSummary;
   onOpenCoachMode?: () => void;
   profile?: AccountProfile;
 }) {
   const ownerName = profile?.nickname || (contactMasked ? "待完善昵称" : "访客");
-  const ownerRole = `${profile?.district || "北京"} · 学员账号`;
+  const entry = coachOnboardingEntry(coachOnboarding, coachSummary);
+  const ownerRole = `${cityName(profile?.serviceCityId || "beijing")}${profile?.serviceArea || profile?.district ? ` · ${profile?.serviceArea || profile?.district}` : ""} · 学员账号`;
   const learnerInitial = learner.name.trim().slice(0, 1) || "学";
   const learnerMeta = [
     learner.gender === "male" ? "男" : learner.gender === "female" ? "女" : "性别待完善",
@@ -72,7 +77,7 @@ export function ProfileView({
         <button onClick={() => onAction(contactMasked ? "edit-profile" : "authenticate")} type="button"><VerifiedPhone masked={contactMasked} /></button>
       </section>
 
-      {coachSummary?.auditStatus === "approved" && onOpenCoachMode ? (
+      {entry.kind === "coach" && entry.canEnter && coachSummary && onOpenCoachMode ? (
         <button className="zg-coach-entry" onClick={onOpenCoachMode} type="button">
           <span className="zg-coach-entry-icon"><BriefcaseBusiness aria-hidden size={23} /></span>
           <span>
@@ -82,7 +87,7 @@ export function ProfileView({
           {coachSummary.pendingBookingCount > 0 ? <em>{coachSummary.pendingBookingCount} 个预约待处理</em> : <em>进入管理</em>}
           <ChevronRight aria-hidden size={18} />
         </button>
-      ) : null}
+      ) : entry.kind === "coach" ? <section className="zg-coach-entry is-status" role="status"><span className="zg-coach-entry-icon"><BriefcaseBusiness aria-hidden size={23}/></span><span><strong>{entry.title}</strong><small>{entry.canEnter ? "教练身份已开通，请刷新后进入工作台" : entry.description}</small></span></section> : <button className="zg-coach-entry is-application" onClick={()=>onAction("coach-application")} type="button"><span className="zg-coach-entry-icon"><BriefcaseBusiness aria-hidden size={23}/></span><span><strong>{entry.title}</strong><small>{entry.description}</small></span><ChevronRight aria-hidden size={18}/></button>}
 
       <section className="zg-profile-stats">
         <button onClick={() => onAction("favorites")} type="button"><strong>{savedCount}</strong><span>收藏教练</span></button>
@@ -92,7 +97,7 @@ export function ProfileView({
 
       <section className="zg-training-record">
         <header><h2>训练档案</h2><button onClick={() => onAction("learners")} type="button">管理<ChevronRight aria-hidden size={16} /></button></header>
-        <div>
+        {learner.id?<div>
           <span className="zg-learner-avatar">{learnerInitial}</span>
           <article>
             <h3>{learner.name}<small>{learnerMeta}</small></h3>
@@ -100,7 +105,7 @@ export function ProfileView({
             <p>{completedCount > 0 ? `已完成 ${completedCount} 节课程，训练小结由教练完成课程后同步。` : "完成课程后，教练的训练小结会显示在这里。"}</p>
             <small><Star aria-hidden fill="currentColor" size={13} />{completedCount > 0 ? "前往训练记录查看课程明细" : "暂无课程记录"}</small>
           </article>
-        </div>
+        </div>:<p>暂无学员档案，可在此新增本人或子女档案。</p>}
       </section>
 
       <section className="zg-profile-menu">

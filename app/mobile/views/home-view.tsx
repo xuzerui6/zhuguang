@@ -108,7 +108,7 @@ export function HomeView({
 
       <section className="zg-service-note">
         <MapPin aria-hidden size={20} />
-        <div><strong>北京试点服务</strong><p>{catalog.regions.length ? `当前服务区域：${catalog.regions.map((item)=>item.name).join('、')}。` : '服务区域以已上线教练资料为准。'}</p></div>
+        <div><strong>{catalog.city}教练服务</strong><p>{catalog.regions.length ? `当前服务区域：${catalog.regions.map((item)=>item.name).join('、')}。` : '当前城市暂无已审核教练，可在“我的”申请成为教练。'}</p></div>
         <ArrowRight aria-hidden size={18} />
       </section>
     </div>

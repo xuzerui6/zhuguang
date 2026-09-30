@@ -33,6 +33,8 @@ test("web worker preparation preserves www paths and query parameters in a perma
   assert.match(prepareScript, /url\.hostname === "www\.beijingzhuguang\.top"/);
   assert.match(prepareScript, /url\.hostname = "beijingzhuguang\.top"/);
   assert.match(prepareScript, /Response\.redirect\(url, 301\)/);
+  const workerConfig = JSON.parse(await read('wrangler.web.jsonc'));
+  assert.ok(workerConfig.compatibility_flags.includes('global_fetch_strictly_public'), 'preview Worker-to-Worker reads must use public fetch routing');
 });
 
 test("server-renders a service-first homepage without prototype claims", async () => {
@@ -42,11 +44,12 @@ test("server-renders a service-first homepage without prototype claims", async (
 
   const html = await response.text();
   assert.match(html, /<title>逐光运动教练服务平台<\/title>/);
-  assert.match(html, /北京专业体育教练/);
+  assert.match(html, /专业体育教练/);
+  assert.match(html, /服务北京 · 吉林长春/);
   assert.match(html, /找教练/);
   assert.match(html, /人工核验/);
   assert.match(html, /教练确认后预约生效/);
-  assert.match(html, /资料真实，比数字热闹更重要/);
+  assert.match(html, /北京(?:<!-- -->)?已核验教练/);
   assert.match(html, /了解合作方式/);
   assert.doesNotMatch(html, /Coach OS|28,000\+|320,000\+|注册教练|Android 私有试点版/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
@@ -78,8 +81,8 @@ test("homepage discovery defaults to a real match and consultation keeps coach c
   assert.match(html, /value="中考体育"|<option[^>]*selected[^>]*>中考体育<\/option>/u);
   assert.match(html, /正在咨询/);
   assert.match(html, /徐泽瑞/);
-  assert.match(directory, /\?coach=\$\{coach\.id\}#service-inquiry/);
-  assert.match(detail, /\?coach=\$\{coach\.id\}#service-inquiry/);
+  assert.match(directory, /\?coach=\$\{coach\.id\}&city=\$\{cityId\}#service-inquiry/);
+  assert.match(detail, /\?coach=\$\{coach\.id\}&city=\$\{cityId\}#service-inquiry/);
 });
 
 test("web booking keeps coach context and submits a student-selected time", async () => {
@@ -133,10 +136,11 @@ test("public lead forms collect minimal contacts without publishing fake complia
   assert.doesNotMatch(form, /身份证|出生日期|生日/);
   assert.match(footer, /SITE_OPERATOR_NAME/);
   assert.match(footer, /SITE_ICP_NUMBER/);
-  assert.match(homepage, /minimumPublishedTrialPrice/);
+  assert.match(homepage, /HomeCityProvider/);
+  assert.match(await read('app/_components/home-city-content.tsx'), /homeTrialPrice\(data\.coaches\)/);
   assert.match(form, /<details className="zg-service-lead-more">/);
   assert.match(form, /补充更多信息/);
-  assert.match(form, /BEIJING_DISTRICTS/);
+  assert.match(form, /SERVICE_AREAS\[cityId\]\.map/);
   assert.match(footer, /SITE_PUBLIC_SECURITY_NUMBER/);
   assert.match(footer, /safeHttpsUrl/);
 });
@@ -166,7 +170,7 @@ test("all public and workspace routes support direct rendering", async () => {
     ["/coaches", "找到适合你的教练"],
     ["/coaches/5", "资料核验状态"],
     ["/service-guarantee", "预约与履约"],
-    ["/coach-partnership", "定向邀请和人工审核"],
+    ["/coach-partnership", "Android App 或微信小程序提交资料"],
     ["/download", "训练服务，随时在手边"],
     ["/privacy", "只处理完成训练服务"],
     ["/terms", "教练确认后生效"],

@@ -1,7 +1,8 @@
 :root {
   --zg-motion-instant: 120ms;
-  --zg-motion-control: 180ms;
-  --zg-motion-content: 240ms;
+  --zg-motion-control: 170ms;
+  --zg-motion-content: 220ms;
+  --zg-motion-role: 260ms;
   --zg-motion-story: 440ms;
   --zg-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   --zg-ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
@@ -299,25 +300,18 @@ img {
   margin: 16px 0 0;
 }
 
-@keyframes zg-enter {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.zg-route-transition {
-  animation: zg-enter 200ms var(--zg-ease-standard) both;
+.zg-motion-stage {
+  display: grid;
   min-width: 0;
 }
 
-html[data-motion="reduced"] .zg-route-transition {
-  animation-duration: 80ms;
-  transform: none;
+.zg-motion-stage > * {
+  grid-area: 1 / 1;
+  min-width: 0;
 }
 
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation-duration: 200ms;
-  animation-timing-function: var(--zg-ease-standard);
+.zg-route-transition {
+  min-width: 0;
 }
 
 @keyframes zg-skeleton {

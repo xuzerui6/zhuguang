@@ -7,11 +7,36 @@ import { handleApiRequest } from "../server/api/router";
 import type { ApiEnv } from "../server/api/contracts";
 import { sendEmailOtp } from "../server/api/email";
 import { requestEmailOtpD1 } from "../server/api/email-auth";
+import { exchangeWechatCodeD1, requestWechatLinkEmailD1, verifyWechatLinkEmailD1 } from "../server/api/wechat-auth";
 import { buildJPushPayload } from "../server/api/push";
 import { keyedHash } from "../server/api/security";
 import { sendOtpSms } from "../server/api/sms";
-import { getOpsOverviewD1, listOpsLeadsD1, getOpsProductFunnelD1 } from "../server/api/operations";
+import { getOpsOverviewD1, listOpsLeadsD1, getOpsProductFunnelD1, createOpsCoachVenueD1, createServiceLeadD1, createSupportTicketD1 } from "../server/api/operations";
+import { getCoachBookingOptionsD1, createTimeRequestBookingD1 } from "../server/api/repository";
 import { classifyMetricEntityD1, updateOperatorCatalogItemD1 } from "../server/api/expansion";
+import { listMulticityCatalogD1, saveCoachApplicationDraftD1, submitCoachApplicationD1, uploadCoachApplicationMediaD1, reviewCoachApplicationD1, withdrawCoachApplicationD1, type CoachApplicationInput } from "../server/api/multicity";
+
+test("reaudit P1-1 work queue includes new leads without promoting metrics", async () => {
+  const database = new D1Adapter(); await migrate(database);
+  const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: 'test', DB: database, OPERATOR_API_SECRET: 'queue-test' };
+  const headers = { 'x-operator-secret': 'queue-test', 'x-operator-actor': 'xuzerui6@gmail.com' };
+  database.sqlite.exec(`INSERT INTO service_leads(id,contact_name,sport,district,goal,source,status,created_at,updated_at) VALUES
+    ('queue-new','Test','田径','通州区','isolated','qa','new',1,1),('queue-qa','QA','田径','通州区','isolated','qa','new',1,1);`);
+  await classifyMetricEntityD1('service_lead','queue-qa','qa','隔离测试记录','operator','q1',env);
+  const queue = await request(env, '/api/v1/operator/leads?view=work_queue', { headers });
+  assert.equal(queue.response.status, 200);
+  assert.deepEqual((queue.payload!.data as Array<{id:string}>).map(row=>row.id), ['queue-new']);
+  assert.deepEqual((await getOpsOverviewD1(env)).leads, []);
+  assert.equal((await request(env, '/api/v1/operator/leads?view=work_queue&classification=all', { headers })).response.status, 422);
+  assert.equal((await request(env, '/api/v1/operator/leads?view=invalid', { headers })).response.status, 422);
+  assert.equal((await request(env, '/api/v1/operator/leads?view=work_queue')).response.status, 401);
+  const change = { entityType:'service_lead',entityId:'queue-new',classification:'production_eligible',reason:'隔离需求分类核验',expectedEventId:null };
+  assert.equal((await request(env, '/api/v1/operator/trust-metrics/classifications', json(change, {...headers, 'x-operator-actor':'ordinary@example.com'}))).response.status, 403);
+  assert.equal((await request(env, '/api/v1/operator/trust-metrics/classifications', json(change, headers))).response.status, 201);
+  assert.equal((await request(env, '/api/v1/operator/trust-metrics/classifications', json({...change,classification:'qa'}, headers))).response.status, 409);
+  assert.equal((await getOpsOverviewD1(env)).leads[0].count, 1);
+  assert.equal(database.sqlite.prepare("SELECT count(*) AS n FROM ops_audit_logs WHERE action='data.classify' AND entity_id='queue-new'").get()?.n,1);
+});
 
 test("P1 operational counts exclude unclassified/QA and classification audit is atomic", async () => {
   const database = new D1Adapter(); await migrate(database);
@@ -50,6 +75,28 @@ test("patched Tencent SMS SDK constructs and retains success/failure semantics",
 });
 
 if (!globalThis.crypto) Object.defineProperty(globalThis, "crypto", { value: webcrypto });
+
+test('public legal documents never expose draft or internal document versions', async () => {
+  const database = new D1Adapter(); await migrate(database);
+  const env: ApiEnv = { APP_ENV: 'test', DB: database, PILOT_APP_KEY: 'isolated-private-channel' };
+  database.sqlite.exec(`INSERT INTO content_documents(id,slug,title,audience,status,active_version_id) VALUES ('private-policy','privacy','Internal','operator','published','private-version');
+    INSERT INTO content_versions(id,document_id,version,body,published_at) VALUES ('private-version','private-policy',1,'INTERNAL-NOT-PUBLIC',1);`);
+  const internal = await request(env, '/api/v1/public/legal-documents');
+  assert.equal(internal.response.status, 200); assert.ok(!JSON.stringify(internal.payload).includes('INTERNAL-NOT-PUBLIC'));
+  database.sqlite.exec("UPDATE content_documents SET audience='public',status='draft';");
+  const draft = await request(env, '/api/v1/public/legal-documents'); assert.ok(!JSON.stringify(draft.payload).includes('INTERNAL-NOT-PUBLIC'));
+  database.sqlite.exec("UPDATE content_documents SET status='published'; UPDATE content_versions SET body='Approved existing policy';");
+  const published = await request(env, '/api/v1/public/legal-documents');
+  assert.ok(JSON.stringify(published.payload).includes('Approved existing policy'));
+});
+
+test('support tickets cannot associate an absent or another account booking', async () => {
+  const database = new D1Adapter(); await migrate(database);
+  database.sqlite.exec("INSERT INTO users(id,status) VALUES ('isolated-support-user','active');");
+  const env: ApiEnv = { APP_ENV: 'test', DB: database };
+  await assert.rejects(createSupportTicketD1({userId:'isolated-support-user'}, { bookingId:'not-owned', subject:'Isolated', body:'Regression test', category:'booking' }, 'student', env), (error: unknown) => (error as {status?: number}).status === 404);
+  assert.equal(database.sqlite.prepare('SELECT count(*) AS n FROM support_tickets').get()?.n, 0);
+});
 
 test("Tencent SES sends a signed private-subject OTP email", async () => {
   const originalFetch = globalThis.fetch;
@@ -158,7 +205,7 @@ class D1Adapter implements D1Database {
 }
 
 class MemoryR2 implements R2Bucket {
-  readonly objects = new Map<string, { bytes: Uint8Array; customMetadata?: Record<string, string> }>();
+  readonly objects = new Map<string, { bytes: Uint8Array; customMetadata?: Record<string, string>; httpMetadata?: {contentType?:string} }>();
 
   async delete(key: string) { this.objects.delete(key); }
 
@@ -181,11 +228,12 @@ class MemoryR2 implements R2Bucket {
     this.objects.set(key, {
       bytes,
       customMetadata: options?.customMetadata as Record<string, string> | undefined,
+      httpMetadata: options?.httpMetadata as {contentType?:string}|undefined,
     });
     return null;
   }
 
-  private object(stored: { bytes: Uint8Array; customMetadata?: Record<string, string> }): R2ObjectBody {
+  private object(stored: { bytes: Uint8Array; customMetadata?: Record<string, string>; httpMetadata?: {contentType?:string} }): R2ObjectBody {
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(stored.bytes);
@@ -197,12 +245,246 @@ class MemoryR2 implements R2Bucket {
       customMetadata: stored.customMetadata,
       httpEtag: "test-etag",
       size: stored.bytes.byteLength,
-      writeHttpMetadata() {},
+      writeHttpMetadata(headers:Headers) { if(stored.httpMetadata?.contentType)headers.set('content-type',stored.httpMetadata.contentType); },
     };
   }
 }
 
 const context = { waitUntil(promise: Promise<unknown>) { void promise.catch(() => undefined); } };
+
+async function applicationFixture(){
+  const database=new D1Adapter();await migrate(database);
+  const media=new MemoryR2();
+  const env:ApiEnv={APP_ENV:'test',DB:database,MEDIA:media,AUTH_HASH_SECRET:'isolated-application-auth-secret',PHONE_ENCRYPTION_KEY:Buffer.alloc(32,54).toString('base64'),PRIMARY_OPERATOR_EMAIL:'xuzerui6@gmail.com',OPERATOR_API_SECRET:'application-operator-test'};
+  const session=await authenticate(env,'13800000541');
+  const userId=String(database.sqlite.prepare('SELECT user_id FROM sessions LIMIT 1').get()?.user_id);
+  const identity={userId,sessionId:'isolated',deviceId:'device-test',phoneLast4:'0541',authMethod:'phone_otp' as const,contactMasked:'***0541'};
+  const input:CoachApplicationInput={realName:'隔离测试教练',title:'田径专项教练',bio:'仅用于隔离数据库的入驻审核回归测试，不构成公开真实教练资料。',experienceYears:2,audiences:['青少年'],goals:['体能提升'],strengths:['短跑'],honors:[],credentials:['测试证明'],priceFen:24000,trialPriceFen:9900,sportIds:['sport-athletics'],primarySportId:'sport-athletics',areaIds:['changchun-nanguan'],primaryAreaId:'changchun-nanguan',venue:{name:'隔离测试场馆',address:'长春市南关区隔离测试地址',areaId:'changchun-nanguan'}};
+  return {database,media,env,session,identity,input};
+}
+
+async function completeApplication(fixture:Awaited<ReturnType<typeof applicationFixture>>){
+  const {identity,input,env}=fixture;
+  const draft=await saveCoachApplicationDraftD1(identity,input,env);
+  for(const kind of ['avatar','hero','credential'] as const){
+    await uploadCoachApplicationMediaD1(identity,String(draft.id),kind,new Request('https://api.local',{method:'PUT',headers:{'content-type':'image/png'},body:new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,0])}),env);
+  }
+  await submitCoachApplicationD1(identity,String(draft.id),env);
+  return String(draft.id);
+}
+
+test('multicity draft is partial, submission is complete and locked uploads are rejected',async()=>{
+  const f=await applicationFixture();
+  const partial=await saveCoachApplicationDraftD1(f.identity,{} as CoachApplicationInput,f.env);
+  assert.equal(partial.status,'draft');assert.equal(partial.price_fen,null);
+  await assert.rejects(submitCoachApplicationD1(f.identity,String(partial.id),f.env),{code:'coach_application_media_incomplete'});
+  await assert.rejects(uploadCoachApplicationMediaD1(f.identity,String(partial.id),'avatar',new Request('https://api.local',{method:'PUT',headers:{'content-type':'image/png'},body:'not-an-image'}),f.env),{code:'application_media_signature_invalid'});
+  f.input.applicationId=String(partial.id);
+  const id=await completeApplication(f);
+  await assert.rejects(saveCoachApplicationDraftD1(f.identity,{...f.input,applicationId:id},f.env),{code:'coach_application_locked'});
+  assert.equal((await request(f.env,`/api/v1/operator/coach-applications/${id}`,{...json({decision:'approved',note:'测试审核'}),method:'PATCH',headers:{'content-type':'application/json','x-operator-secret':'application-operator-test','x-operator-actor':'ordinary@example.com'}})).response.status,403);
+  await withdrawCoachApplicationD1(f.identity,id,f.env);
+  assert.equal(f.database.sqlite.prepare('SELECT status FROM coach_applications WHERE id=?').get(id)?.status,'withdrawn');
+  await assert.rejects(submitCoachApplicationD1(f.identity,id,f.env),{code:'coach_application_not_submittable'});
+  f.database.sqlite.close();
+});
+
+test('multicity approval is exclusive and atomically publishes coach, roles, venues and media',async()=>{
+  const f=await applicationFixture();const id=await completeApplication(f);
+  const results=await Promise.allSettled(['review-one','review-two'].map(r=>reviewCoachApplicationD1(id,'approved','隔离测试核验通过','xuzerui6@gmail.com',r,f.env)));
+  assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+  assert.equal(results.filter(r=>r.status==='rejected'&&r.reason.code==='coach_application_conflict').length,1);
+  const coach=f.database.sqlite.prepare('SELECT * FROM coaches WHERE user_id=?').get(f.identity.userId)!;
+  assert.equal(coach.audit_status,'approved');assert.equal(coach.listing_status,'online');assert.equal(coach.booking_enabled,1);assert.equal(coach.city,'长春');
+  assert.equal(f.database.sqlite.prepare("SELECT count(*) AS n FROM user_roles WHERE user_id=? AND role='coach' AND status='active'").get(f.identity.userId)?.n,1);
+  assert.equal(f.database.sqlite.prepare("SELECT count(*) AS n FROM coach_application_events WHERE application_id=? AND event_type='approved'").get(id)?.n,1);
+  assert.ok(f.media.objects.has(String(coach.avatar_object_key)));
+  const catalog=await listMulticityCatalogD1('changchun',f.env);
+  assert.equal(catalog.sports.length,6);assert.equal(catalog.sports.find(s=>s.name==='田径')?.coachCount,1);assert.equal(catalog.sports.find(s=>s.name==='游泳')?.available,false);
+  assert.equal((await listMulticityCatalogD1('beijing',f.env)).sports.reduce((n,s)=>n+s.coachCount,0),0);
+  f.database.sqlite.close();
+});
+
+test('onboarding summary survives suspension and duplicate applications are rejected',async()=>{
+  const f=await applicationFixture();
+  try {
+    const id=await completeApplication(f);
+    await assert.rejects(saveCoachApplicationDraftD1(f.identity,f.input,f.env),{code:'coach_application_exists'});
+    const headers={authorization:`Bearer ${f.session.accessToken}`};
+    const pending=(await request(f.env,'/api/v1/me',{headers})).payload?.data as {coachOnboarding:{status:string;canApply:boolean}};
+    assert.equal(pending.coachOnboarding.status,'pending');assert.equal(pending.coachOnboarding.canApply,false);
+    await reviewCoachApplicationD1(id,'approved','隔离测试审核','xuzerui6@gmail.com','summary-approve',f.env);
+    const approved=(await request(f.env,'/api/v1/bootstrap?city=changchun',{headers})).payload?.data as {accountIdentity:{availableModes:string[];coachOnboarding:{isOnboarded:boolean;canEnterWorkspace:boolean}}};
+    assert.equal(approved.accountIdentity.coachOnboarding.isOnboarded,true);assert.equal(approved.accountIdentity.coachOnboarding.canEnterWorkspace,true);assert.ok(approved.accountIdentity.availableModes.includes('coach'));
+    f.database.sqlite.exec("UPDATE coaches SET listing_status='offline';");
+    const offline=(await request(f.env,'/api/v1/me',{headers})).payload?.data as {coachOnboarding:{isOnboarded:boolean;canApply:boolean;canEnterWorkspace:boolean}};
+    assert.equal(offline.coachOnboarding.isOnboarded,true);assert.equal(offline.coachOnboarding.canApply,false);assert.equal(offline.coachOnboarding.canEnterWorkspace,true);
+    f.database.sqlite.exec("UPDATE coaches SET audit_status='suspended',listing_status='offline';");
+    const summary=(await request(f.env,'/api/v1/me',{headers})).payload?.data as {availableModes:string[];coachOnboarding:{isOnboarded:boolean;canApply:boolean;canEnterWorkspace:boolean}};
+    assert.equal(summary.coachOnboarding.isOnboarded,true);assert.equal(summary.coachOnboarding.canApply,false);assert.equal(summary.coachOnboarding.canEnterWorkspace,false);
+    assert.equal(summary.availableModes.includes('coach'),false);
+    await assert.rejects(saveCoachApplicationDraftD1(f.identity,f.input,f.env),{code:'coach_account_exists'});
+  } finally {f.database.sqlite.close();}
+});
+
+test('concurrent application drafts create one row and return a business conflict',async()=>{
+  const f=await applicationFixture();
+  try {
+    const results=await Promise.allSettled([saveCoachApplicationDraftD1(f.identity,f.input,f.env),saveCoachApplicationDraftD1(f.identity,f.input,f.env)]);
+    assert.equal(results.filter(item=>item.status==='fulfilled').length,1);
+    assert.equal(results.filter(item=>item.status==='rejected'&&item.reason.code==='coach_application_exists').length,1);
+    assert.equal(f.database.sqlite.prepare('SELECT count(*) AS n FROM coach_applications WHERE user_id=?').get(f.identity.userId)?.n,1);
+  } finally {f.database.sqlite.close();}
+});
+
+test('application media and review audit failure roll back without dangling or public files',async()=>{
+  const f=await applicationFixture();const draft=await saveCoachApplicationDraftD1(f.identity,f.input,f.env);
+  f.database.sqlite.exec("CREATE TRIGGER fail_upload_event BEFORE INSERT ON coach_application_events WHEN NEW.event_type='media_uploaded' BEGIN SELECT RAISE(ABORT,'isolated upload failure'); END;");
+  await assert.rejects(uploadCoachApplicationMediaD1(f.identity,String(draft.id),'avatar',new Request('https://api.local',{method:'PUT',headers:{'content-type':'image/png'},body:new Uint8Array([137,80,78,71,13,10,26,10])}),f.env),/isolated upload failure/);
+  assert.equal(f.media.objects.size,0);assert.equal(f.database.sqlite.prepare('SELECT avatar_temp_key FROM coach_applications').get()?.avatar_temp_key,'');
+  f.database.sqlite.exec('DROP TRIGGER fail_upload_event');
+  f.input.applicationId=String(draft.id);const id=await completeApplication(f);
+  const beforeFiles=f.media.objects.size;
+  f.database.sqlite.exec("CREATE TRIGGER fail_review_audit BEFORE INSERT ON ops_audit_logs BEGIN SELECT RAISE(ABORT,'isolated review failure'); END;");
+  await assert.rejects(reviewCoachApplicationD1(id,'approved','隔离测试审核','xuzerui6@gmail.com','review-failure',f.env),/isolated review failure/);
+  assert.equal(f.database.sqlite.prepare('SELECT count(*) AS n FROM coaches').get()?.n,0);
+  assert.equal(f.database.sqlite.prepare('SELECT status FROM coach_applications WHERE id=?').get(id)?.status,'pending');
+  assert.equal(f.media.objects.size,beforeFiles);assert.equal(f.database.sqlite.prepare("SELECT count(*) AS n FROM user_roles WHERE role='coach'").get()?.n,0);
+  f.database.sqlite.close();
+});
+
+test('rejected application can be revised, unknown cities and foreign areas are rejected',async()=>{
+  const f=await applicationFixture();const id=await completeApplication(f);
+  await reviewCoachApplicationD1(id,'rejected','隔离测试需要补充证明','xuzerui6@gmail.com','reject-one',f.env);
+  const revised=await saveCoachApplicationDraftD1(f.identity,{...f.input,applicationId:id,bio:f.input.bio+'已补充材料。'},f.env);
+  assert.equal(revised.status,'draft');await submitCoachApplicationD1(f.identity,id,f.env);
+  await assert.rejects(saveCoachApplicationDraftD1(f.identity,{...f.input,areaIds:['shanghai-test'],primaryAreaId:'shanghai-test',venue:{...f.input.venue,areaId:'shanghai-test'}},f.env),{code:'invalid_application_area'});
+  const headers={authorization:`Bearer ${f.session.accessToken}`};
+  assert.equal((await request(f.env,'/api/v1/me/service-city',{...json({cityId:'shanghai',source:'manual'},headers),method:'PATCH'})).response.status,422);
+  f.database.sqlite.close();
+});
+
+test('learner profiles support owned detail and partial editing without adding duplicates',async()=>{
+  const f=await applicationFixture();const headers={authorization:`Bearer ${f.session.accessToken}`};
+  const before=Number(f.database.sqlite.prepare('SELECT count(*) AS n FROM learner_profiles').get()?.n);
+  const created=await request(f.env,'/api/v1/learner-profiles',json({name:'隔离学员',relation:'self',sport:'田径',level:'初学',goal:'体能提升',age:18,gender:'unspecified'},headers));
+  assert.equal(created.response.status,201);const id=String((created.payload?.data as {id:string}).id);
+  assert.equal((await request(f.env,`/api/v1/learner-profiles/${id}`,{headers})).response.status,200);
+  const changed=await request(f.env,`/api/v1/learner-profiles/${id}`,{...json({goal:'短跑专项'},headers),method:'PATCH'});
+  assert.equal(changed.response.status,200);assert.equal((changed.payload?.data as {id:string}).id,id);
+  assert.equal(f.database.sqlite.prepare('SELECT count(*) AS n FROM learner_profiles').get()?.n,before+1);
+  const stranger=await authenticate(f.env,'13800000542');
+  assert.equal((await request(f.env,`/api/v1/learner-profiles/${id}`,{headers:{authorization:`Bearer ${stranger.accessToken}`}})).response.status,404);
+  assert.equal((await request(f.env,`/api/v1/learner-profiles/${id}`,{...json({name:'越权'}, {authorization:`Bearer ${stranger.accessToken}`}),method:'PATCH'})).response.status,404);
+  f.database.sqlite.close();
+});
+
+test('city booking options, duration prices and operator venues stay inside verified service areas',async()=>{
+  const f=await applicationFixture();const id=await completeApplication(f);
+  await reviewCoachApplicationD1(id,'approved','隔离测试审核','xuzerui6@gmail.com','city-booking-test',f.env);
+  const coachId=Number(f.database.sqlite.prepare('SELECT created_coach_id FROM coach_applications WHERE id=?').get(id)?.created_coach_id);
+  const options=await getCoachBookingOptionsD1(coachId,f.env,'changchun');
+  assert.equal(options.cityName,'长春');assert.equal(options.venues.length,1);
+  assert.equal(options.regularBasePriceFen,24000);assert.equal(options.trialBasePriceFen,9900);
+  await assert.rejects(getCoachBookingOptionsD1(coachId,f.env,'beijing'),{code:'coach_not_accepting_requests'});
+  await assert.rejects(createOpsCoachVenueD1(coachId,{cityId:'beijing',district:'通州区',name:'隔离场馆',address:'隔离地址',reason:'隔离校验'},'xuzerui6@gmail.com','wrong-city',f.env),{code:'coach_city_unavailable'});
+  await assert.rejects(createServiceLeadD1({coachId,serviceCityId:'beijing',contactName:'隔离测试',contactWechat:'isolated-contact',district:'通州区',goal:'体能提升',sport:'田径'},f.env),{code:'coach_city_unavailable'});
+  const learnerId=String(f.database.sqlite.prepare('SELECT id FROM learner_profiles WHERE user_id=? LIMIT 1').get(f.identity.userId)?.id);
+  const input={coachId,learnerId,serviceCityId:'changchun',durationMinutes:60,locationType:'custom' as const,customDistrict:'南关区',customAddress:'隔离测试期望地点',note:'仅隔离测试',startsAt:Date.now()+24*60*60_000};
+  for(const [index,duration] of [60,90,120].entries()){
+    const booking=await createTimeRequestBookingD1(f.identity,{...input,durationMinutes:duration,startsAt:input.startsAt+index*24*60*60_000},`isolated-city-price-${duration}`,f.env);
+    assert.equal(booking.feeFen,index===0?9900:duration===90?36000:48000);
+    assert.equal(booking.customCity,'长春');
+    assert.equal(booking.serviceCityId, 'changchun');
+    assert.equal(booking.startsAt, input.startsAt + index * 24 * 60 * 60_000);
+    assert.equal((await getCoachBookingOptionsD1(coachId, f.env, 'changchun', f.identity.userId)).trialEligible, false);
+  }
+  await assert.rejects(createTimeRequestBookingD1(f.identity,{...input,customDistrict:'通州区'},'isolated-wrong-region',f.env),{code:'invalid_booking_request'});
+  assert.equal(f.database.sqlite.prepare("SELECT count(*) AS n FROM service_leads").get()?.n,0);
+  f.database.sqlite.close();
+});
+
+test('isolated dual-city onboarding through proposal, message, fulfillment and review preserves ownership', async () => {
+  const f = await applicationFixture();
+  try {
+    const applicationId = await completeApplication(f);
+    await reviewCoachApplicationD1(applicationId, 'approved', '隔离闭环核验', 'xuzerui6@gmail.com', 'qa-loop-approve', f.env);
+    const coachId = Number(f.database.sqlite.prepare('SELECT created_coach_id FROM coach_applications WHERE id=?').get(applicationId)?.created_coach_id);
+    const student = await authenticate(f.env, '13800000549');
+    const studentHeaders = { authorization: `Bearer ${student.accessToken}` };
+    const coachHeaders = { authorization: `Bearer ${f.session.accessToken}` };
+    const learner = await request(f.env, '/api/v1/learner-profiles', json({ name: '隔离闭环学员', relation: 'self', gender: 'unspecified', sport: '田径', level: '初学', goal: '体能提升' }, studentHeaders));
+    assert.equal(learner.response.status, 201);
+    const input = { coachId, learnerId: (learner.payload!.data as {id:string}).id, serviceCityId: 'changchun', durationMinutes: 90, locationType: 'custom', customDistrict: '南关区', customAddress: '隔离训练期望地点', startsAt: Date.now() + 86_400_000, note: 'QA-20260917 仅隔离数据库' };
+    const created = await request(f.env, '/api/v1/bookings', json(input, { ...studentHeaders, 'idempotency-key': 'qa-loop-booking' }));
+    assert.equal(created.response.status, 201, JSON.stringify(created.payload));
+    const booking = created.payload!.data as {id:string;feeFen:number};
+    assert.equal(booking.feeFen, 14850);
+    const replay = await request(f.env, '/api/v1/bookings', json(input, { ...studentHeaders, 'idempotency-key': 'qa-loop-booking' }));
+    assert.equal((replay.payload!.data as {id:string}).id, booking.id);
+    const proposal = await request(f.env, '/api/v1/coach/reschedule-proposals', json({ bookingId: booking.id, startsAt: input.startsAt + 86_400_000, locationType: 'custom', customDistrict: '二道区', customAddress: '隔离协商新训练地点', note: '仅隔离方案' }, coachHeaders));
+    assert.equal(proposal.response.status, 201, JSON.stringify(proposal.payload));
+    const accepted = await request(f.env, `/api/v1/reschedule-proposals/${(proposal.payload!.data as {id:string}).id}/respond`, json({ decision: 'accepted' }, studentHeaders));
+    assert.equal(accepted.response.status, 200);
+    const saved = f.database.sqlite.prepare('SELECT status,fee_fen FROM booking_requests WHERE id=?').get(booking.id)!;
+    assert.equal(saved.status, 'confirmed'); assert.equal(saved.fee_fen, 14850);
+    const conversation = await request(f.env, '/api/v1/conversations', json({ coachId }, studentHeaders));
+    assert.equal(conversation.response.status, 201);
+    const conversationId = (conversation.payload!.data as {id:string}).id;
+    assert.equal((await request(f.env, `/api/v1/conversations/${conversationId}/messages`, json({ body: '仅隔离测试，核对训练方案与地点。' }, studentHeaders))).response.status, 201);
+    assert.equal((await request(f.env, `/api/v1/coach/conversations/${conversationId}/read`, json({}, coachHeaders))).response.status, 200);
+    assert.equal((await request(f.env, `/api/v1/coach/bookings/${booking.id}/status`, json({ status: 'completed' }, coachHeaders))).response.status, 200);
+    assert.equal((await request(f.env, `/api/v1/coach/bookings/${booking.id}/offline-payment`, json({ paid: true }, coachHeaders))).response.status, 200);
+    assert.equal((await request(f.env, '/api/v1/coach/training-records', json({ bookingId: booking.id, summary: '仅隔离测试训练总结：完成基础练习与体能训练。' }, coachHeaders))).response.status, 201);
+    const records = await request(f.env, '/api/v1/training-records', { headers: studentHeaders });
+    assert.equal((records.payload!.data as Array<{booking_id:string}>).some(record => record.booking_id === booking.id), true);
+    const review = await request(f.env, '/api/v1/reviews', json({ bookingId: booking.id, rating: 5, tags: ['讲解清晰'], body: '仅隔离测试评价，验证完成课程后提交、运营审核和公开指标隔离，不构成真实用户体验。' }, studentHeaders));
+    assert.equal(review.response.status, 201, JSON.stringify(review.payload));
+    const reviewId = (review.payload!.data as {id:string}).id;
+    const approved = await request(f.env, `/api/v1/operator/reviews/${reviewId}`, { ...json({ status: 'approved', note: '隔离测试审核' }, { 'x-operator-secret': 'application-operator-test', 'x-operator-actor': 'xuzerui6@gmail.com' }), method: 'PATCH' });
+    assert.equal(approved.response.status, 200);
+    const publicReviews = await request(f.env, `/api/v1/coaches/${coachId}/reviews`);
+    assert.equal((publicReviews.payload!.data as {items:unknown[]}).items.length, 0, 'unclassified test review remains excluded');
+    assert.equal((await request(f.env, '/api/v1/support-tickets', json({ bookingId: booking.id, subject: '隔离闭环工单', body: '仅隔离测试售后入口及预约归属。', category: 'service' }, studentHeaders))).response.status, 201);
+    const stranger = await authenticate(f.env, '13800000548');
+    assert.equal((await request(f.env, '/api/v1/support-tickets', json({ bookingId: booking.id, subject: '禁止越权关联', body: '隔离测试不得读取他人预约。', category: 'service' }, { authorization: `Bearer ${stranger.accessToken}` }))).response.status, 404);
+  } finally { f.database.sqlite.close(); }
+});
+
+test('application proofs require operator access and every read has a content-free audit',async()=>{
+  const f=await applicationFixture();const id=await completeApplication(f);
+  const path=`/api/v1/operator/coach-applications/${id}/media/credential?index=0`;
+  assert.equal((await request(f.env,path)).response.status,401);
+  assert.equal((await request(f.env,path,{headers:{authorization:`Bearer ${f.session.accessToken}`}})).response.status,401);
+  assert.equal((await request(f.env,path,{headers:{'x-operator-secret':'application-operator-test','x-operator-actor':'ordinary@example.com'}})).response.status,403);
+  const viewed=await request(f.env,path,{headers:{'x-operator-secret':'application-operator-test','x-operator-actor':'xuzerui6@gmail.com'}});
+  assert.equal(viewed.response.status,200);assert.equal(viewed.response.headers.get('cache-control'),'private, no-store');assert.equal(viewed.response.headers.get('content-type'),'image/png');
+  const audit=f.database.sqlite.prepare("SELECT detail_json FROM ops_audit_logs WHERE action='coach.application.media.view'").get()!;
+  assert.deepEqual(JSON.parse(String(audit.detail_json)),{kind:'credential',index:0});
+  assert.equal((await request(f.env,path.replace('index=0','index=-1'),{headers:{'x-operator-secret':'application-operator-test','x-operator-actor':'xuzerui6@gmail.com'}})).response.status,422);
+  f.database.sqlite.close();
+});
+
+test('0025 preserves historical supply and adds only Xu Changchun relations, not venues',async()=>{
+  const database=new D1Adapter();await migrate(database);seedSupply(database);
+  // Recreate a pre-0025 database by using a separate adapter and the unchanged migration files.
+  const historical=new D1Adapter();
+  const files=['0000_late_hawkeye.sql','0001_gifted_glorian.sql','0002_brave_raza.sql','0003_slimy_obadiah_stane.sql','0004_rainy_vector.sql','0006_verified_coach_profiles.sql','0007_operational_closure.sql','0008_public_app_downloads.sql','0009_business_scheduling.sql','0010_student_time_requests.sql','0011_user_account_profiles.sql','0012_trusted_reviews_and_telemetry.sql','0013_review_closure_and_message_receipts.sql','0014_secure_service_leads.sql','0015_beijing_service_catalog.sql','0016_booking_contract_and_evidence.sql','0017_transaction_sandbox.sql','0018_trust_metric_provenance.sql','0019_session_rotation_receipts.sql','0020_completion_decision_idempotency.sql','0021_entity_metric_classification.sql','0022_public_review_provenance.sql','0023_release_safety_and_classification.sql','0024_wechat_miniapp_identity.sql'];
+  for(const file of files)historical.sqlite.exec(await readFile(new URL(`../drizzle/${file}`,import.meta.url),'utf8'));
+  seedSupply(historical);
+  historical.sqlite.exec("INSERT INTO coaches(id,name,sport,city,district,level,title,bio,price_fen,trial_price_fen,audit_status,profile_kind,listing_status,booking_enabled,pricing_status) VALUES(5,'徐泽瑞','田径','北京','通州区','试点教练','田径教练','隔离迁移测试',24000,9900,'approved','real','online',1,'published'); INSERT INTO coach_sports(coach_id,sport_id,is_primary,created_at) VALUES(5,'sport-athletics',1,1); INSERT INTO coach_service_regions(coach_id,region_id,is_primary,created_at) VALUES(5,'beijing-tongzhou',1,1);");
+  const before=historical.sqlite.prepare('SELECT * FROM coaches ORDER BY id').all();
+  historical.sqlite.exec(await readFile(new URL('../drizzle/0025_multicity_coach_onboarding.sql',import.meta.url),'utf8'));
+  assert.deepEqual(historical.sqlite.prepare('SELECT * FROM coaches ORDER BY id').all(),before);
+  assert.equal(historical.sqlite.prepare("SELECT count(*) AS n FROM coach_service_areas WHERE coach_id=5 AND area_id LIKE 'changchun-%'").get()?.n,7);
+  assert.equal(historical.sqlite.prepare("SELECT count(*) AS n FROM venues WHERE city='长春'").get()?.n,0);
+  assert.equal(historical.sqlite.prepare('SELECT count(*) AS n FROM service_areas').get()?.n,23);
+  const env:ApiEnv={APP_ENV:'test',DB:historical};
+  assert.equal((await listMulticityCatalogD1('changchun',env)).sports.find(s=>s.name==='田径')?.coachCount,1);
+  assert.deepEqual(historical.sqlite.prepare('PRAGMA foreign_key_check').all(),[]);
+  await assert.rejects(listMulticityCatalogD1('shanghai',env),{code:'unsupported_service_city'});
+  database.sqlite.close();historical.sqlite.close();
+});
 
 test("operator endpoints distinguish missing authentication from wrong role", async () => {
   const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", OPERATOR_API_SECRET: "isolated-operator-key" };
@@ -216,21 +498,51 @@ test("operator endpoints distinguish missing authentication from wrong role", as
   assert.equal((other.payload?.error as { code: string }).code, "role_forbidden");
 });
 
-test("operator public coach count excludes demo and unapproved supply", async () => {
+test("operator public supply is independent from trust classification and excludes unavailable coaches", async () => {
   const database = new D1Adapter(); await migrate(database); seedSupply(database);
   const env: ApiEnv = { PRIMARY_OPERATOR_EMAIL: 'xuzerui6@gmail.com', APP_ENV: "test", DB: database, OPERATOR_API_SECRET: "count-test" };
-  await classifyMetricEntityD1('coach','1','production_eligible','隔离供给核验','operator','count',env);
   const readCount = async () => {
     const result = await request(env, "/api/v1/operator/overview", { headers: { "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": "count-test" } });
     assert.equal(result.response.status, 200);
-    return ((result.payload?.data as { coaches: Array<{ status: string; count: number }> }).coaches).find((row) => row.status === "online")?.count ?? 0;
+    return (result.payload?.data as { publicSupply: { total: number; byCity: Array<{ cityId: string; count: number }> } }).publicSupply;
   };
   database.sqlite.prepare("UPDATE coaches SET profile_kind='demo',listing_status='online' WHERE id=1").run();
-  assert.equal(await readCount(), 0);
+  assert.equal((await readCount()).total, 0);
   database.sqlite.prepare("UPDATE coaches SET profile_kind='real' WHERE id=1").run();
-  assert.equal(await readCount(), 1);
+  assert.equal((await readCount()).total, 1);
+  assert.deepEqual((await readCount()).byCity, [{ cityId: 'beijing', count: 1 }]);
   database.sqlite.prepare("UPDATE coaches SET audit_status='suspended' WHERE id=1").run();
-  assert.equal(await readCount(), 0);
+  assert.equal((await readCount()).total, 0);
+  database.sqlite.close();
+});
+
+test("account profile validates and returns the selected service city and area", async () => {
+  const database = new D1Adapter(); await migrate(database); seedSupply(database);
+  const env: ApiEnv = { APP_ENV: "test", DB: database, AUTH_HASH_SECRET: "profile-test-secret-with-sufficient-length", PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 31).toString("base64") };
+  const session = await authenticate(env, "13800000979");
+  const headers = { authorization: `Bearer ${session.accessToken}`, "content-type": "application/json", "x-device-id": "profile-dual-city" };
+  const updated = await request(env, "/api/v1/me/profile", { method: "PATCH", headers, body: JSON.stringify({ nickname: "长春学员", bio: "准备提升体能", serviceCityId: "changchun", serviceArea: "南关区" }) });
+  assert.equal(updated.response.status, 200);
+  assert.deepEqual(Object.fromEntries(Object.entries(updated.payload?.data as Record<string, unknown>).filter(([key]) => ["district", "serviceArea", "serviceCityId"].includes(key))), { district: "南关区", serviceArea: "南关区", serviceCityId: "changchun" });
+  const invalid = await request(env, "/api/v1/me/profile", { method: "PATCH", headers, body: JSON.stringify({ nickname: "错误区域", bio: "", serviceCityId: "changchun", serviceArea: "通州区" }) });
+  assert.equal(invalid.response.status, 422);
+  assert.equal((invalid.payload?.error as { code: string }).code, "invalid_service_area");
+  database.sqlite.close();
+});
+
+test("operator system health reports configuration without exposing credentials", async () => {
+  const database = new D1Adapter(); await migrate(database);
+  const env: ApiEnv = {
+    PRIMARY_OPERATOR_EMAIL: "xuzerui6@gmail.com", APP_ENV: "test", DB: database, OPERATOR_API_SECRET: "health-test",
+    TENCENTCLOUD_SECRET_ID: "secret-id", TENCENTCLOUD_SECRET_KEY: "secret-key", TENCENT_SES_FROM_EMAIL: "no-reply@example.invalid",
+    JPUSH_APP_KEY: "push-key", JPUSH_MASTER_SECRET: "push-secret", WECHAT_MINIAPP_APP_ID: "wx-test", WECHAT_MINIAPP_APP_SECRET: "wx-secret",
+  };
+  const result = await request(env, "/api/v1/operator/system-health", { headers: { "x-operator-actor": "xuzerui6@gmail.com", "x-operator-secret": "health-test" } });
+  assert.equal(result.response.status, 200);
+  const serialized = JSON.stringify(result.payload);
+  assert.doesNotMatch(serialized, /secret-key|push-secret|wx-secret/u);
+  assert.equal((result.payload?.data as { services: { database: { ready: boolean }; email: { configured: boolean }; push: { configured: boolean }; wechat: { configured: boolean } } }).services.database.ready, true);
+  assert.equal((result.payload?.data as { services: { email: { configured: boolean } } }).services.email.configured, true);
   database.sqlite.close();
 });
 
@@ -285,11 +597,125 @@ async function migrate(database: D1Adapter, through23 = true) {
     for (const statement of source.split("--> statement-breakpoint").map((item) => item.trim()).filter(Boolean)) database.sqlite.exec(statement);
   }
   database.sqlite.exec("PRAGMA foreign_keys = ON");
-  for (const file of ["0019_session_rotation_receipts.sql", "0020_completion_decision_idempotency.sql", "0021_entity_metric_classification.sql", "0022_public_review_provenance.sql", "0023_release_safety_and_classification.sql"]) {
+  for (const file of ["0019_session_rotation_receipts.sql", "0020_completion_decision_idempotency.sql", "0021_entity_metric_classification.sql", "0022_public_review_provenance.sql", "0023_release_safety_and_classification.sql", "0024_wechat_miniapp_identity.sql", "0025_multicity_coach_onboarding.sql"]) {
     if (!through23 && file.startsWith("0023")) continue;
     database.sqlite.exec(await readFile(new URL(file, directory), "utf8"));
   }
 }
+
+test("WeChat miniapp exchanges once, links by email and never stores raw identifiers", async () => {
+  const database = new D1Adapter();
+  await migrate(database);
+  const env: ApiEnv = {
+    APP_ENV: "test",
+    AUTH_HASH_SECRET: "wechat-auth-secret-with-adequate-length",
+    DB: database,
+    PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 42).toString("base64"),
+    PRIMARY_OPERATOR_EMAIL: "xuzerui6@gmail.com",
+    TENCENTCLOUD_SECRET_ID: "test-secret-id",
+    TENCENTCLOUD_SECRET_KEY: "test-secret-key",
+    TENCENT_SES_FROM_EMAIL: "no-reply@notify.beijingzhuguang.top",
+    TENCENT_SES_REGION: "ap-guangzhou",
+    WECHAT_MINIAPP_APP_ID: "wx-test-app-id",
+    WECHAT_MINIAPP_APP_SECRET: "wx-test-app-secret",
+  };
+  const headers = { "x-device-id": "wx_1720000000000_deviceabcd" };
+  const provider = async () => Response.json({ openid: "raw-open-id", unionid: "raw-union-id", session_key: "must-not-be-stored" });
+  const first = await exchangeWechatCodeD1(new Request("https://api.local", { headers }), { code: "valid-code-one" }, env, provider);
+  assert.equal(first.status, "link_required");
+  if (first.status !== "link_required") throw new Error("expected link challenge");
+  assert.equal(database.sqlite.prepare("SELECT count(*) AS count FROM wechat_identities").get()?.count, 0);
+  const dump = database.sqlite.prepare("SELECT group_concat(coalesce(open_id_hash,'') || coalesce(code_hash,'')) AS value FROM wechat_auth_events").get() as { value?: string };
+  assert.doesNotMatch(dump.value || "", /raw-open-id|raw-union-id|session_key/u);
+  await assert.rejects(
+    exchangeWechatCodeD1(new Request("https://api.local", { headers }), { code: "valid-code-one" }, env, provider),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "wechat_code_replayed",
+  );
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ Response: { MessageId: "wechat-email", RequestId: "wechat-email-request" } });
+  try {
+    const otp = await requestWechatLinkEmailD1(new Request("https://api.local", { headers }), { email: "xuzerui6@gmail.com", linkToken: first.linkToken }, env);
+    const linked = await verifyWechatLinkEmailD1(new Request("https://api.local", { headers }), {
+      challengeId: otp.challengeId,
+      code: "888888",
+      favoriteCoachIds: [],
+      linkToken: first.linkToken,
+    }, env);
+    assert.equal(linked.status, "authenticated");
+    assert.equal(linked.session.availableModes.includes("student"), true);
+    assert.equal(database.sqlite.prepare("SELECT count(*) AS count FROM wechat_identities WHERE status='active'").get()?.count, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const second = await exchangeWechatCodeD1(new Request("https://api.local", { headers }), { code: "valid-code-two" }, env, provider);
+  assert.equal(second.status, "authenticated");
+  if (second.status !== "authenticated") throw new Error("expected authenticated session");
+  assert.equal(second.session.authMethod, "wechat");
+  assert.equal(second.session.availableModes.includes("student"), true);
+  const logout = await request(env, "/api/v1/auth/logout-refresh", json({ refreshToken: second.session.refreshToken }));
+  assert.equal(logout.response.status, 200);
+  const refreshAfterLogout = await request(env, "/api/v1/auth/refresh", json({ refreshToken: second.session.refreshToken }));
+  assert.equal(refreshAfterLogout.response.status, 401);
+  database.sqlite.close();
+});
+
+test("WeChat miniapp rejects provider failures, expired links and identity conflicts", async () => {
+  const database = new D1Adapter();
+  await migrate(database);
+  const env: ApiEnv = {
+    APP_ENV: "test",
+    AUTH_HASH_SECRET: "wechat-auth-secret-with-adequate-length",
+    DB: database,
+    PHONE_ENCRYPTION_KEY: Buffer.alloc(32, 43).toString("base64"),
+    WECHAT_MINIAPP_APP_ID: "wx-test-app-id",
+    WECHAT_MINIAPP_APP_SECRET: "wx-test-app-secret",
+  };
+  const headers = { "x-device-id": "wx_1720000000000_devicewxyz" };
+  await assert.rejects(
+    exchangeWechatCodeD1(new Request("https://api.local", { headers }), { code: "provider-bad-code" }, env, async () => Response.json({ errcode: 40029, errmsg: "invalid code" })),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "wechat_code_invalid",
+  );
+  await assert.rejects(
+    exchangeWechatCodeD1(new Request("https://api.local", { headers }), { code: "provider-timeout" }, env, async () => { throw new Error("timeout"); }),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "wechat_provider_unavailable",
+  );
+  const result = await exchangeWechatCodeD1(new Request("https://api.local", { headers }), { code: "fresh-link-code" }, env, async () => Response.json({ openid: "expiring-open-id" }));
+  assert.equal(result.status, "link_required");
+  if (result.status !== "link_required") throw new Error("expected link challenge");
+  database.sqlite.prepare("UPDATE wechat_link_challenges SET expires_at = 1").run();
+  await assert.rejects(
+    requestWechatLinkEmailD1(new Request("https://api.local", { headers }), { email: "learner@example.com", linkToken: result.linkToken }, env),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "wechat_link_expired",
+  );
+  const conflict = await exchangeWechatCodeD1(
+    new Request("https://api.local", { headers }),
+    { code: "conflicting-link-code" },
+    env,
+    async () => Response.json({ openid: "conflicting-open-id" }),
+  );
+  assert.equal(conflict.status, "link_required");
+  if (conflict.status !== "link_required") throw new Error("expected conflict challenge");
+  await authenticate(env, "13800000661");
+  const userId = String(database.sqlite.prepare("SELECT user_id FROM sessions ORDER BY created_at DESC LIMIT 1").get()?.user_id);
+  const challenge = database.sqlite.prepare("SELECT open_id_hash FROM wechat_link_challenges WHERE consumed_at IS NULL AND expires_at > ? ORDER BY created_at DESC LIMIT 1").get(Date.now()) as { open_id_hash: string };
+  const now = Date.now();
+  database.sqlite.prepare(`
+    INSERT INTO wechat_identities
+      (id, app_id, open_id_hash, union_id_hash, user_id, status, linked_at, last_login_at, created_at, updated_at)
+    VALUES ('wechat-conflict', ?, ?, NULL, ?, 'active', ?, ?, ?, ?)
+  `).run(env.WECHAT_MINIAPP_APP_ID!, challenge.open_id_hash, userId, now, now, now, now);
+  await assert.rejects(
+    verifyWechatLinkEmailD1(new Request("https://api.local", { headers }), {
+      challengeId: "unused-email-challenge",
+      code: "123456",
+      linkToken: conflict.linkToken,
+    }, env),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "wechat_identity_conflict",
+  );
+  database.sqlite.close();
+});
 
 test("verified reviews enforce eligibility, privacy, thresholds, reactions and report resolution", async () => {
   const database = new D1Adapter();

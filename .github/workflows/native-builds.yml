@@ -26,8 +26,39 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run native:check
+      - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      - run: npm audit --omit=dev
+
+  miniapp-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run miniapp:typecheck
+      - name: Build safe source configuration
+        env:
+          TARO_APP_API_ORIGIN: https://api.beijingzhuguang.top
+          TARO_APP_WECHAT_LOGIN_ENABLED: "false"
+          TARO_APP_FUZZY_LOCATION_ENABLED: "false"
+        run: npm run miniapp:build && npm run miniapp:check
+      - name: Build WeChat experience configuration
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TARO_APP_API_ORIGIN: https://api.beijingzhuguang.top
+          TARO_APP_CHANNEL_KEY: ${{ secrets.ZHUGUANG_PILOT_APP_KEY }}
+          TARO_APP_WECHAT_LOGIN_ENABLED: "true"
+          TARO_APP_FUZZY_LOCATION_ENABLED: "false"
+          WECHAT_MINIAPP_APP_ID: ${{ secrets.WECHAT_MINIAPP_APP_ID }}
+        run: |
+          node -e "require('fs').writeFileSync('miniapp/project.private.config.json', JSON.stringify({appid:process.env.WECHAT_MINIAPP_APP_ID,projectname:'zhuguang-wechat-miniapp'}))"
+          npm run miniapp:build
+          npm run miniapp:check
 
   android-compile-check:
     runs-on: ubuntu-latest

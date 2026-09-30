@@ -3,6 +3,7 @@ import { CoachDirectory } from "../_components/coach-directory";
 import { PublicFooter } from "../_components/public-footer";
 import { PublicHeader } from "../_components/public-header";
 import { loadPublicCoaches, loadPublicServiceCatalog } from "../_lib/web-platform";
+import { resolveServiceCity } from "../../shared/service-cities";
 
 export const metadata: Metadata = {
   description: "按运动项目、北京区域与训练目标比较逐光试点教练。",
@@ -11,7 +12,8 @@ export const metadata: Metadata = {
 
 export default async function CoachesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams;
-  const [coaches,catalog] = await Promise.all([loadPublicCoaches(),loadPublicServiceCatalog()]);
+  const cityId=resolveServiceCity(typeof params.city==="string"?params.city:undefined);
+  const [coaches,catalog] = await Promise.all([loadPublicCoaches(cityId),loadPublicServiceCatalog(cityId)]);
   const get = (key: string, fallback: string) => typeof params[key] === "string" ? params[key] : fallback;
   return (
     <>

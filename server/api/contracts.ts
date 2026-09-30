@@ -32,6 +32,8 @@ export interface ApiEnv {
   TENCENT_SES_FROM_NAME?: string;
   TENCENT_SES_TEMPLATE_ID?: string;
   TURNSTILE_SECRET_KEY?: string;
+  WECHAT_MINIAPP_APP_ID?: string;
+  WECHAT_MINIAPP_APP_SECRET?: string;
   BEIJING_CATALOG_V2_ENABLED?: string;
   FULFILLMENT_V2_ENABLED?: string;
   SUPPORT_EVIDENCE_ENABLED?: string;

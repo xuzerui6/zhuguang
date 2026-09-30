@@ -1,0 +1,80 @@
+import type { Bootstrap, CoachOverview, CoachProfile } from "./types";
+
+const site = "https://beijingzhuguang.top";
+
+export const realCoaches: CoachProfile[] = [
+  {
+    id: 5,
+    name: "徐泽瑞",
+    sport: "田径",
+    city: "北京",
+    district: "通州区",
+    title: "退役田径运动员 · 田径专项训练教练",
+    heroUrl: `${site}/images/coach-xu-zerui-hero.webp`,
+    cardUrl: `${site}/images/coach-xu-zerui-portrait.webp`,
+    avatarUrl: `${site}/images/coach-xu-zerui-avatar.webp`,
+    verificationLabel: "资料已核验",
+    goals: ["体能提升", "中小学体育中高考"],
+    strengths: ["体能提升", "中小学体育中高考"],
+    credentials: ["国家级教练证书"],
+    audience: ["青少年儿童", "成人"],
+    bookingEnabled: true,
+    bookable: true,
+    canConsult: true,
+    price: 240,
+    trialPrice: 99,
+  },
+  {
+    id: 6,
+    name: "张展祁",
+    sport: "田径",
+    city: "北京",
+    district: "通州区",
+    title: "退役运动员 · 田项训练教练",
+    heroUrl: `${site}/images/coach-zhang-zhanqi-hero.webp`,
+    cardUrl: `${site}/images/coach-zhang-zhanqi-card.webp`,
+    avatarUrl: `${site}/images/coach-zhang-zhanqi-avatar.webp`,
+    verificationLabel: "资料已核验",
+    goals: ["跳远跳高", "各类田项"],
+    strengths: ["跳远跳高", "各类田项"],
+    credentials: ["体适能教练"],
+    audience: ["青少年儿童", "成人"],
+    bookingEnabled: true,
+    bookable: true,
+    canConsult: true,
+  },
+  {
+    id: 7,
+    name: "郝健壮",
+    sport: "田径",
+    city: "北京",
+    district: "通州区",
+    title: "退役运动员 · 田径专项训练教练",
+    heroUrl: `${site}/images/coach-hao-jianzhuang-hero.webp`,
+    cardUrl: `${site}/images/coach-hao-jianzhuang-card.webp`,
+    avatarUrl: `${site}/images/coach-hao-jianzhuang-avatar.webp`,
+    verificationLabel: "资料已核验",
+    goals: ["体育中高考", "体能提升", "专项训练"],
+    strengths: ["体育中高考", "体能提升", "专项训练"],
+    credentials: ["体育教师证书", "体适能证书", "国家级教练员证书"],
+    audience: ["青少年儿童", "成人"],
+    bookingEnabled: true,
+    bookable: true,
+    canConsult: true,
+  },
+];
+
+export const guestBootstrap: Bootstrap = {
+  coaches: realCoaches,
+  bookings: [],
+  conversations: [],
+  favoriteCoachIds: [],
+  learnerProfiles: [],
+};
+
+export const previewCoachOverview: CoachOverview = {
+  coach: realCoaches[0],
+  bookings: [],
+  conversations: [],
+  venues: [{ id: "preview-venue", name: "北京市通州区合作训练场", district: "通州区", address: "详细地址由预约双方确认" }],
+};

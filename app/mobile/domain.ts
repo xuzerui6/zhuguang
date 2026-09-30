@@ -6,6 +6,7 @@ import type {
   MobileCoach,
 } from "./types";
 import { matchesAudience, matchesTrainingGoal } from "../../shared/coach-catalog";
+import { BOOKING_LABELS, isTerminalBooking } from "../../shared/booking-rules";
 
 export const terminalBookingStatuses: BookingStatus[] = [
   "completed",
@@ -54,7 +55,7 @@ export function getBookingStatusCopy(status: BookingStatus) {
     cancelled_by_student: { label: "已取消", tone: "neutral" },
     cancelled_by_coach: { label: "教练已取消", tone: "danger" },
   };
-  return copy[status];
+  return { label: BOOKING_LABELS[status] || '未知状态', tone: copy[status]?.tone || 'neutral' };
 }
 
 export function getMatchResult(coach: MobileCoach, preferences: MatchPreferences): MatchResult {
@@ -71,8 +72,8 @@ export function getMatchResult(coach: MobileCoach, preferences: MatchPreferences
     reasons.push(preferences.goal === "全部目标" ? "训练方向覆盖完整" : `擅长${preferences.goal}`);
   }
 
-  const cityMatches = preferences.city === "全部城市" || coach.city === preferences.city;
-  const districtMatches = preferences.district === "全北京" || coach.district === preferences.district;
+  const cityMatches = preferences.city === "全部城市" || coach.city === preferences.city || Boolean(coach.serviceCities?.includes(preferences.city));
+  const districtMatches = preferences.district.startsWith("全") || coach.district === preferences.district || Boolean(coach.serviceAreas?.some(area=>area.cityName===preferences.city&&area.district===preferences.district));
   if (cityMatches && districtMatches) {
     score += 25;
     reasons.push(coach.district ? `${coach.district}就近训练` : "服务区域匹配");
@@ -105,6 +106,7 @@ export function mergeFavoriteIds(localIds: number[], remoteIds: number[]) {
 }
 
 export function getBookingBucket(booking: MobileBooking) {
+  if (isTerminalBooking(booking.status)) return "completed";
   if (booking.status === "pending_coach" || booking.status === "reschedule_requested") return "pending";
   if (booking.status === "confirmed") return "active";
   return "completed";

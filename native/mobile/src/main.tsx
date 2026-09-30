@@ -1,5 +1,6 @@
 import { StrictMode, useState } from "react";
 import { OperationProvider } from '../../../app/_components/operation-provider';
+import { MotionProvider } from '../../../app/_components/motion-provider';
 import { createRoot } from "react-dom/client";
 import MobileStudentApp from "../../../app/mobile-student-app";
 import { demoCoaches } from "../../../app/mobile/demo-data";
@@ -43,6 +44,6 @@ if (!root) throw new Error("Native app root is missing");
 
 createRoot(root).render(
   <StrictMode>
-    <OperationProvider><NativeMobileApp /></OperationProvider>
+    <MotionProvider><OperationProvider><NativeMobileApp /></OperationProvider></MotionProvider>
   </StrictMode>,
 );

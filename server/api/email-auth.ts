@@ -55,9 +55,14 @@ async function isRegisteredNativeOtpRequest(request: Request, env: ApiEnv, db: D
   return Boolean(installation);
 }
 
-export async function requestEmailOtpD1(request: Request, input: { email: unknown; turnstileToken?: unknown }, env: ApiEnv) {
+export async function requestEmailOtpD1(
+  request: Request,
+  input: { email: unknown; turnstileToken?: unknown },
+  env: ApiEnv,
+  options: { trustedWechatLink?: boolean } = {},
+) {
   const db = database(env);
-  if (!await isRegisteredNativeOtpRequest(request, env, db)) {
+  if (!options.trustedWechatLink && !await isRegisteredNativeOtpRequest(request, env, db)) {
     await verifyTurnstile(request, input.turnstileToken, env);
   }
   const email = normalizeEmail(input.email);

@@ -9,6 +9,7 @@
     "dev": "node scripts/run-vinext.mjs dev",
     "build": "node scripts/run-vinext.mjs build",
     "web:worker:prepare": "node scripts/prepare-web-worker-build.mjs",
+    "web:worker:deploy": "npm run web:worker:prepare && wrangler deploy --config dist/server/wrangler.web.json",
     "start": "node scripts/run-vinext.mjs start",
     "preview": "node scripts/local-preview-server.mjs",
     "preview:background": "node scripts/start-preview-background.mjs",
@@ -58,7 +59,7 @@
     "lucide-react": "^1.28.0",
     "morphicons": "^1.7.0",
     "motion": "^13.4.0",
-    "next": "16.3.4",
+    "next": "16.3.8",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "tencentcloud-sdk-nodejs-sms": "^4.1.240"

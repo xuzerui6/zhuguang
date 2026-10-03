@@ -55,6 +55,12 @@ test('market beta copy and account controls consistently describe dual-city self
   assert.match(profile, /服务城市/u);
 });
 
+test('mobile sport navigation keeps all six published categories on one stable row', async () => {
+  const styles = await readFile(new URL('../app/mobile/mobile.css', import.meta.url), 'utf8');
+  assert.match(styles, /\.zg-sport-tabs\s*\{[\s\S]*?grid-template-columns:\s*repeat\(6,\s*minmax\(0,\s*1fr\)\)/u);
+  assert.match(styles, /\.zg-sport-tabs small\s*\{[\s\S]*?white-space:\s*nowrap/u);
+});
+
 test('workspace routes provide delayed structural loading instead of a blank content stage', async () => {
   const loading = await readFile(new URL('../app/student/loading.tsx', import.meta.url), 'utf8');
   const styles = await readFile(new URL('../app/_components/workspace-shell.module.css', import.meta.url), 'utf8');

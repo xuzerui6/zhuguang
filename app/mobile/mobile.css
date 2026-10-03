@@ -453,7 +453,7 @@
 .zg-sport-tabs {
   border-bottom: 1px solid var(--zg-line);
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   margin: 14px 18px 0;
 }
 
@@ -503,6 +503,7 @@
 
 .zg-sport-tabs small {
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .zg-active-booking-strip {

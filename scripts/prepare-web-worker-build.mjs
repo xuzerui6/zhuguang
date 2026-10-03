@@ -6,11 +6,13 @@ const sourcePath = resolve(root, "wrangler.web.jsonc");
 const outputPath = resolve(root, "dist", "server", "wrangler.web.json");
 const entryPath = resolve(root, "dist", "server", "web-entry.js");
 const serverBundlePath = resolve(root, "dist", "server", "index.js");
+const assetsManifestPath = resolve(root, "dist", "server", "__vite_rsc_assets_manifest.js");
 const config = JSON.parse(await readFile(sourcePath, "utf8"));
 
 config.main = "web-entry.js";
 config.assets = { ...config.assets, directory: "../client" };
 config.rules = [{ type: "ESModule", globs: ["**/*.js", "**/*.mjs"] }];
+config.find_additional_modules = true;
 
 const deploymentExcludedAssets = [];
 
@@ -29,7 +31,11 @@ deploymentExcludedAssets.push(...archivedLegacyAssets);
 await Promise.all(deploymentExcludedAssets.map((name) => rm(resolve(root, "dist", "client", name), { force: true })));
 
 const excludedManifestEntries = new Set(deploymentExcludedAssets.map((name) => JSON.stringify(`/${name}`)));
+const assetsManifest = (await readFile(assetsManifestPath, "utf8"))
+  .replace(/^export default\s+/, "const assetsManifest = ")
+  .replace(/;?\s*$/, ";");
 const serverBundle = (await readFile(serverBundlePath, "utf8"))
+  .replace('import assetsManifest from "./__vite_rsc_assets_manifest.js";', assetsManifest)
   .split(/\r?\n/)
   .filter((line) => ![...excludedManifestEntries].some((entry) => line.includes(entry)))
   .join("\n");

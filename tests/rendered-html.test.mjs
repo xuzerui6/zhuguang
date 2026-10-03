@@ -33,6 +33,8 @@ test("web worker preparation preserves www paths and query parameters in a perma
   assert.match(prepareScript, /url\.hostname === "www\.beijingzhuguang\.top"/);
   assert.match(prepareScript, /url\.hostname = "beijingzhuguang\.top"/);
   assert.match(prepareScript, /Response\.redirect\(url, 301\)/);
+  assert.match(prepareScript, /config\.find_additional_modules = true/);
+  assert.ok(prepareScript.includes('replace(\'import assetsManifest from "./__vite_rsc_assets_manifest.js";\''));
   const workerConfig = JSON.parse(await read('wrangler.web.jsonc'));
   assert.ok(workerConfig.compatibility_flags.includes('global_fetch_strictly_public'), 'preview Worker-to-Worker reads must use public fetch routing');
 });

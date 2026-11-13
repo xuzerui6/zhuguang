@@ -1,71 +1,53 @@
 # 逐光运动教练服务平台
 
-逐光连接经过资料核验的专业运动教练与学员家庭。仓库同时包含公开官网、学员平台、教练工作台、运营后台、Cloudflare 手机 API，以及 Capacitor Android 和 Tauri 桌面客户端。
+逐光服务北京与吉林长春，帮助学员家庭查找已核验的运动教练、发起预约并记录训练进展。教练可以管理预约、日程和训练记录，运营人员负责资料审核、服务支持与版本管理。
+
+[访问官网](https://beijingzhuguang.top/) · [查找教练](https://beijingzhuguang.top/coaches) · [下载 Android](https://beijingzhuguang.top/download) · [产品评审指南](docs/review-guide.md) · [项目文档](docs/README.md)
+
+## 产品入口
+
+| 入口 | 适合谁 | 能做什么 |
+| --- | --- | --- |
+| 官网 | 家长、学员、访客 | 按城市查找教练，查看已公开资料，了解课程或发起咨询 |
+| 学员端 | 已登录的学员家庭 | 管理学员档案，指定训练时间和地点，与教练协商并查看训练记录 |
+| 教练工作台 | 已核验教练 | 处理预约与反提案，管理日程、消息、履约和训练记录 |
+| 运营后台 | 获授权的运营人员 | 审核教练及资料、处理工单、管理经营设置与版本 |
+| Android | 学员与教练 | 在同一 App 内切换授权身份；安装包和版本信息以下载页为准 |
+| 微信小程序 | 受邀测试者 | 学员和教练双身份开发版；正式发布状态以微信公众平台为准 |
+
+预约由教练确认后生效。公开项目、教练、课程与场馆以实际审核和发布结果为准。线上支付、退款和分账暂未开放。iOS 与桌面工程是开发交付入口，不代表已对外发布。
 
 ## 本地开发
 
-要求 Node.js `>=22.13.0`。
+建议使用 Node.js 24（与 CI 一致）。私有仓库须先获得访问权限。
 
 ```bash
-npm install
+npm ci
 npm run dev
-npm run test:unit
+```
+
+按终端输出的本地地址打开网站。需要验证登录、写操作或第三方集成时，使用独立测试 API、测试账号和测试数据；不要在正式环境制造预约、订单或通知。
+
+```bash
+npm run typecheck
 npm run lint
-npm run build
+npm test
 ```
 
-常驻预览服务应在后台终端运行；健康检查完成后不要等待服务进程退出。
+`npm test` 运行单元/API 测试、生产构建及 SSR 回归。移动端入口见[原生交付说明](docs/native-apps.md)和[小程序开发说明](miniapp/README.md)。
 
-## 正式域名
+## 工程结构
 
-- 官网：`https://beijingzhuguang.top`
-- 手机 API：`https://api.beijingzhuguang.top`
-- Android 包名：`com.zhuguang.coachos`
+| 目录 | 职责 |
+| --- | --- |
+| `app/` | Next.js 路由、Vinext 网页构建、三个工作区与共享移动 UI |
+| `server/api/`、`worker/` | Cloudflare Workers API、会话、角色授权与业务处理 |
+| `db/`、`drizzle/` | D1 数据模型与按顺序执行的增量迁移 |
+| `shared/` | 跨端业务模型、规则与展示逻辑 |
+| `native/mobile/`、`android/`、`ios/` | Capacitor 移动工程；Android 包名 `com.zhuguang.coachos` |
+| `miniapp/` | Taro 微信小程序 |
+| `tests/`、`.github/workflows/` | 自动化回归和 CI 检查 |
 
-官网允许匿名访问。`/student`、`/coach-workspace` 和 `/ops` 根据服务端会话与角色授权保护，客户端菜单不参与权限判定。
+正式 API 位于 [api.beijingzhuguang.top](https://api.beijingzhuguang.top/api/v1/health)。网页工作区由服务端验证会话和角色；客户端菜单仅用于导航。D1 和 R2 绑定由运行环境提供，媒体和 APK 存储保持私有。
 
-## 网站权限
-
-网站 Worker 运行环境使用以下变量：
-
-- `ZHUGUANG_MOBILE_API_URL`
-- `ZHUGUANG_COACH_EMAILS`：逗号分隔的已审核教练邮箱
-- `PRIMARY_OPERATOR_EMAIL`：Web 与 API 统一的唯一运营邮箱；缺失时不授予运营权限
-- `ZHUGUANG_OPERATOR_API_SECRET`：秘密
-- `ZHUGUANG_PILOT_APP_KEY`：可轮换渠道标识/试点门槛，不是身份认证凭据。Android 包内的对应渠道键可被提取，不能替代登录令牌、角色和资源所有权校验；网页端通过服务端代理配置。
-- `SITE_OPERATOR_NAME`：经营主体名称，可选
-- `SITE_SUPPORT_EMAIL`、`SITE_SUPPORT_PHONE`：客服联系方式，可选
-- `SITE_COMPLAINT_CONTACT`：投诉渠道，可选；为空时整项隐藏
-- `SITE_ICP_NUMBER`、`SITE_PUBLIC_SECURITY_NUMBER`、`SITE_PUBLIC_SECURITY_URL`：真实备案信息，可选；不得填写占位数据
-
-北京业务扩展、功能开关、迁移与上线阻塞见 `docs/p0-p2-preview-readiness.md`。
-- `SITE_COMPLAINT_CONTACT`：投诉渠道，可选
-- `SITE_ICP_NUMBER`、`SITE_PUBLIC_SECURITY_NUMBER`：备案信息，可选
-
-可选的经营与备案字段为空时，页脚会隐藏整项；不得使用占位资料发布。
-
-匿名用户没有工作区权限；登录账号默认只有学员权限；教练与运营权限只从服务端配置授予。
-
-## 手机 API
-
-Worker 配置位于 `wrangler.mobile-api.jsonc`，使用 D1 `DB`、私有教练媒体 `MEDIA` 和私有安装包 `RELEASES`。短信和 JPush 参数未配置时，界面必须保持明确的不可用或模拟状态。
-
-## Android 发布
-
-签名文件与密码必须保存在仓库外。正式构建脚本从 Windows DPAPI 保护的用户配置读取凭据：
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\invoke-android-release.ps1 -VersionName 1.2.4 -VersionCode 9
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish-android-release.ps1 -VersionName 1.2.5 -VersionCode 10 -PauseVersionCode 8
-```
-
-构建输出包含签名 APK、SHA-256、包名、版本和证书指纹。应用内更新仍需要 Android 的未知来源授权与系统安装确认。
-
-## 关键检查
-
-- `npm run brand:icons`：从“光轨 Z”母版生成多端图标
-- `npm run native:check`：校验原生资源、adaptive icon 和通知图标
-- `npm run mobile:web:build`：构建 Capacitor Web 资源
-- `scripts/run-browser-qa.mjs`：使用 Playwright 检查关键路由与视口
-
-教练资料、评价、课量、时段和平台规模不得使用未核验数据冒充真实运营数据。
+评审反馈请使用仓库的 [Issues](https://github.com/xuzerui6/zhuguang/issues)，敏感问题通过私下渠道报告。更多配置、验收和发布边界见[项目文档](docs/README.md)。

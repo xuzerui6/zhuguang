@@ -14,7 +14,7 @@
 ## 本地构建
 
 ```powershell
-npm --prefix miniapp install
+npm ci
 npm --prefix miniapp run typecheck
 npm --prefix miniapp run build:weapp
 ```
@@ -34,15 +34,14 @@ npm --prefix miniapp run build:weapp
 
 模糊定位默认关闭：本账号上传曾返回 `-80424 getFuzzyLocation is not authorized`。获得公众平台对应接口授权、补齐用户隐私保护指引后，使用 `scripts/invoke-miniapp-build.ps1 -EnableWechatLogin -EnableFuzzyLocation` 构建并再次真机验收。未授权时使用手动城市切换，不声明或调用该接口。
 
-## 公众平台资料
+## 平台资料与发布状态
 
-- 名称：`逐光运动教练`
-- 备选：`逐光北京运动教练`、`北京逐光运动教练`
-- 简介：`为北京和长春学员提供已核验运动教练查询、咨询与预约服务。学员指定训练时间和地点，教练确认后生效。`
+- 公众平台名称以后台实际登记为准；仓库文档统一使用产品名「逐光」。
+- 功能简介：为北京和长春学员提供运动教练查询、咨询与预约。学员指定训练时间和地点，教练确认后生效。
 - 服务范围：北京、长春；没有真实供给的项目只显示入口与空状态。
 - 头像：现有光轨 Z 品牌图标
 - 服务类目：只选择个人主体后台实际提供、并与体育教练信息及预约工具相符的类目；不选择交易、医疗或保险类目。
 
-运营端不会出现在小程序中。体验版验证完成前，不提交微信审核或正式发布。
+运营端不会出现在小程序中。登录配置、真机体验与微信备案状态均需单独核对；已上传开发版不代表体验版已配置或已正式发布。评审入口见[产品评审指南](../docs/review-guide.md)。
 
 微信 AppSecret、OpenID、UnionID 和 `session_key` 不得进入构建产物或 Git。服务端只持久化 OpenID/UnionID 的不可逆哈希，`session_key` 不落库。
